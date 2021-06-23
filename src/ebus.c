@@ -1,11 +1,6 @@
-#include <getopt.h>
-#include <math.h>
-#include <stdarg.h>
-#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "ebus.h"
 #include "ram256.h"
@@ -30,6 +25,9 @@ int EBusRead(uint32_t address, uint32_t type, uint32_t *value) {
 
 	if (EBusBranches[branch].Present) {
 		return EBusBranches[branch].Read(address&0x7FFFFFF, type, value);
+	} else if (branch >= 24) {
+		*value = 0;
+		return EBUSSUCCESS;
 	}
 
 	return EBUSERROR;
@@ -40,7 +38,16 @@ int EBusWrite(uint32_t address, uint32_t type, uint32_t value) {
 
 	if (EBusBranches[branch].Present) {
 		return EBusBranches[branch].Write(address&0x7FFFFFF, type, value);
+	} else if (branch >= 24) {
+		return EBUSSUCCESS;
 	}
 
 	return EBUSERROR;
+}
+
+void EBusReset() {
+	for (int i = 0; i < EBUSBRANCHES; i++) {
+		if (EBusBranches[i].Present && EBusBranches[i].Reset)
+			EBusBranches[i].Reset();
+	}
 }

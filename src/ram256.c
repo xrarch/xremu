@@ -154,16 +154,19 @@ int RAMInit(uint32_t memsize) {
 	EBusBranches[0].Present = 1;
 	EBusBranches[0].Write = RAMWrite;
 	EBusBranches[0].Read = RAMRead;
+	EBusBranches[0].Reset = 0;
 
 	if (memsize > EBUSBRANCHSIZE) {
 		EBusBranches[1].Present = 1;
 		EBusBranches[1].Write = RAMWriteExt;
 		EBusBranches[1].Read = RAMReadExt;
+		EBusBranches[1].Reset = 0;
 	}
 
 	EBusBranches[2].Present = 1;
 	EBusBranches[2].Write = RAMDescWrite;
 	EBusBranches[2].Read = RAMDescRead;
+	EBusBranches[2].Reset = 0;
 
 	int fullslots = memsize / RAMSLOTSIZE;
 	int count = 0;
