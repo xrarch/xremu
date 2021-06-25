@@ -4,3 +4,4 @@
 *.LOFF
 *.dSYM
 limnemu
+nvram
