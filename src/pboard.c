@@ -7,8 +7,11 @@
 #include "pboard.h"
 #include "lsic.h"
 #include "serial.h"
+#include "amtsu.h"
 
 uint32_t PBoardRegisters[PBOARDREGISTERS];
+
+bool NVRAMDirty = false;
 
 int PBoardWrite(uint32_t address, uint32_t type, uint32_t value) {
 	if (address < 0x400) {
@@ -28,6 +31,8 @@ int PBoardWrite(uint32_t address, uint32_t type, uint32_t value) {
 		// nvram
 
 		address -= 0x1000;
+
+		NVRAMDirty = true;
 
 		switch(type) {
 			case EBUSBYTE:
@@ -85,6 +90,7 @@ int PBoardRead(uint32_t address, uint32_t type, uint32_t *value) {
 		if (CitronPorts[port].Present)
 			return CitronPorts[port].ReadPort(port, type, value);
 		else {
+			// XXX this is incorrect behavior, should bus error here
 			*value = 0;
 			return EBUSSUCCESS;
 		}
@@ -155,8 +161,21 @@ void PBoardReset() {
 	// RTCReset();
 	SerialReset();
 	// DKSReset();
-	// AmtsuReset();
+	AmtsuReset();
 	LSICReset();
+}
+
+FILE *nvramfile;
+
+void NVRAMSave() {
+	if (NVRAMDirty) {
+		// printf("saving nvram...\n");
+
+		fseek(nvramfile, 0, SEEK_SET);
+		fwrite(&NVRAM, NVRAMSIZE, 1, nvramfile);
+
+		NVRAMDirty = false;
+	}
 }
 
 int PBoardInit() {
@@ -185,6 +204,25 @@ int PBoardInit() {
 	fread(&BootROM, ROMSIZE, 1, romfile);
 
 	fclose(romfile);
+
+	nvramfile = fopen("nvram", "a+");
+
+	if (!nvramfile) {
+		fprintf(stderr, "couldn't open NVRAM file 'nvram'\n");
+		return -1;
+	}
+
+	FILE *oldhandle = nvramfile;
+
+	nvramfile = fopen("nvram", "r+");
+
+	fclose(oldhandle);
+
+	fseek(nvramfile, 0, SEEK_SET);
+
+	fread(&NVRAM, NVRAMSIZE, 1, nvramfile);
+
+	AmtsuInit();
 
 	return 0;
 }

@@ -5,6 +5,7 @@
 #include "ebus.h"
 #include "ram256.h"
 #include "pboard.h"
+#include "kinnowfb.h"
 
 int EBusInit(uint32_t memsize) {
 	for (int i = 0; i < EBUSBRANCHES; i++) {
@@ -15,6 +16,9 @@ int EBusInit(uint32_t memsize) {
 		return -1;
 
 	if (PBoardInit())
+		return -1;
+
+	if (KinnowInit())
 		return -1;
 
 	return 0;

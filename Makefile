@@ -10,7 +10,9 @@ CFILES = src/main.c \
 	src/serial.c src/serial.h \
 	src/pboard.c src/pboard.h \
 	src/limn2500.c src/cpu.h \
-	src/kinnowfb.c src/kinnowfb.h
+	src/kinnowfb.c src/kinnowfb.h \
+	src/amtsu.c src/amtsu.h \
+	src/keybd.c src/keybd.h
 
 limnemu: $(CFILES)
 	$(CC) -o $@ $(filter %.c, $^) $(RISC_CFLAGS)

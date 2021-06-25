@@ -16,7 +16,15 @@
 
 #include "kinnowfb.h"
 
+#include "keybd.h"
+
 static int best_display(const SDL_Rect *rect);
+
+static double scale_display(SDL_Window *window, const SDL_Rect *risc_rect, SDL_Rect *display_rect);
+
+void KinnowDraw(SDL_Texture *texture);
+
+void NVRAMSave();
 
 int main(int argc, char *argv[]) {
 	SDL_Rect risc_rect = {
@@ -64,6 +72,22 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
+	SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, 0);
+	if (renderer == NULL) {
+		fprintf(stderr, "Could not create renderer: %s", SDL_GetError());
+		return 1;
+	}
+
+	SDL_Texture *texture = SDL_CreateTexture(renderer,
+											SDL_PIXELFORMAT_ARGB8888,
+											SDL_TEXTUREACCESS_STREAMING,
+											risc_rect.w,
+											risc_rect.h);
+	if (texture == NULL) {
+		fprintf(stderr, "Could not create texture: %s", SDL_GetError());
+		return 1;
+	}
+
 	if (EBusInit(4 * 1024 * 1024)) {
 		fprintf(stderr, "failed to initialize ebus\n");
 		return 1;
@@ -71,9 +95,94 @@ int main(int argc, char *argv[]) {
 
 	CPUReset();
 
-	CPUDoCycles(CPUHZ);
+	SDL_Rect display_rect;
+	double display_scale = scale_display(window, &risc_rect, &display_rect);
+	KinnowDraw(texture);
+
+	SDL_ShowWindow(window);
+	SDL_RenderClear(renderer);
+	SDL_RenderCopy(renderer, texture, &risc_rect, &display_rect);
+	SDL_RenderPresent(renderer);
+
+	bool done = false;
+	bool mouse_was_offscreen = false;
+	while (!done) {
+		uint32_t frame_start = SDL_GetTicks();
+
+		SDL_Event event;
+		while (SDL_PollEvent(&event)) {
+			switch (event.type) {
+				case SDL_QUIT: {
+					done = true;
+					break;
+				}
+
+				case SDL_WINDOWEVENT: {
+					break;
+				}
+
+				case SDL_MOUSEMOTION: {
+					break;
+				}
+
+				case SDL_MOUSEBUTTONDOWN:
+				case SDL_MOUSEBUTTONUP: {
+					break;
+				}
+
+				case SDL_KEYDOWN:
+					KeyboardPressed(event.key.keysym.scancode);
+					break;
+
+				case SDL_KEYUP:
+					KeyboardReleased(event.key.keysym.scancode);
+					break;
+			}
+		}
+
+		//risc_set_time(risc, frame_start);
+		CPUDoCycles(CPUHZ/FPS);
+
+		KinnowDraw(texture);
+		SDL_RenderClear(renderer);
+		SDL_RenderCopy(renderer, texture, &risc_rect, &display_rect);
+		SDL_RenderPresent(renderer);
+
+		uint32_t frame_end = SDL_GetTicks();
+		int delay = frame_start + 1000/FPS - frame_end;
+		if (delay > 0) {
+			SDL_Delay(delay);
+		} else {
+			// printf("time overrun %d\n", delay);
+		}
+	}
+
+	NVRAMSave();
 
 	return 0;
+}
+
+static double scale_display(SDL_Window *window, const SDL_Rect *risc_rect, SDL_Rect *display_rect) {
+	int win_w, win_h;
+	SDL_GetWindowSize(window, &win_w, &win_h);
+	double limn_aspect = (double)risc_rect->w / risc_rect->h;
+	double window_aspect = (double)win_w / win_h;
+
+	double scale;
+	if (limn_aspect > window_aspect) {
+		scale = (double)win_w / risc_rect->w;
+	} else {
+		scale = (double)win_h / risc_rect->h;
+	}
+
+	int w = (int)ceil(risc_rect->w * scale);
+	int h = (int)ceil(risc_rect->h * scale);
+	*display_rect = (SDL_Rect){
+		.w = w, .h = h,
+		.x = (win_w - w) / 2,
+		.y = (win_h - h) / 2
+	};
+	return scale;
 }
 
 static int best_display(const SDL_Rect *rect) {
