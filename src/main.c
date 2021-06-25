@@ -1,6 +1,5 @@
 #include <SDL.h>
 #include <getopt.h>
-#include <math.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -22,7 +21,7 @@ static int best_display(const SDL_Rect *rect);
 
 static double scale_display(SDL_Window *window, const SDL_Rect *risc_rect, SDL_Rect *display_rect);
 
-void KinnowDraw(SDL_Texture *texture);
+bool KinnowDraw(SDL_Texture *texture);
 
 void NVRAMSave();
 
@@ -140,13 +139,18 @@ int main(int argc, char *argv[]) {
 			}
 		}
 
-		//risc_set_time(risc, frame_start);
-		CPUDoCycles(CPUHZ/FPS);
+		int cyclesleft = CPUHZ/FPS;
 
-		KinnowDraw(texture);
-		SDL_RenderClear(renderer);
-		SDL_RenderCopy(renderer, texture, &risc_rect, &display_rect);
-		SDL_RenderPresent(renderer);
+		//risc_set_time(risc, frame_start);
+		while (cyclesleft > 0) {
+			cyclesleft -= CPUDoCycles(cyclesleft);
+		}
+
+		if (KinnowDraw(texture)) {
+			SDL_RenderClear(renderer);
+			SDL_RenderCopy(renderer, texture, &risc_rect, &display_rect);
+			SDL_RenderPresent(renderer);
+		}
 
 		uint32_t frame_end = SDL_GetTicks();
 		int delay = frame_start + 1000/FPS - frame_end;

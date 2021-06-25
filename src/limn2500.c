@@ -432,18 +432,30 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 						break;
 
 					case 11: // mod
+						if (rd == 0)
+							break;
+
 						Reg[rd] = Reg[ra] % Reg[rb];
 						break;
 
 					case 12: // div signed
+						if (rd == 0)
+							break;
+
 						Reg[rd] = (int32_t) Reg[ra] / (int32_t) Reg[rb];
 						break;
 
 					case 13: // div
+						if (rd == 0)
+							break;
+
 						Reg[rd] = Reg[ra] / Reg[rb];
 						break;
 
 					case 15: // mul
+						if (rd == 0)
+							break;
+						
 						Reg[rd] = Reg[ra] * Reg[rb];
 						break;
 
@@ -484,6 +496,9 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 							break;
 
 						case 15: // mfcr
+							if (rd == 0)
+								break;
+
 							Reg[rd] = ControlReg[ra];
 							break;
 

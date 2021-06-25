@@ -186,9 +186,9 @@ int KinnowRead(uint32_t address, uint32_t type, uint32_t *value) {
 
 static uint32_t PixelBuffer[KINNOW_FRAMEBUFFER_WIDTH*KINNOW_FRAMEBUFFER_HEIGHT];
 
-void KinnowDraw(SDL_Texture *texture) {
+bool KinnowDraw(SDL_Texture *texture) {
 	if (!IsDirty)
-		return;
+		return false;
 
 	uint32_t dirtyaddr = (DirtyRectY1*KINNOW_FRAMEBUFFER_WIDTH)+DirtyRectX1;
 
@@ -215,6 +215,8 @@ void KinnowDraw(SDL_Texture *texture) {
     SDL_UpdateTexture(texture, &rect, PixelBuffer, rect.w * 4);
 
 	IsDirty = false;
+
+	return true;
 }
 
 int KinnowInit() {
