@@ -107,12 +107,12 @@ int KinnowWrite(uint32_t address, uint32_t type, uint32_t value) {
 				break;
 
 			case EBUSINT:
-				MakeDirty(x, y, x+1, y);
+				MakeDirty(x, y, x, y);
 				((uint16_t*)KinnowFB)[address/2] = value;
 				break;
 
 			case EBUSLONG:
-				MakeDirty(x, y, x+3, y);
+				MakeDirty(x, y, x+1, y);
 				KinnowFB[address/4] = value;
 				break;
 		}
