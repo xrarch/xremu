@@ -8,6 +8,7 @@
 #include "lsic.h"
 #include "serial.h"
 #include "amtsu.h"
+#include "dks.h"
 
 uint32_t PBoardRegisters[PBOARDREGISTERS];
 
@@ -27,7 +28,7 @@ int PBoardWrite(uint32_t address, uint32_t type, uint32_t value) {
 		// bootrom
 
 		return EBUSSUCCESS;
-	} else if ((address >= 0x1000) && (address <= 0x11000)) {
+	} else if ((address >= 0x1000) && (address < 0x11000)) {
 		// nvram
 
 		address -= 0x1000;
@@ -49,7 +50,7 @@ int PBoardWrite(uint32_t address, uint32_t type, uint32_t value) {
 		}
 
 		return EBUSSUCCESS;
-	} else if ((address >= 0x800) && (address <= 0x880)) {
+	} else if ((address >= 0x800) && (address < 0x880)) {
 		// pboard registers
 
 		address -= 0x800;
@@ -60,7 +61,25 @@ int PBoardWrite(uint32_t address, uint32_t type, uint32_t value) {
 
 			return EBUSSUCCESS;
 		}
-	} else if ((address >= 0x30000) && (address <= 0x30100)) {
+	} else if ((address >= 0x20000) && (address < 0x21000)) {
+		address -= 0x20000;
+
+		switch(type) {
+			case EBUSBYTE:
+				((uint8_t*)DKSBlockBuffer)[address] = value;
+				break;
+
+			case EBUSINT:
+				((uint16_t*)DKSBlockBuffer)[address/2] = value;
+				break;
+
+			case EBUSLONG:
+				DKSBlockBuffer[address/4] = value;
+				break;
+		}
+
+		return EBUSSUCCESS;
+	} else if ((address >= 0x30000) && (address < 0x30100)) {
 		// LSIC registers
 
 		address -= 0x30000;
@@ -114,7 +133,7 @@ int PBoardRead(uint32_t address, uint32_t type, uint32_t *value) {
 		}
 
 		return EBUSSUCCESS;
-	} else if ((address >= 0x1000) && (address <= 0x11000)) {
+	} else if ((address >= 0x1000) && (address < 0x11000)) {
 		// nvram
 
 		address -= 0x1000;
@@ -134,7 +153,7 @@ int PBoardRead(uint32_t address, uint32_t type, uint32_t *value) {
 		}
 
 		return EBUSSUCCESS;
-	} else if ((address >= 0x800) && (address <= 0x880)) {
+	} else if ((address >= 0x800) && (address < 0x880)) {
 		// pboard registers
 
 		address -= 0x800;
@@ -144,7 +163,25 @@ int PBoardRead(uint32_t address, uint32_t type, uint32_t *value) {
 
 			return EBUSSUCCESS;
 		}
-	} else if ((address >= 0x30000) && (address <= 0x30100)) {
+	} else if ((address >= 0x20000) && (address < 0x21000)) {
+		address -= 0x20000;
+
+		switch(type) {
+			case EBUSBYTE:
+				*value = ((uint8_t*)DKSBlockBuffer)[address];
+				break;
+
+			case EBUSINT:
+				*value = ((uint16_t*)DKSBlockBuffer)[address/2];
+				break;
+
+			case EBUSLONG:
+				*value = DKSBlockBuffer[address/4];
+				break;
+		}
+
+		return EBUSSUCCESS;
+	} else if ((address >= 0x30000) && (address < 0x30100)) {
 		// LSIC registers
 
 		address -= 0x30000;
@@ -160,7 +197,7 @@ int PBoardRead(uint32_t address, uint32_t type, uint32_t *value) {
 void PBoardReset() {
 	// RTCReset();
 	SerialReset();
-	// DKSReset();
+	DKSReset();
 	AmtsuReset();
 	LSICReset();
 }
@@ -191,6 +228,7 @@ int PBoardInit() {
 
 	SerialInit(0);
 	SerialInit(1);
+	DKSInit();
 
 	FILE *romfile;
 

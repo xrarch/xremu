@@ -17,6 +17,8 @@
 
 #include "keybd.h"
 
+#include "dks.h"
+
 static int best_display(const SDL_Rect *rect);
 
 static double scale_display(SDL_Window *window, const SDL_Rect *risc_rect, SDL_Rect *display_rect);
@@ -90,6 +92,22 @@ int main(int argc, char *argv[]) {
 	if (EBusInit(4 * 1024 * 1024)) {
 		fprintf(stderr, "failed to initialize ebus\n");
 		return 1;
+	}
+
+	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-dks") == 0) {
+			if (i+1 < argc) {
+				if (!DKSAttachImage(argv[i+1]))
+					return 1;
+				i++;
+			} else {
+				fprintf(stderr, "no disk image specified\n");
+				return 1;
+			}
+		} else {
+			fprintf(stderr, "don't recognize option %s\n", argv[i]);
+			return 1;
+		}
 	}
 
 	CPUReset();
