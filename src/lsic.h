@@ -5,3 +5,5 @@ int LSICRead(int reg, uint32_t *value);
 void LSICReset();
 
 bool LSICInterruptPending;
+
+void LSICInterrupt(int intsrc);

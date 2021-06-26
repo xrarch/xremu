@@ -7,17 +7,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define FPS 60
+#define FPS 50
+#define TPF 4
+#define TPS (FPS * TPF)
 
 #include "ebus.h"
-
 #include "cpu.h"
-
 #include "kinnowfb.h"
-
 #include "keybd.h"
-
 #include "dks.h"
+#include "rtc.h"
 
 static int best_display(const SDL_Rect *rect);
 
@@ -35,6 +34,11 @@ int main(int argc, char *argv[]) {
 
 	if (SDL_Init(SDL_INIT_VIDEO) != 0) {
 		fprintf(stderr, "Unable to initialize SDL: %s", SDL_GetError());
+		return 1;
+	}
+
+	if (EBusInit(4 * 1024 * 1024)) {
+		fprintf(stderr, "failed to initialize ebus\n");
 		return 1;
 	}
 
@@ -89,11 +93,6 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	if (EBusInit(4 * 1024 * 1024)) {
-		fprintf(stderr, "failed to initialize ebus\n");
-		return 1;
-	}
-
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-dks") == 0) {
 			if (i+1 < argc) {
@@ -123,55 +122,69 @@ int main(int argc, char *argv[]) {
 
 	bool done = false;
 	bool mouse_was_offscreen = false;
+
+	int ticks = 0;
+
+	uint32_t tick_start;
+	uint32_t tick_end = SDL_GetTicks();
+
 	while (!done) {
-		uint32_t frame_start = SDL_GetTicks();
+		tick_start = SDL_GetTicks();
 
-		SDL_Event event;
-		while (SDL_PollEvent(&event)) {
-			switch (event.type) {
-				case SDL_QUIT: {
-					done = true;
-					break;
-				}
+		int cyclesleft = CPUHZ/TPS;
 
-				case SDL_WINDOWEVENT: {
-					break;
-				}
+		CPUProgress = 5;
 
-				case SDL_MOUSEMOTION: {
-					break;
-				}
-
-				case SDL_MOUSEBUTTONDOWN:
-				case SDL_MOUSEBUTTONUP: {
-					break;
-				}
-
-				case SDL_KEYDOWN:
-					KeyboardPressed(event.key.keysym.scancode);
-					break;
-
-				case SDL_KEYUP:
-					KeyboardReleased(event.key.keysym.scancode);
-					break;
-			}
-		}
-
-		int cyclesleft = CPUHZ/FPS;
+		RTCInterval(tick_start - tick_end);
 
 		//risc_set_time(risc, frame_start);
 		while (cyclesleft > 0) {
 			cyclesleft -= CPUDoCycles(cyclesleft);
 		}
 
-		if (KinnowDraw(texture)) {
-			SDL_RenderClear(renderer);
-			SDL_RenderCopy(renderer, texture, &risc_rect, &display_rect);
-			SDL_RenderPresent(renderer);
+		if ((ticks%TPF) == 0) {
+			if (KinnowDraw(texture)) {
+				SDL_RenderClear(renderer);
+				SDL_RenderCopy(renderer, texture, &risc_rect, &display_rect);
+				SDL_RenderPresent(renderer);
+			}
+
+			SDL_Event event;
+			while (SDL_PollEvent(&event)) {
+				switch (event.type) {
+					case SDL_QUIT: {
+						done = true;
+						break;
+					}
+
+					case SDL_WINDOWEVENT: {
+						break;
+					}
+
+					case SDL_MOUSEMOTION: {
+						break;
+					}
+
+					case SDL_MOUSEBUTTONDOWN:
+					case SDL_MOUSEBUTTONUP: {
+						break;
+					}
+
+					case SDL_KEYDOWN:
+						KeyboardPressed(event.key.keysym.scancode);
+						break;
+
+					case SDL_KEYUP:
+						KeyboardReleased(event.key.keysym.scancode);
+						break;
+				}
+			}
 		}
 
-		uint32_t frame_end = SDL_GetTicks();
-		int delay = frame_start + 1000/FPS - frame_end;
+		ticks++;
+
+		tick_end = SDL_GetTicks();
+		int delay = tick_start + 1000/TPS - tick_end;
 		if (delay > 0) {
 			SDL_Delay(delay);
 		} else {

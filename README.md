@@ -1,3 +1,3 @@
 Emulator for LIMNstation written in C.
 
-Requires SDL 2.
+If you have SDL 2, it should build on macOS and Linux simply by typing `make`.

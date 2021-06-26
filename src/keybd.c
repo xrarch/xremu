@@ -10,6 +10,9 @@
 #include "amtsu.h"
 #include "keybd.h"
 
+#include "cpu.h"
+#include "lsic.h"
+
 struct KeyInfo {
   unsigned char code;
 };
@@ -43,6 +46,7 @@ int KeyboardAction(struct AmtsuDevice *dev, uint32_t value) {
 				}
 			}
 
+			CPUProgress--;
 			dev->PortAValue = 0xFFFF;
 			break;
 
@@ -55,6 +59,7 @@ int KeyboardAction(struct AmtsuDevice *dev, uint32_t value) {
 				if (Pressed[dev->PortAValue]){
 					dev->PortAValue = 1;
 				} else {
+					CPUProgress--;
 					dev->PortAValue = 0;
 				}
 			} else {
@@ -72,8 +77,8 @@ void KeyboardPressed(int sdlscancode) {
 	if (code) {
 		OutstandingPressed[code-1] = true;
 		Pressed[code-1] = true;
-		// if (AmtsuDevices[1].InterruptNumber)
-		// 	LSICInterrupt(AmtsuDevices[1].InterruptNumber);
+		if (AmtsuDevices[1].InterruptNumber)
+			LSICInterrupt(AmtsuDevices[1].InterruptNumber);
 	}
 }
 
@@ -83,8 +88,8 @@ void KeyboardReleased(int sdlscancode) {
 	if (code) {
 		OutstandingReleased[code-1] = true;
 		Pressed[code-1] = false;
-		// if (AmtsuDevices[1].InterruptNumber)
-		// 	LSICInterrupt(AmtsuDevices[1].InterruptNumber);
+		if (AmtsuDevices[1].InterruptNumber)
+			LSICInterrupt(AmtsuDevices[1].InterruptNumber);
 	}
 }
 

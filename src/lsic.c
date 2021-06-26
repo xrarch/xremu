@@ -18,51 +18,51 @@ void LSICInterrupt(int intsrc) {
 
 	int srcbmp = intsrc/32;
 	int srcbmpoff = intsrc&31;
-	int ri = srcbmp+2;
 
-	LSICRegisters[ri] |= (1 << srcbmpoff);
+	LSICRegisters[srcbmp+2] |= (1<<srcbmpoff);
 
-	int rm = srcbmp;
-
-	if (((LSICRegisters[rm]>>srcbmpoff)&1) == 0)
+	if (((LSICRegisters[srcbmp]>>srcbmpoff)&1) == 0)
 		LSICInterruptPending = true;
 }
 
 int LSICWrite(int reg, uint32_t value) {
 	switch(reg) {
-		case 4:
-			// complete
-			if (value >= 64)
-				return EBUSERROR;
-
-			int rg = value/32+2;
-
-			LSICRegisters[rg] &= ~(1 << (value&31));
-
-			LSICInterruptPending = ((~LSICRegisters[0]) & LSICRegisters[2]) || ((~LSICRegisters[1]) & LSICRegisters[3]);
-
-			return EBUSSUCCESS;
-
 		case 0:
 		case 1:
 		case 2:
 		case 3:
 			// masks and interrupt sources
 			LSICRegisters[reg] = value;
-			
-			LSICInterruptPending = ((~LSICRegisters[0]) & LSICRegisters[2]) || ((~LSICRegisters[1]) & LSICRegisters[3]);
 
-			return EBUSSUCCESS;
+			break;
+
+		case 4:
+			// complete
+			if (value >= 64)
+				return EBUSERROR;
+
+			LSICRegisters[(value/32)+2] &= ~(1<<(value&31));
+
+			break;
 
 		default:
 			return EBUSERROR;
 	}
 
-	return EBUSERROR;
+	LSICInterruptPending = ((~LSICRegisters[0]) & LSICRegisters[2]) || ((~LSICRegisters[1]) & LSICRegisters[3]);
+
+	return EBUSSUCCESS;
 }
 
 int LSICRead(int reg, uint32_t *value) {
 	switch(reg) {
+		case 0:
+		case 1:
+		case 2:
+		case 3:
+			*value = LSICRegisters[reg];
+			return EBUSSUCCESS;
+
 		case 4:
 			// claim
 
@@ -70,16 +70,14 @@ int LSICRead(int reg, uint32_t *value) {
 				int bmp = i/32;
 				int bmpoff = i&31;
 
-				// todo finish im sleepy
+				if ((((~LSICRegisters[bmp])&LSICRegisters[bmp+2])>>bmpoff)&1) {
+					*value = i;
+					return EBUSSUCCESS;
+				}
 			}
 
-			return EBUSSUCCESS;
+			*value = 0;
 
-		case 0:
-		case 1:
-		case 2:
-		case 3:
-			*value = LSICRegisters[reg];
 			return EBUSSUCCESS;
 
 		default:

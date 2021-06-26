@@ -12,6 +12,8 @@
 #include "kinnowfb.h"
 #include "kinnowpal.h"
 
+#include "lsic.h"
+
 uint32_t *KinnowFB = 0;
 
 uint32_t FBSize;

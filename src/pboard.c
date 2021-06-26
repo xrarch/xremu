@@ -9,6 +9,7 @@
 #include "serial.h"
 #include "amtsu.h"
 #include "dks.h"
+#include "rtc.h"
 
 uint32_t PBoardRegisters[PBOARDREGISTERS];
 
@@ -195,7 +196,7 @@ int PBoardRead(uint32_t address, uint32_t type, uint32_t *value) {
 }
 
 void PBoardReset() {
-	// RTCReset();
+	RTCReset();
 	SerialReset();
 	DKSReset();
 	AmtsuReset();
@@ -229,6 +230,7 @@ int PBoardInit() {
 	SerialInit(0);
 	SerialInit(1);
 	DKSInit();
+	RTCInit();
 
 	FILE *romfile;
 

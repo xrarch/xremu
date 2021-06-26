@@ -2,4 +2,6 @@ void CPUReset();
 
 uint32_t CPUDoCycles(uint32_t cycles);
 
-#define CPUHZ 20000000
+#define CPUHZ 25000000
+
+int CPUProgress;

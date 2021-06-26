@@ -7,6 +7,8 @@
 #include "pboard.h"
 #include "dks.h"
 
+#include "lsic.h"
+
 struct DKSDisk {
 	FILE *DiskImage;
 	int ID;
@@ -30,8 +32,8 @@ void DKSInfo(int what, int details) {
 	DKSInfoWhat = what;
 	DKSInfoDetails = details;
 
-	// if (DKSDoInterrupt)
-	// 	LSICInterrupt(0x3);
+	if (DKSDoInterrupt)
+		LSICInterrupt(0x3);
 }
 
 void DKSReset() {
