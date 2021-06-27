@@ -8,6 +8,8 @@
 #include "pboard.h"
 #include "kinnowfb.h"
 
+struct EBusBranch EBusBranches[EBUSBRANCHES];
+
 int EBusInit(uint32_t memsize) {
 	for (int i = 0; i < EBUSBRANCHES; i++) {
 		EBusBranches[i].Present = 0;

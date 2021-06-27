@@ -16,15 +16,7 @@ struct CitronPort {
 
 #define CITRONPORTS 256
 
-struct CitronPort CitronPorts[CITRONPORTS];
-
-#define NVRAMSIZE (64 * 1024)
-
-uint32_t NVRAM[NVRAMSIZE/4];
-
-#define ROMSIZE (128 * 1024)
-
-uint32_t BootROM[ROMSIZE/4];
+extern struct CitronPort CitronPorts[CITRONPORTS];
 
 void NVRAMSave();
 

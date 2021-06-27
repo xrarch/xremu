@@ -16,6 +16,8 @@
 #define signext5(n)  (((int32_t)(n << 27)) >> 27)
 #define signext16(n) (((int32_t)(n << 16)) >> 16)
 
+int CPUProgress;
+
 uint32_t Reg[32];
 
 enum Limn2500Registers {

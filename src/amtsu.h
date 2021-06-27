@@ -22,4 +22,4 @@ void AmtsuReset();
 
 void AmtsuInit();
 
-struct AmtsuDevice AmtsuDevices[AMTSUDEVICES];
+extern struct AmtsuDevice AmtsuDevices[AMTSUDEVICES];

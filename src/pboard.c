@@ -13,6 +13,16 @@
 
 uint32_t PBoardRegisters[PBOARDREGISTERS];
 
+#define NVRAMSIZE (64 * 1024)
+
+uint32_t NVRAM[NVRAMSIZE/4];
+
+#define ROMSIZE (128 * 1024)
+
+uint32_t BootROM[ROMSIZE/4];
+
+struct CitronPort CitronPorts[CITRONPORTS];
+
 bool NVRAMDirty = false;
 
 int PBoardWrite(uint32_t address, uint32_t type, uint32_t value) {

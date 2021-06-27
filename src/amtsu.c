@@ -8,6 +8,8 @@
 #include "amtsu.h"
 #include "keybd.h"
 
+struct AmtsuDevice AmtsuDevices[AMTSUDEVICES];
+
 int CurrentDevice = 0;
 
 int AmtsuWrite30(uint32_t port, uint32_t type, uint32_t value) {

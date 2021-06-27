@@ -43,6 +43,8 @@ void DKSReset() {
 	DKSSelectedDrive = 0;
 }
 
+uint32_t DKSBlockBuffer[1024];
+
 int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 	switch(value) {
 		case 1:

@@ -25,7 +25,7 @@ struct EBusBranch {
 	EBusResetF Reset;
 };
 
-struct EBusBranch EBusBranches[EBUSBRANCHES];
+extern struct EBusBranch EBusBranches[EBUSBRANCHES];
 
 int EBusRead(uint32_t address, uint32_t type, uint32_t *value);
 
