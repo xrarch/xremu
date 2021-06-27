@@ -17,14 +17,13 @@
 #include "keybd.h"
 #include "dks.h"
 #include "rtc.h"
+#include "pboard.h"
 
 static int best_display(const SDL_Rect *rect);
 
 static double scale_display(SDL_Window *window, const SDL_Rect *risc_rect, SDL_Rect *display_rect);
 
 bool KinnowDraw(SDL_Texture *texture);
-
-void NVRAMSave();
 
 int main(int argc, char *argv[]) {
 	SDL_Rect risc_rect = {
@@ -94,6 +93,8 @@ int main(int argc, char *argv[]) {
 	}
 
 	for (int i = 1; i < argc; i++) {
+		// shut up this is beautiful...
+
 		if (strcmp(argv[i], "-dks") == 0) {
 			if (i+1 < argc) {
 				if (!DKSAttachImage(argv[i+1]))
@@ -101,6 +102,24 @@ int main(int argc, char *argv[]) {
 				i++;
 			} else {
 				fprintf(stderr, "no disk image specified\n");
+				return 1;
+			}
+		} else if (strcmp(argv[i], "-nvram") == 0) {
+			if (i+1 < argc) {
+				if (!NVRAMLoadFile(argv[i+1]))
+					return 1;
+				i++;
+			} else {
+				fprintf(stderr, "no nvram image specified\n");
+				return 1;
+			}
+		} else if (strcmp(argv[i], "-rom") == 0) {
+			if (i+1 < argc) {
+				if (!ROMLoadFile(argv[i+1]))
+					return 1;
+				i++;
+			} else {
+				fprintf(stderr, "no rom image specified\n");
 				return 1;
 			}
 		} else {

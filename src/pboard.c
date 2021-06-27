@@ -206,7 +206,7 @@ void PBoardReset() {
 FILE *nvramfile;
 
 void NVRAMSave() {
-	if (NVRAMDirty) {
+	if (NVRAMDirty && nvramfile) {
 		// printf("saving nvram...\n");
 
 		fseek(nvramfile, 0, SEEK_SET);
@@ -214,6 +214,47 @@ void NVRAMSave() {
 
 		NVRAMDirty = false;
 	}
+}
+
+bool ROMLoadFile(char *romname) {
+	FILE *romfile;
+
+	romfile = fopen(romname, "r");
+
+	if (!romfile) {
+		fprintf(stderr, "couldn't open boot ROM file '%s'\n", romname);
+		return false;
+	}
+
+	fread(&BootROM, ROMSIZE, 1, romfile);
+
+	fclose(romfile);
+
+	return true;
+}
+
+bool NVRAMLoadFile(char *nvramname) {
+	nvramfile = fopen(nvramname, "a+");
+
+	if (!nvramfile) {
+		fprintf(stderr, "couldn't open NVRAM file '%s'\n", nvramname);
+		return false;
+	}
+
+	fclose(nvramfile);
+
+	nvramfile = fopen(nvramname, "r+");
+
+	if (!nvramfile) {
+		fprintf(stderr, "couldn't open NVRAM file '%s'\n", nvramname);
+		return false;
+	}
+
+	fseek(nvramfile, 0, SEEK_SET);
+
+	fread(&NVRAM, NVRAMSIZE, 1, nvramfile);
+
+	return true;
 }
 
 int PBoardInit() {
@@ -232,35 +273,7 @@ int PBoardInit() {
 	DKSInit();
 	RTCInit();
 
-	FILE *romfile;
-
-	romfile = fopen("boot.bin", "r");
-
-	if (!romfile) {
-		fprintf(stderr, "couldn't open boot ROM file 'boot.bin'\n");
-		return -1;
-	}
-
-	fread(&BootROM, ROMSIZE, 1, romfile);
-
-	fclose(romfile);
-
-	nvramfile = fopen("nvram", "a+");
-
-	if (!nvramfile) {
-		fprintf(stderr, "couldn't open NVRAM file 'nvram'\n");
-		return -1;
-	}
-
-	FILE *oldhandle = nvramfile;
-
-	nvramfile = fopen("nvram", "r+");
-
-	fclose(oldhandle);
-
-	fseek(nvramfile, 0, SEEK_SET);
-
-	fread(&NVRAM, NVRAMSIZE, 1, nvramfile);
+	nvramfile = 0;
 
 	AmtsuInit();
 

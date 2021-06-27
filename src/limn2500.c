@@ -442,7 +442,7 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 			}
 
 			if (evec == 0) {
-				fprintf(stderr, "exception but no exception vector, resetting");
+				// fprintf(stderr, "exception but no exception vector, resetting");
 				CPUReset();
 			} else {
 				if (!CurrentException) // must be an interrupt

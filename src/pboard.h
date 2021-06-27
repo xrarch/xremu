@@ -25,3 +25,9 @@ uint32_t NVRAM[NVRAMSIZE/4];
 #define ROMSIZE (128 * 1024)
 
 uint32_t BootROM[ROMSIZE/4];
+
+void NVRAMSave();
+
+bool ROMLoadFile(char *romname);
+
+bool NVRAMLoadFile(char *nvramname);
