@@ -627,6 +627,11 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 						if (rd == 0)
 							break;
 
+						if (Reg[rb] == 0) {
+							Reg[rd] = 0;
+							break;
+						}
+
 						Reg[rd] = Reg[ra] % Reg[rb];
 						break;
 
@@ -634,12 +639,22 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 						if (rd == 0)
 							break;
 
+						if (Reg[rb] == 0) {
+							Reg[rd] = 0;
+							break;
+						}
+
 						Reg[rd] = (int32_t) Reg[ra] / (int32_t) Reg[rb];
 						break;
 
 					case 13: // div
 						if (rd == 0)
 							break;
+
+						if (Reg[rb] == 0) {
+							Reg[rd] = 0;
+							break;
+						}
 
 						Reg[rd] = Reg[ra] / Reg[rb];
 						break;
