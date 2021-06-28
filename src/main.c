@@ -18,6 +18,7 @@
 #include "dks.h"
 #include "rtc.h"
 #include "pboard.h"
+#include "mouse.h"
 
 static int best_display(const SDL_Rect *rect);
 
@@ -42,7 +43,6 @@ int main(int argc, char *argv[]) {
 	}
 
 	SDL_EnableScreenSaver();
-	SDL_ShowCursor(false);
 	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
 
 	bool fullscreen = false;
@@ -147,6 +147,8 @@ int main(int argc, char *argv[]) {
 	uint32_t tick_start;
 	uint32_t tick_end = SDL_GetTicks();
 
+	bool mousegrabbed = false;
+
 	while (!done) {
 		tick_start = SDL_GetTicks();
 
@@ -181,15 +183,41 @@ int main(int argc, char *argv[]) {
 					}
 
 					case SDL_MOUSEMOTION: {
+						if (mousegrabbed)
+							MouseMoved(event.motion.xrel, event.motion.yrel);
 						break;
 					}
 
-					case SDL_MOUSEBUTTONDOWN:
+					case SDL_MOUSEBUTTONDOWN: {
+						if (!mousegrabbed) {
+							SDL_SetWindowGrab(window, true);
+							SDL_ShowCursor(false);
+							SDL_SetWindowTitle(window, "LIMNstation - strike F12 to uncapture mouse");
+							SDL_SetRelativeMouseMode(true);
+							mousegrabbed = true;
+							break;
+						}
+
+						MousePressed(event.button.button);
+						break;
+					}
+
+
 					case SDL_MOUSEBUTTONUP: {
+						MouseReleased(event.button.button);
 						break;
 					}
 
 					case SDL_KEYDOWN:
+						if ((event.key.keysym.scancode == SDL_SCANCODE_F12) && mousegrabbed) {
+							SDL_SetWindowGrab(window, false);
+							SDL_ShowCursor(true);
+							SDL_SetWindowTitle(window, "LIMNstation");
+							SDL_SetRelativeMouseMode(false);
+							mousegrabbed = false;
+							break;
+						}
+
 						KeyboardPressed(event.key.keysym.scancode);
 						break;
 

@@ -14,7 +14,8 @@ CFILES = src/main.c \
 	src/amtsu.c src/amtsu.h \
 	src/keybd.c src/keybd.h \
 	src/dks.c src/dks.h \
-	src/rtc.c src/rtc.h
+	src/rtc.c src/rtc.h \
+	src/mouse.c src/mouse.h
 
 limnemu: $(CFILES)
 	$(CC) -o $@ $(filter %.c, $^) $(RISC_CFLAGS)

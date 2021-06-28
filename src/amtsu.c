@@ -7,6 +7,7 @@
 #include "pboard.h"
 #include "amtsu.h"
 #include "keybd.h"
+#include "mouse.h"
 
 struct AmtsuDevice AmtsuDevices[AMTSUDEVICES];
 
@@ -160,4 +161,5 @@ void AmtsuInit() {
 	AmtsuDevices[0].Action = AmtsuControllerAction;
 
 	KeyboardInit();
+	MouseInit();
 }
