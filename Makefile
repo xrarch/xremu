@@ -20,5 +20,5 @@ CFILES = src/main.c \
 limnemu: $(CFILES)
 	$(CC) -o $@ $(filter %.c, $^) $(RISC_CFLAGS)
 
-cleanup:
+clean:
 	rm -f limnemu
