@@ -122,6 +122,9 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 		}
 	}
 
+	// fast path failed :(
+	// look up in the TLB, if not found there, walk the page tables and insert it
+
 	uint32_t base = ((((vpn>>15)|(vpn&7))+myasid)&31)<<1;
 
 	uint64_t tlbe = TLB[base];
@@ -132,7 +135,7 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 	uint32_t tlbvpn = tlblo&0xFFFFF;
 	uint32_t asid = tlblo>>20;
 
-	if ((tlbhi&16) == 16) // G bit
+	if ((tlbhi&16) == 16) // global (G) bit
 		asid = myasid;
 
 	if ((tlbvpn != vpn) || ((tlbhi&1) == 0) || (asid != myasid)) {
@@ -146,7 +149,7 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 		tlbvpn = tlblo&0xFFFFF;
 		asid = tlblo>>20;
 
-		if ((tlbhi&16) == 16) // G bit
+		if ((tlbhi&16) == 16) // global (G) bit
 			asid = myasid;
 
 		if ((tlbvpn != vpn) || ((tlbhi&1) == 0) || (asid != myasid)) {
@@ -172,7 +175,7 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 				return false;
 			}
 
-			if ((tlbhi&1) == 0) { // V bit
+			if ((tlbhi&1) == 0) { // valid (V) bit not set
 				ControlReg[EBADADDR] = virt;
 				Limn2500Exception(writing ? EXCPAGEWRITE : EXCPAGEFAULT);
 				return false;
@@ -206,7 +209,7 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 		DLastPPN = ppn;
 		DLastVPN = vpn;
 		DLastASID = myasid;
-		DLastVPNWritable = (tlbhi&2)==2;
+		DLastVPNWritable = (tlbhi&2)==2; // writable (W) bit
 	}
 
 	if (((tlbhi&4) == 4) && (ControlReg[RS]&RS_USER)) { // kernel (K) bit
@@ -215,7 +218,7 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 		return false;
 	}
 
-	if (writing && ((tlbhi&2)==0)) {
+	if (writing && ((tlbhi&2)==0)) { // writable (W) bit not set
 		ControlReg[EBADADDR] = virt;
 		Limn2500Exception(EXCPAGEWRITE);
 		return false;
@@ -469,8 +472,6 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 		status = CPUReadLong(currentpc, &ir);
 
 		IFetch = false;
-
-		LastInstruction = ir;
 
 		if (status) {
 			// decode
