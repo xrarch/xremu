@@ -164,11 +164,11 @@ int main(int argc, char *argv[]) {
 		}
 
 		if ((ticks%TPF) == 0) {
-			if (KinnowDraw(texture)) {
-				SDL_RenderClear(renderer);
-				SDL_RenderCopy(renderer, texture, &risc_rect, &display_rect);
-				SDL_RenderPresent(renderer);
-			}
+			KinnowDraw(texture);
+			
+			SDL_RenderClear(renderer);
+			SDL_RenderCopy(renderer, texture, &risc_rect, &display_rect);
+			SDL_RenderPresent(renderer);
 
 			SDL_Event event;
 			while (SDL_PollEvent(&event)) {
