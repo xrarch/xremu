@@ -104,17 +104,20 @@ int KinnowWrite(uint32_t address, uint32_t type, uint32_t value) {
 
 		switch(type) {
 			case EBUSBYTE:
-				MakeDirty(x, y, x, y);
+				if (((uint8_t*)KinnowFB)[address] != value)
+					MakeDirty(x, y, x, y);
 				((uint8_t*)KinnowFB)[address] = value;
 				break;
 
 			case EBUSINT:
-				MakeDirty(x, y, x, y);
+				if (((uint16_t*)KinnowFB)[address/2] != value)
+					MakeDirty(x, y, x, y);
 				((uint16_t*)KinnowFB)[address/2] = value;
 				break;
 
 			case EBUSLONG:
-				MakeDirty(x, y, x+1, y);
+				if (((uint32_t*)KinnowFB)[address/4] != value)
+					MakeDirty(x, y, x+1, y);
 				KinnowFB[address/4] = value;
 				break;
 		}
