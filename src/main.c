@@ -20,6 +20,10 @@
 #include "pboard.h"
 #include "mouse.h"
 
+void RAMDump();
+
+bool RAMDumpOnExit = false;
+
 static int best_display(const SDL_Rect *rect);
 
 static double scale_display(SDL_Window *window, const SDL_Rect *risc_rect, SDL_Rect *display_rect);
@@ -122,6 +126,8 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "no rom image specified\n");
 				return 1;
 			}
+		} else if (strcmp(argv[i], "-dumpram") == 0) {
+			RAMDumpOnExit = true;
 		} else {
 			fprintf(stderr, "don't recognize option %s\n", argv[i]);
 			return 1;
@@ -174,6 +180,9 @@ int main(int argc, char *argv[]) {
 			while (SDL_PollEvent(&event)) {
 				switch (event.type) {
 					case SDL_QUIT: {
+						if (RAMDumpOnExit)
+							RAMDump();
+
 						done = true;
 						break;
 					}

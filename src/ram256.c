@@ -14,6 +14,20 @@ uint32_t *RAM = 0;
 
 uint32_t RAMSize;
 
+void RAMDump() {
+	FILE *ramdump;
+
+	ramdump = fopen("ramdump.bin", "wb");
+
+	if (!ramdump) {
+		return;
+	}
+
+	fwrite(RAM, RAMSize, 1, ramdump);
+
+	fclose(ramdump);
+}
+
 int RAMWrite(uint32_t address, uint32_t type, uint32_t value) {
 	if (address >= RAMSize)
 		return EBUSERROR;
