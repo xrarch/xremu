@@ -28,6 +28,8 @@ uint32_t DKSPortB = 0;
 
 bool DKSDoInterrupt = false;
 
+bool DKSAsynchronous = false;
+
 void DKSInfo(int what, int details) {
 	DKSInfoWhat = what;
 	DKSInfoDetails = details;
@@ -41,6 +43,23 @@ void DKSReset() {
 	DKSPortA = 0;
 	DKSPortB = 0;
 	DKSSelectedDrive = 0;
+}
+
+uint32_t DKSOperationInterval = 0;
+uint32_t DKSOperationCurrent = 0;
+uint32_t DKSDebt = 0;
+
+void DKSOperation(uint32_t dt) {
+	if (!DKSOperationCurrent)
+		return;
+
+	if (dt >= DKSOperationInterval) {
+		DKSOperationCurrent = 0;
+
+		DKSInfo(0, DKSPortA);
+	} else {
+		DKSOperationInterval -= dt;
+	}
 }
 
 uint32_t DKSBlockBuffer[1024];
@@ -68,7 +87,15 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 			fread(&DKSBlockBuffer, 4096, 1, DKSSelectedDrive->DiskImage);
 
-			DKSInfo(0, DKSPortA);
+			if (DKSDebt || !DKSAsynchronous) {
+				DKSInfo(0, DKSPortA);
+
+				if (DKSDebt)
+					DKSDebt--;
+			} else {
+				DKSOperationCurrent = 2;
+				DKSOperationInterval = 4;
+			}
 
 			return EBUSSUCCESS;
 
@@ -84,7 +111,15 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 			fwrite(&DKSBlockBuffer, 4096, 1, DKSSelectedDrive->DiskImage);
 
-			DKSInfo(0, DKSPortA);
+			if (DKSDebt || !DKSAsynchronous) {
+				DKSInfo(0, DKSPortA);
+
+				if (DKSDebt)
+					DKSDebt--;
+			} else {
+				DKSOperationCurrent = 3;
+				DKSOperationInterval = 8;
+			}
 
 			return EBUSSUCCESS;
 
@@ -124,7 +159,11 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 }
 
 int DKSReadCMD(uint32_t port, uint32_t type, uint32_t *value) {
-	*value = 0;
+	if (DKSOperationCurrent)
+		*value = DKSOperationCurrent;
+	else
+		*value = 0;
+
 	return EBUSSUCCESS;
 }
 

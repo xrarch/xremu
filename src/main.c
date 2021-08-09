@@ -128,6 +128,8 @@ int main(int argc, char *argv[]) {
 			}
 		} else if (strcmp(argv[i], "-dumpram") == 0) {
 			RAMDumpOnExit = true;
+		} else if (strcmp(argv[i], "-asyncdisk") == 0) {
+			DKSAsynchronous = true;
 		} else {
 			fprintf(stderr, "don't recognize option %s\n", argv[i]);
 			return 1;
@@ -163,6 +165,7 @@ int main(int argc, char *argv[]) {
 		CPUProgress = 5;
 
 		RTCInterval(tick_start - tick_end);
+		DKSOperation(tick_start - tick_end);
 
 		//risc_set_time(risc, frame_start);
 		while (cyclesleft > 0) {
