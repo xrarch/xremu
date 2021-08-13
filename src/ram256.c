@@ -160,6 +160,9 @@ int RAMInit(uint32_t memsize) {
 
 	RAMSize = memsize;
 
+	if (RAM)
+		free(RAM);
+
 	RAM = malloc(memsize);
 
 	if (RAM == 0)

@@ -87,6 +87,8 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 			fread(&DKSBlockBuffer, 4096, 1, DKSSelectedDrive->DiskImage);
 
+			// printf("%d %d\n", DKSSelectedDrive->ID, DKSPortA);
+
 			if (DKSDebt || !DKSAsynchronous) {
 				DKSInfo(0, DKSPortA);
 

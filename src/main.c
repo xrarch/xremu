@@ -19,6 +19,7 @@
 #include "rtc.h"
 #include "pboard.h"
 #include "mouse.h"
+#include "ram256.h"
 
 void RAMDump();
 
@@ -130,6 +131,15 @@ int main(int argc, char *argv[]) {
 			RAMDumpOnExit = true;
 		} else if (strcmp(argv[i], "-asyncdisk") == 0) {
 			DKSAsynchronous = true;
+		} else if (strcmp(argv[i], "-ramsize") == 0) {
+			if (i+1 < argc) {
+				if (RAMInit(atoi(argv[i+1])) == -1)
+					return 1;
+				i++;
+			} else {
+				fprintf(stderr, "no ram size specified\n");
+				return 1;
+			}
 		} else {
 			fprintf(stderr, "don't recognize option %s\n", argv[i]);
 			return 1;
