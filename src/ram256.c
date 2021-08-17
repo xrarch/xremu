@@ -160,8 +160,10 @@ int RAMInit(uint32_t memsize) {
 
 	RAMSize = memsize;
 
-	if (RAM)
+	if (RAM) {
+		memset(&RAMSlotSizes, 0, sizeof(RAMSlotSizes));
 		free(RAM);
+	}
 
 	RAM = malloc(memsize);
 

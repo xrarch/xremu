@@ -210,14 +210,14 @@ bool KinnowDraw(SDL_Texture *texture) {
 		dirtyaddr += KINNOW_FRAMEBUFFER_WIDTH;
 	}
 
-    SDL_Rect rect = {
-      .x = DirtyRectX1,
-      .y = DirtyRectY1,
-      .w = width,
-      .h = height,
-    };
+	SDL_Rect rect = {
+		.x = DirtyRectX1,
+		.y = DirtyRectY1,
+		.w = width,
+		.h = height,
+	};
 
-    SDL_UpdateTexture(texture, &rect, PixelBuffer, rect.w * 4);
+	SDL_UpdateTexture(texture, &rect, PixelBuffer, rect.w * 4);
 
 	IsDirty = false;
 
