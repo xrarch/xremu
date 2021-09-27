@@ -12,6 +12,7 @@
 #define RS_INT  2
 #define RS_MMU  4
 
+#define signext23(n) (((int32_t)(n << 9)) >> 9)
 #define signext18(n) (((int32_t)(n << 14)) >> 14)
 #define signext5(n)  (((int32_t)(n << 27)) >> 27)
 #define signext16(n) (((int32_t)(n << 16)) >> 16)
@@ -383,7 +384,7 @@ void CPUReset() {
 	PC = 0xFFFE0000;
 	ControlReg[RS] = 0;
 	ControlReg[EVEC] = 0;
-	ControlReg[CPUID] = 0x80050000;
+	ControlReg[CPUID] = 0x80060000;
 	CurrentException = 0;
 }
 
@@ -778,43 +779,18 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 					// branches
 					
 					case 61: // BEQ
-						if (Reg[rd] == Reg[ra])
-							PC = currentpc + signext18(imm<<2);
+						if (Reg[rd] == 0)
+							PC = currentpc + signext23((ir>>11)<<2);
 						break;
 
 					case 53: // BNE
-						if (Reg[rd] != Reg[ra])
-							PC = currentpc + signext18(imm<<2);
+						if (Reg[rd] != 0)
+							PC = currentpc + signext23((ir>>11)<<2);
 						break;
 
 					case 45: // BLT
-						if (Reg[rd] < Reg[ra])
-							PC = currentpc + signext18(imm<<2);
-						break;
-
-					case 37: // BLT signed
-						if ((int32_t) Reg[rd] < (int32_t) Reg[ra])
-							PC = currentpc + signext18(imm<<2);
-						break;
-
-					case 29: // BEQI
-						if (Reg[rd] == signext5(ra))
-							PC = currentpc + signext18(imm<<2);
-						break;
-
-					case 21: // BNEI
-						if (Reg[rd] != signext5(ra))
-							PC = currentpc + signext18(imm<<2);
-						break;
-
-					case 13: // BLTI
-						if (Reg[rd] < signext5(ra))
-							PC = currentpc + signext18(imm<<2);
-						break;
-
-					case 5: // BLTI signed
-						if ((int32_t) Reg[rd] < (int32_t) signext5(ra))
-							PC = currentpc + signext18(imm<<2);
+						if ((int32_t) Reg[rd] < 0)
+							PC = currentpc + signext23((ir>>11)<<2);
 						break;
 
 					// ALU

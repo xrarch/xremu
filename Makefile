@@ -9,7 +9,7 @@ CFILES = src/main.c \
 	src/lsic.c src/lsic.h \
 	src/serial.c src/serial.h \
 	src/pboard.c src/pboard.h \
-	src/limn2500.c src/cpu.h \
+	src/limn2600.c src/cpu.h \
 	src/kinnowfb.c src/kinnowfb.h \
 	src/amtsu.c src/amtsu.h \
 	src/keybd.c src/keybd.h \
