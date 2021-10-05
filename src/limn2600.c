@@ -751,9 +751,12 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 
 							ILastASID = -1;
 							ILastVPN = -1;
+							ILastGlobal = false;
 
 							DLastASID = -1;
 							DLastVPN = -1;
+							DLastGlobal = -1;
+							DLastVPNWritable = false;
 
 							break;
 
