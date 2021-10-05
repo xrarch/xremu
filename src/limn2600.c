@@ -165,7 +165,7 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 				return false;
 			}
 
-			if (pde == 0) {
+			if ((pde&1) == 0) {
 				ControlReg[EBADADDR] = virt;
 				Limn2500Exception(writing ? EXCPAGEWRITE : EXCPAGEFAULT);
 				return false;
