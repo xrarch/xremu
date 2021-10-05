@@ -71,6 +71,9 @@ uint64_t TLB[64];
 uint32_t ILastASID = -1;
 uint32_t DLastASID = -1;
 
+bool ILastGlobal = false;
+bool DLastGlobal = false;
+
 uint32_t ILastVPN = -1;
 uint32_t ILastPPN = -1;
 
@@ -106,12 +109,12 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 	// (which is very likely)
 
 	if (IFetch) {
-		if ((vpn == ILastVPN) && (myasid == ILastASID)) {
+		if ((vpn == ILastVPN) && ((myasid == ILastASID) || ILastGlobal)) {
 			*phys = ILastPPN|off;
 			return true;
 		}
 	} else {
-		if ((vpn == DLastVPN) && (myasid == DLastASID)) {
+		if ((vpn == DLastVPN) && ((myasid == DLastASID) || DLastGlobal)) {
 			if (writing && (!DLastVPNWritable)) {
 				ControlReg[EBADADDR] = virt;
 				Limn2500Exception(EXCPAGEWRITE);
@@ -136,10 +139,9 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 	uint32_t tlbvpn = tlblo&0xFFFFF;
 	uint32_t asid = tlblo>>20;
 
-	if ((tlbhi&16) == 16) // global (G) bit
-		asid = myasid;
+	bool global = (tlbhi&16) == 16;
 
-	if ((tlbvpn != vpn) || ((tlbhi&1) == 0) || (asid != myasid)) {
+	if ((tlbvpn != vpn) || ((tlbhi&1) == 0) || ((asid != myasid) && !global)) {
 		// not a match, try the other member of the set
 
 		tlbe = TLB[base+1];
@@ -150,10 +152,9 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 		tlbvpn = tlblo&0xFFFFF;
 		asid = tlblo>>20;
 
-		if ((tlbhi&16) == 16) // global (G) bit
-			asid = myasid;
+		global = (tlbhi&16) == 16;
 
-		if ((tlbvpn != vpn) || ((tlbhi&1) == 0) || (asid != myasid)) {
+		if ((tlbvpn != vpn) || ((tlbhi&1) == 0) || ((asid != myasid) && !global)) {
 			// not a match, walk page table
 
 			uint32_t pde;
@@ -196,7 +197,7 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 
 			TLBWriteCount++;
 
-			TLB[base] = (((uint64_t)tlbhi)<<32) | ((myasid<<20) | vpn);
+			TLB[base] = (((uint64_t)tlbhi)<<32) | (((global ? 0 : myasid)<<20) | vpn);
 		}
 	}
 
@@ -206,11 +207,13 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 		ILastPPN = ppn;
 		ILastVPN = vpn;
 		ILastASID = myasid;
+		ILastGlobal = global;
 	} else {
 		DLastPPN = ppn;
 		DLastVPN = vpn;
 		DLastASID = myasid;
 		DLastVPNWritable = (tlbhi&2)==2; // writable (W) bit
+		DLastGlobal = global;
 	}
 
 	if (((tlbhi&4) == 4) && (ControlReg[RS]&RS_USER)) { // kernel (K) bit
