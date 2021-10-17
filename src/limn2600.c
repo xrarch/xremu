@@ -682,7 +682,8 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 					funct = ir>>28;
 
 					rd = (ir>>6)&31;
-					ra = (ir>>11)&15;
+					rb = (ir>>11)&31;
+					ra = (ir>>16)&15;
 
 					uint32_t asid;
 					uint32_t vpn;
@@ -761,7 +762,7 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 							break;
 
 						case 14: // mtcr
-							ControlReg[ra] = Reg[rd];
+							ControlReg[ra] = Reg[rb];
 							break;
 
 						case 15: // mfcr
