@@ -437,16 +437,16 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 		if (CurrentException || ((ControlReg[RS] & RS_INT) && LSICInterruptPending)) {
 			newstate = ControlReg[RS] & 0xFFFFFFFC; // enter kernel mode, disable interrupts
 
-			if (newstate&128) {
-				// legacy exceptions, disable virtual addressing
-				newstate &= 0xFFFFFFF8;
-			}
-
 			if (CurrentException == EXCFWCALL) {
 				evec = ControlReg[FWVEC];
 
 				newstate &= 0xFFFFFFF8; // disable virtual addressing
 			} else {
+				if (newstate&128) {
+					// legacy exceptions, disable virtual addressing
+					newstate &= 0xFFFFFFF8;
+				}
+				
 				evec = ControlReg[EVEC];
 			}
 
