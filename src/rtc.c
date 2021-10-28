@@ -20,8 +20,11 @@ uint32_t RTCIntervalCounter = 0;
 
 uint32_t RTCPortA;
 
+bool RTCModified = false;
+
 void RTCInterval(uint32_t dt) {
-	gettimeofday(&RTCCurrentTime, 0);
+	if (!RTCModified)
+		gettimeofday(&RTCCurrentTime, 0);
 
 	RTCIntervalCounter += dt;
 

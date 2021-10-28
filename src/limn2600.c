@@ -183,6 +183,8 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 				return false;
 			}
 
+			global = (tlbhi&16) == 16;
+
 			base = ((((vpn>>15)|(vpn&7))+myasid)&31)<<1;
 
 			if (((TLB[base]>>32)&1) == 1) {
