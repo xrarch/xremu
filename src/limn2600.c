@@ -684,8 +684,8 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 					funct = ir>>28;
 
 					rd = (ir>>6)&31;
-					rb = (ir>>11)&31;
-					ra = (ir>>16)&15;
+					ra = (ir>>11)&31;
+					rb = (ir>>16)&15;
 
 					uint32_t asid;
 					uint32_t vpn;
@@ -758,20 +758,20 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 
 							DLastASID = -1;
 							DLastVPN = -1;
-							DLastGlobal = -1;
+							DLastGlobal = false;
 							DLastVPNWritable = false;
 
 							break;
 
 						case 14: // mtcr
-							ControlReg[ra] = Reg[rb];
+							ControlReg[rb] = Reg[ra];
 							break;
 
 						case 15: // mfcr
 							if (rd == 0)
 								break;
 
-							Reg[rd] = ControlReg[ra];
+							Reg[rd] = ControlReg[rb];
 							break;
 
 						default:
