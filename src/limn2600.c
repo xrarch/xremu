@@ -705,11 +705,11 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 							break;
 
 						case 13: // ftlb
-							asid = Reg[rd];
-							vpn = Reg[ra];
+							asid = Reg[ra];
+							vpn = Reg[(ir>>16)&31];
 
-							if (vpn == 0xFFFFFFFF) {
-								if (asid == 0xFFFFFFFF) {
+							if (vpn&0x80000000) {
+								if (asid&0x80000000) {
 									memset(&TLB, 0, sizeof(TLB));
 								} else {
 									for (int i = 0; i < 64; i++) {
