@@ -48,7 +48,6 @@ int main(int argc, char *argv[]) {
 	}
 
 	SDL_EnableScreenSaver();
-	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
 
 	bool fullscreen = false;
 
@@ -86,6 +85,8 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "Could not create renderer: %s", SDL_GetError());
 		return 1;
 	}
+
+	SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "0", SDL_HINT_OVERRIDE);
 
 	SDL_Texture *texture = SDL_CreateTexture(renderer,
 											SDL_PIXELFORMAT_ARGB8888,
@@ -188,72 +189,72 @@ int main(int argc, char *argv[]) {
 			SDL_RenderClear(renderer);
 			SDL_RenderCopy(renderer, texture, &risc_rect, &display_rect);
 			SDL_RenderPresent(renderer);
+		}
 
-			SDL_Event event;
-			while (SDL_PollEvent(&event)) {
-				switch (event.type) {
-					case SDL_QUIT: {
-						if (RAMDumpOnExit)
-							RAMDump();
+		SDL_Event event;
+		while (SDL_PollEvent(&event)) {
+			switch (event.type) {
+				case SDL_QUIT: {
+					if (RAMDumpOnExit)
+						RAMDump();
 
-						done = true;
-						break;
-					}
-
-					case SDL_WINDOWEVENT: {
-						break;
-					}
-
-					case SDL_MOUSEMOTION: {
-						if (mousegrabbed)
-							MouseMoved(event.motion.xrel, event.motion.yrel);
-						break;
-					}
-
-					case SDL_MOUSEBUTTONDOWN: {
-						if (!mousegrabbed) {
-							SDL_SetWindowGrab(window, true);
-							SDL_ShowCursor(false);
-							SDL_SetWindowTitle(window, "LIMNstation - strike F12 to uncapture mouse");
-							SDL_SetRelativeMouseMode(true);
-							mousegrabbed = true;
-							break;
-						}
-
-						MousePressed(event.button.button);
-						break;
-					}
-
-
-					case SDL_MOUSEBUTTONUP: {
-						MouseReleased(event.button.button);
-						break;
-					}
-
-					case SDL_KEYDOWN:
-						if ((event.key.keysym.scancode == SDL_SCANCODE_F12) && mousegrabbed) {
-							SDL_SetWindowGrab(window, false);
-							SDL_ShowCursor(true);
-							SDL_SetWindowTitle(window, "LIMNstation");
-							SDL_SetRelativeMouseMode(false);
-							mousegrabbed = false;
-							break;
-						}
-
-						KeyboardPressed(event.key.keysym.scancode);
-						break;
-
-					case SDL_KEYUP:
-						KeyboardReleased(event.key.keysym.scancode);
-						break;
+					done = true;
+					break;
 				}
+
+				case SDL_WINDOWEVENT: {
+					break;
+				}
+
+				case SDL_MOUSEMOTION: {
+					if (mousegrabbed)
+						MouseMoved(event.motion.xrel, event.motion.yrel);
+					break;
+				}
+
+				case SDL_MOUSEBUTTONDOWN: {
+					if (!mousegrabbed) {
+						SDL_SetWindowGrab(window, true);
+						SDL_ShowCursor(false);
+						SDL_SetWindowTitle(window, "LIMNstation - strike F12 to uncapture mouse");
+						SDL_SetRelativeMouseMode(true);
+						mousegrabbed = true;
+						break;
+					}
+
+					MousePressed(event.button.button);
+					break;
+				}
+
+
+				case SDL_MOUSEBUTTONUP: {
+					MouseReleased(event.button.button);
+					break;
+				}
+
+				case SDL_KEYDOWN:
+					if ((event.key.keysym.scancode == SDL_SCANCODE_F12) && mousegrabbed) {
+						SDL_SetWindowGrab(window, false);
+						SDL_ShowCursor(true);
+						SDL_SetWindowTitle(window, "LIMNstation");
+						SDL_SetRelativeMouseMode(false);
+						mousegrabbed = false;
+						break;
+					}
+
+					KeyboardPressed(event.key.keysym.scancode);
+					break;
+
+				case SDL_KEYUP:
+					KeyboardReleased(event.key.keysym.scancode);
+					break;
 			}
 		}
 
 		ticks++;
 
 		tick_end = SDL_GetTicks();
-		int delay = tick_start + 1000/TPS - tick_end;
+		int delay = 1000/TPS - (tick_end - tick_start);
 		if (delay > 0) {
 			SDL_Delay(delay);
 		} else {
@@ -281,6 +282,7 @@ static double scale_display(SDL_Window *window, const SDL_Rect *risc_rect, SDL_R
 
 	int w = (int)ceil(risc_rect->w * scale);
 	int h = (int)ceil(risc_rect->h * scale);
+
 	*display_rect = (SDL_Rect){
 		.w = w, .h = h,
 		.x = (win_w - w) / 2,
