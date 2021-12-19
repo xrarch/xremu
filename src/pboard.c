@@ -72,7 +72,7 @@ int PBoardWrite(uint32_t address, uint32_t type, uint32_t value) {
 
 			return EBUSSUCCESS;
 		}
-	} else if ((address >= 0x20000) && (address < 0x21000)) {
+	} else if ((address >= 0x20000) && (address < 0x20200)) {
 		address -= 0x20000;
 
 		switch(type) {

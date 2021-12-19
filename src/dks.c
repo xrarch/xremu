@@ -62,7 +62,7 @@ void DKSOperation(uint32_t dt) {
 	}
 }
 
-uint32_t DKSBlockBuffer[1024];
+uint32_t DKSBlockBuffer[128];
 
 int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 	switch(value) {
@@ -83,11 +83,11 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 			if (DKSPortA >= DKSSelectedDrive->BlockCount)
 				return EBUSERROR;
 
-			fseek(DKSSelectedDrive->DiskImage, DKSPortA*4096, SEEK_SET);
+			fseek(DKSSelectedDrive->DiskImage, DKSPortA*512, SEEK_SET);
 
-			fread(&DKSBlockBuffer, 4096, 1, DKSSelectedDrive->DiskImage);
+			fread(&DKSBlockBuffer, 512, 1, DKSSelectedDrive->DiskImage);
 
-			// printf("%d %d\n", DKSSelectedDrive->ID, DKSPortA);
+			// printf("read %d: %d\n", DKSSelectedDrive->ID, DKSPortA);
 
 			if (DKSDebt || !DKSAsynchronous) {
 				DKSInfo(0, DKSPortA);
@@ -97,6 +97,7 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 			} else {
 				DKSOperationCurrent = 2;
 				DKSOperationInterval = 4;
+				DKSDebt = 8;
 			}
 
 			return EBUSSUCCESS;
@@ -109,9 +110,11 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 			if (DKSPortA >= DKSSelectedDrive->BlockCount)
 				return EBUSERROR;
 
-			fseek(DKSSelectedDrive->DiskImage, DKSPortA*4096, SEEK_SET);
+			fseek(DKSSelectedDrive->DiskImage, DKSPortA*512, SEEK_SET);
 
-			fwrite(&DKSBlockBuffer, 4096, 1, DKSSelectedDrive->DiskImage);
+			fwrite(&DKSBlockBuffer, 512, 1, DKSSelectedDrive->DiskImage);
+
+			// printf("write %d: %d\n", DKSSelectedDrive->ID, DKSPortA);
 
 			if (DKSDebt || !DKSAsynchronous) {
 				DKSInfo(0, DKSPortA);
@@ -121,6 +124,7 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 			} else {
 				DKSOperationCurrent = 3;
 				DKSOperationInterval = 8;
+				DKSDebt = 8;
 			}
 
 			return EBUSSUCCESS;
@@ -214,7 +218,7 @@ int DKSAttachImage(char *path) {
 
 	fseek(disk->DiskImage, 0, SEEK_END);
 
-	disk->BlockCount = ftell(disk->DiskImage)/4096;
+	disk->BlockCount = ftell(disk->DiskImage)/512;
 
 	disk->Present = 1;
 
