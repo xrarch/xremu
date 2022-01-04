@@ -8,7 +8,7 @@
 #include <string.h>
 
 #define FPS 50
-#define TPF 4
+#define TPF 2
 #define TPS (FPS * TPF)
 
 #include "ebus.h"
