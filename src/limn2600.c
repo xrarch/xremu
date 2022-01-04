@@ -80,6 +80,8 @@ uint32_t ILastPPN = -1;
 uint32_t DLastVPN = -1;
 uint32_t DLastPPN = -1;
 
+uint32_t CPULocked = 0;
+
 bool DLastVPNWritable = false;
 
 uint32_t TLBWriteCount = 0;
@@ -630,6 +632,27 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 						Limn2500Exception(EXCBRKPOINT);
 						break;
 
+					case 8: // sc
+						if (CPULocked)
+							CPUWriteLong(Reg[ra], Reg[rb]);
+
+						if (rd == 0)
+							break;
+
+						Reg[rd] = CPULocked;
+
+						break;
+
+					case 9: // ll
+						CPULocked = 1;
+
+						if (rd == 0)
+							break;
+
+						CPUReadLong(Reg[ra], &Reg[rd]);
+
+						break;
+
 					case 11: // mod
 						if (rd == 0)
 							break;
@@ -696,6 +719,7 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 							break;
 
 						case 11: // rfe
+							CPULocked = 0;
 							PC = ControlReg[EPC];
 							ControlReg[RS] = ControlReg[ERS];
 							break;
