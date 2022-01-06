@@ -15,6 +15,9 @@
 
 struct timeval RTCCurrentTime;
 
+uint32_t RTCCurrentTimeSec = 0;
+uint32_t RTCCurrentTimeMs = 0;
+
 uint32_t RTCIntervalMS = 0;
 uint32_t RTCIntervalCounter = 0;
 
@@ -23,8 +26,15 @@ uint32_t RTCPortA;
 bool RTCModified = false;
 
 void RTCInterval(uint32_t dt) {
-	if (!RTCModified)
+	if (!RTCModified) {
 		gettimeofday(&RTCCurrentTime, 0);
+	} else {
+		RTCCurrentTimeMs += dt;
+		if (RTCCurrentTimeMs >= 1000) {
+			RTCCurrentTimeMs -= 1000;
+			RTCCurrentTimeSec += 1;
+		}
+	}
 
 	RTCIntervalCounter += dt;
 
@@ -46,15 +56,35 @@ int RTCWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 		case 2:
 			// get epoch time
-			RTCPortA = RTCCurrentTime.tv_sec;
+			if (RTCModified)
+				RTCPortA = RTCCurrentTimeSec;
+			else
+				RTCPortA = RTCCurrentTime.tv_sec;
 
 			return EBUSSUCCESS;
 
 		case 3:
 			// get epoch ms
-			RTCPortA = RTCCurrentTime.tv_usec/1000;
+			if (RTCModified)
+				RTCPortA = RTCCurrentTimeMs;
+			else
+				RTCPortA = RTCCurrentTime.tv_usec/1000;
 
 			CPUProgress--;
+
+			return EBUSSUCCESS;
+
+		case 4:
+			// set epoch time
+			RTCCurrentTimeSec = RTCPortA;
+			RTCModified = true;
+
+			return EBUSSUCCESS;
+
+		case 5:
+			// set epoch ms
+			RTCCurrentTimeMs = RTCPortA;
+			RTCModified = true;
 
 			return EBUSSUCCESS;
 	}
