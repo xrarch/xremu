@@ -7,8 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define FPS 50
-#define TPF 2
+#define FPS 60
+#define TPF 1
 #define TPS (FPS * TPF)
 
 #include "ebus.h"
@@ -171,16 +171,27 @@ int main(int argc, char *argv[]) {
 	while (!done) {
 		tick_start = SDL_GetTicks();
 
-		int cyclesleft = CPUHZ/TPS;
+		int dt = tick_start - tick_end;
 
-		CPUProgress = 5;
+		if (dt) {
+			int cyclespertick = CPUHZ/TPS/dt;
+			int extracycles = CPUHZ/TPS - (cyclespertick*dt);
 
-		RTCInterval(tick_start - tick_end);
-		DKSOperation(tick_start - tick_end);
+			CPUProgress = 5;
 
-		//risc_set_time(risc, frame_start);
-		while (cyclesleft > 0) {
-			cyclesleft -= CPUDoCycles(cyclesleft);
+			for (int i = 0; i < dt; i++) {
+				int cyclesleft = cyclespertick;
+
+				if (i == dt-1)
+					cyclesleft += extracycles;
+
+				RTCInterval(1);
+				DKSOperation(1);
+
+				while (cyclesleft > 0) {
+					cyclesleft -= CPUDoCycles(cyclesleft);
+				}
+			}
 		}
 
 		if ((ticks%TPF) == 0) {
