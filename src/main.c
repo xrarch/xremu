@@ -173,24 +173,25 @@ int main(int argc, char *argv[]) {
 
 		int dt = tick_start - tick_end;
 
-		if (dt) {
-			int cyclespertick = CPUHZ/TPS/dt;
-			int extracycles = CPUHZ/TPS - (cyclespertick*dt);
+		if (!dt)
+			dt = 1
 
-			CPUProgress = 5;
+		int cyclespertick = CPUHZ/TPS/dt;
+		int extracycles = CPUHZ/TPS - (cyclespertick*dt);
 
-			for (int i = 0; i < dt; i++) {
-				int cyclesleft = cyclespertick;
+		CPUProgress = 5;
 
-				if (i == dt-1)
-					cyclesleft += extracycles;
+		for (int i = 0; i < dt; i++) {
+			int cyclesleft = cyclespertick;
 
-				RTCInterval(1);
-				DKSOperation(1);
+			if (i == dt-1)
+				cyclesleft += extracycles;
 
-				while (cyclesleft > 0) {
-					cyclesleft -= CPUDoCycles(cyclesleft);
-				}
+			RTCInterval(1);
+			DKSOperation(1);
+
+			while (cyclesleft > 0) {
+				cyclesleft -= CPUDoCycles(cyclesleft);
 			}
 		}
 
