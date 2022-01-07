@@ -174,7 +174,7 @@ int main(int argc, char *argv[]) {
 		int dt = tick_start - tick_end;
 
 		if (!dt)
-			dt = 1
+			dt = 1;
 
 		int cyclespertick = CPUHZ/TPS/dt;
 		int extracycles = CPUHZ/TPS - (cyclespertick*dt);
