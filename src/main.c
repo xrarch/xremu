@@ -163,15 +163,15 @@ int main(int argc, char *argv[]) {
 
 	int ticks = 0;
 
-	uint32_t tick_start;
+	uint32_t tick_start = SDL_GetTicks();
 	uint32_t tick_end = SDL_GetTicks();
 
 	bool mousegrabbed = false;
 
 	while (!done) {
-		tick_start = SDL_GetTicks();
+		int dt = SDL_GetTicks() - tick_start;
 
-		int dt = tick_start - tick_end;
+		tick_start = SDL_GetTicks();
 
 		if (!dt)
 			dt = 1;
