@@ -37,6 +37,9 @@ int main(int argc, char *argv[]) {
 		.h = KINNOW_FRAMEBUFFER_HEIGHT
 	};
 
+	SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "0", SDL_HINT_OVERRIDE);
+	SDL_SetHintWithPriority(SDL_HINT_VIDEO_HIGHDPI_DISABLED, "1", SDL_HINT_OVERRIDE);
+
 	if (SDL_Init(SDL_INIT_VIDEO) != 0) {
 		fprintf(stderr, "Unable to initialize SDL: %s", SDL_GetError());
 		return 1;
@@ -68,6 +71,7 @@ int main(int argc, char *argv[]) {
 			zoom = 1;
 		}
 	}
+
 	SDL_Window *window = SDL_CreateWindow("LIMNstation",
 										SDL_WINDOWPOS_UNDEFINED_DISPLAY(display),
 										SDL_WINDOWPOS_UNDEFINED_DISPLAY(display),
@@ -86,8 +90,6 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "0", SDL_HINT_OVERRIDE);
-
 	SDL_Texture *texture = SDL_CreateTexture(renderer,
 											SDL_PIXELFORMAT_ARGB8888,
 											SDL_TEXTUREACCESS_STREAMING,
@@ -97,6 +99,8 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "Could not create texture: %s", SDL_GetError());
 		return 1;
 	}
+
+	SDL_SetTextureScaleMode(texture, SDL_ScaleModeNearest);
 
 	for (int i = 1; i < argc; i++) {
 		// shut up this is beautiful...
