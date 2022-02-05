@@ -131,7 +131,7 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 	// fast path failed :(
 	// look up in the TLB, if not found there, walk the page tables and insert it
 
-	uint32_t base = ((((vpn>>15)|(vpn&7))+myasid)&31)<<1;
+	uint32_t base = (((vpn>>15)|(vpn&7))&31)<<1;
 
 	uint64_t tlbe = TLB[base];
 
@@ -187,7 +187,7 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 
 			global = (tlbhi&16) == 16;
 
-			base = ((((vpn>>15)|(vpn&7))+myasid)&31)<<1;
+			base = (((vpn>>15)|(vpn&7))&31)<<1;
 
 			if (((TLB[base]>>32)&1) == 1) {
 				if (((TLB[base+1]>>32)&1) == 1) {
@@ -743,7 +743,7 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 									}
 								}
 							} else {
-								uint32_t base = ((((vpn>>15)|(vpn&7))+asid)&31)<<1;
+								uint32_t base = (((vpn>>15)|(vpn&7))&31)<<1;
 
 								uint32_t tlbe = TLB[base];
 
