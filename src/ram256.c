@@ -12,37 +12,33 @@
 
 uint32_t *RAM = 0;
 
+uint32_t *RAMSlots[RAMSLOTCOUNT];
+uint32_t RAMSlotSizes[RAMSLOTCOUNT];
+
 uint32_t RAMSize;
 
 void RAMDump() {
-	FILE *ramdump;
-
-	ramdump = fopen("ramdump.bin", "wb");
-
-	if (!ramdump) {
-		return;
-	}
-
-	fwrite(RAM, RAMSize, 1, ramdump);
-
-	fclose(ramdump);
+	// TODO make work in a sane way again
 }
 
 int RAMWrite(uint32_t address, uint32_t type, uint32_t value) {
-	if (address >= RAMSize)
+	int slot = address >> 25;
+	int offset = address & (RAMSLOTSIZE-1);
+
+	if (offset >= RAMSlotSizes[slot])
 		return EBUSERROR;
 
 	switch(type) {
 		case EBUSBYTE:
-			((uint8_t*)RAM)[address] = value;
+			((uint8_t*)RAMSlots[slot])[offset] = value;
 			break;
 
 		case EBUSINT:
-			((uint16_t*)RAM)[address/2] = value;
+			((uint16_t*)RAMSlots[slot])[offset>>1] = value;
 			break;
 
 		case EBUSLONG:
-			RAM[address/4] = value;
+			RAMSlots[slot][offset>>2] = value;
 			break;
 	}
 
@@ -50,20 +46,23 @@ int RAMWrite(uint32_t address, uint32_t type, uint32_t value) {
 }
 
 int RAMRead(uint32_t address, uint32_t type, uint32_t *value) {
-	if (address >= RAMSize)
+	int slot = address >> 25;
+	int offset = address & (RAMSLOTSIZE-1);
+
+	if (offset >= RAMSlotSizes[slot])
 		return EBUSERROR;
 
 	switch(type) {
 		case EBUSBYTE:
-			*value = ((uint8_t*)RAM)[address];
+			*value = ((uint8_t*)RAMSlots[slot])[offset];
 			break;
 
 		case EBUSINT:
-			*value = ((uint16_t*)RAM)[address/2];
+			*value = ((uint16_t*)RAMSlots[slot])[offset>>1];
 			break;
 
 		case EBUSLONG:
-			*value = RAM[address/4];
+			*value = RAMSlots[slot][offset>>2];
 			break;
 	}
 
@@ -73,20 +72,25 @@ int RAMRead(uint32_t address, uint32_t type, uint32_t *value) {
 int RAMWriteExt(uint32_t address, uint32_t type, uint32_t value) {
 	address += EBUSBRANCHSIZE;
 
-	if (address >= RAMSize)
+	int slot = address >> 25;
+	int offset = address & (RAMSLOTSIZE-1);
+
+	if (offset >= RAMSlotSizes[slot]){
+		printf("oh\n");
 		return EBUSERROR;
+	}
 
 	switch(type) {
 		case EBUSBYTE:
-			((uint8_t*)RAM)[address] = value;
+			((uint8_t*)RAMSlots[slot])[offset] = value;
 			break;
 
 		case EBUSINT:
-			((uint16_t*)RAM)[address/2] = value;
+			((uint16_t*)RAMSlots[slot])[offset>>1] = value;
 			break;
 
 		case EBUSLONG:
-			RAM[address/4] = value;
+			RAMSlots[slot][offset>>2] = value;
 			break;
 	}
 
@@ -96,27 +100,30 @@ int RAMWriteExt(uint32_t address, uint32_t type, uint32_t value) {
 int RAMReadExt(uint32_t address, uint32_t type, uint32_t *value) {
 	address += EBUSBRANCHSIZE;
 
-	if (address >= RAMSize)
+	int slot = address >> 25;
+	int offset = address & (RAMSLOTSIZE-1);
+
+	if (offset >= RAMSlotSizes[slot]){
+		printf("oh read\n");
 		return EBUSERROR;
+	}
 
 	switch(type) {
 		case EBUSBYTE:
-			*value = ((uint8_t*)RAM)[address];
+			*value = ((uint8_t*)RAMSlots[slot])[offset];
 			break;
 
 		case EBUSINT:
-			*value = ((uint16_t*)RAM)[address/2];
+			*value = ((uint16_t*)RAMSlots[slot])[offset>>1];
 			break;
 
 		case EBUSLONG:
-			*value = RAM[address/4];
+			*value = RAMSlots[slot][offset>>2];
 			break;
 	}
 
 	return EBUSSUCCESS;
 }
-
-uint32_t RAMSlotSizes[RAMSLOTCOUNT];
 
 int RAMDescWrite(uint32_t address, uint32_t type, uint32_t value) {
 	return EBUSERROR;
@@ -165,39 +172,47 @@ int RAMInit(uint32_t memsize) {
 		free(RAM);
 	}
 
-	RAM = malloc(memsize);
-
-	if (RAM == 0)
-		return -1;
-
 	EBusBranches[0].Present = 1;
 	EBusBranches[0].Write = RAMWrite;
 	EBusBranches[0].Read = RAMRead;
 	EBusBranches[0].Reset = 0;
 
-	if (memsize > EBUSBRANCHSIZE) {
-		EBusBranches[1].Present = 1;
-		EBusBranches[1].Write = RAMWriteExt;
-		EBusBranches[1].Read = RAMReadExt;
-		EBusBranches[1].Reset = 0;
-	}
+	EBusBranches[1].Present = 1;
+	EBusBranches[1].Write = RAMWriteExt;
+	EBusBranches[1].Read = RAMReadExt;
+	EBusBranches[1].Reset = 0;
 
 	EBusBranches[2].Present = 1;
 	EBusBranches[2].Write = RAMDescWrite;
 	EBusBranches[2].Read = RAMDescRead;
 	EBusBranches[2].Reset = 0;
 
-	int fullslots = memsize / RAMSLOTSIZE;
-	int count = 0;
+	RAM = malloc(memsize);
 
-	for (; count < fullslots; count++) {
-		RAMSlotSizes[count] = RAMSLOTSIZE;
+	if (RAM == 0)
+		return -1;
+
+	// try to stack the RAM into slots in units of 4MB.
+	// add the remainder to the first slot.
+
+	int i = 0;
+
+	while (memsize >= 0x400000) {
+		if (i >= RAMSLOTCOUNT)
+			i = 0;
+
+		RAMSlotSizes[i] += 0x400000;
+
+		i += 1;
+		memsize -= 0x400000;
 	}
 
-	int leftover = memsize - (fullslots * RAMSLOTSIZE);
+	RAMSlotSizes[0] += memsize;
 
-	if (leftover)
-		RAMSlotSizes[count] = leftover;
+	for (i = 0; i < RAMSLOTCOUNT; i++) {
+		if (RAMSlotSizes[i])
+			RAMSlots[i] = malloc(RAMSlotSizes[i]);
+	}
 
 	return 0;
 }
