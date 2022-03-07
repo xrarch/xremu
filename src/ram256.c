@@ -76,7 +76,6 @@ int RAMWriteExt(uint32_t address, uint32_t type, uint32_t value) {
 	int offset = address & (RAMSLOTSIZE-1);
 
 	if (offset >= RAMSlotSizes[slot]){
-		printf("oh\n");
 		return EBUSERROR;
 	}
 
@@ -125,40 +124,6 @@ int RAMReadExt(uint32_t address, uint32_t type, uint32_t *value) {
 	return EBUSSUCCESS;
 }
 
-int RAMDescWrite(uint32_t address, uint32_t type, uint32_t value) {
-	return EBUSERROR;
-}
-
-int RAMDescRead(uint32_t address, uint32_t type, uint32_t *value) {
-	if (address >= RAMSize)
-		return EBUSERROR;
-
-	switch(type) {
-		case EBUSBYTE:
-		case EBUSINT:
-			return EBUSERROR;
-			break;
-
-		case EBUSLONG:
-			if (address == 0) {
-				*value = RAMSLOTCOUNT;
-				return EBUSSUCCESS;
-			} else {
-				address = (address/4)-1;
-
-				if (address < RAMSLOTCOUNT) {
-					*value = RAMSlotSizes[address];
-					return EBUSSUCCESS;
-				}
-			}
-
-			return EBUSERROR;
-			break;
-	}
-
-	return EBUSSUCCESS;
-}
-
 int RAMInit(uint32_t memsize) {
 	if (memsize > RAMMAXIMUM) {
 		fprintf(stderr, "RAMInit: maximum is %d bytes (%d bytes given)\n", RAMMAXIMUM, memsize);
@@ -181,11 +146,6 @@ int RAMInit(uint32_t memsize) {
 	EBusBranches[1].Write = RAMWriteExt;
 	EBusBranches[1].Read = RAMReadExt;
 	EBusBranches[1].Reset = 0;
-
-	EBusBranches[2].Present = 1;
-	EBusBranches[2].Write = RAMDescWrite;
-	EBusBranches[2].Read = RAMDescRead;
-	EBusBranches[2].Reset = 0;
 
 	RAM = malloc(memsize);
 
