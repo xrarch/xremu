@@ -20,6 +20,7 @@
 #include "pboard.h"
 #include "mouse.h"
 #include "ram256.h"
+#include "serial.h"
 
 void RAMDump();
 
@@ -193,6 +194,7 @@ int main(int argc, char *argv[]) {
 
 			RTCInterval(1);
 			DKSOperation(1);
+			SerialInterval(1);
 
 			while (cyclesleft > 0) {
 				cyclesleft -= CPUDoCycles(cyclesleft);
