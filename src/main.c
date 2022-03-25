@@ -137,6 +137,8 @@ int main(int argc, char *argv[]) {
 			RAMDumpOnExit = true;
 		} else if (strcmp(argv[i], "-asyncdisk") == 0) {
 			DKSAsynchronous = true;
+		} else if (strcmp(argv[i], "-asyncserial") == 0) {
+			SerialAsynchronous = true;
 		} else if (strcmp(argv[i], "-ramsize") == 0) {
 			if (i+1 < argc) {
 				if (RAMInit(atoi(argv[i+1])) == -1)

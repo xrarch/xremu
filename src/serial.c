@@ -34,7 +34,12 @@ struct SerialPort {
 
 struct SerialPort SerialPorts[2];
 
+bool SerialAsynchronous = false;
+
 void SerialInterval(uint32_t dt) {
+	if (!SerialAsynchronous)
+		return;
+
 	for (int port = 0; port < 2; port++) {
 		struct SerialPort *thisport = &SerialPorts[port];
 
@@ -103,6 +108,12 @@ int SerialWriteData(uint32_t port, uint32_t type, uint32_t value) {
 		thisport = &SerialPorts[0];
 	} else if (port == 0x13) {
 		thisport = &SerialPorts[1];
+	}
+
+	if (!SerialAsynchronous) {
+		putchar(value&0xFF);
+		fflush(stdout);
+		return EBUSSUCCESS;
 	}
 
 	if (thisport->TransmitBufferIndex == TRANSMITBUFFERSIZE) {
