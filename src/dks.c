@@ -52,6 +52,7 @@ void DKSReset() {
 uint32_t DKSOperationInterval = 0;
 uint32_t DKSOperationCurrent = 0;
 uint32_t DKSSeekTo = 0;
+uint32_t DKSConsecutiveZeroSeeks = 0;
 
 void DKSOperation(uint32_t dt) {
 	if (!DKSOperationCurrent) {
@@ -85,11 +86,17 @@ void DKSSeek(uint32_t lba) {
 	if (blockseek < 0)
 		blockseek += LBAPERTRACK;
 
-	blockseek /= (LBAPERTRACK/ROTATIONTIMEMS);
-
-	DKSOperationInterval = cylseek + blockseek;
-
+	DKSOperationInterval = cylseek + blockseek/(LBAPERTRACK/ROTATIONTIMEMS);
 	DKSSeekTo = lba;
+
+	if (DKSOperationInterval == 0) {
+		DKSConsecutiveZeroSeeks += blockseek;
+
+		if (DKSConsecutiveZeroSeeks > (LBAPERTRACK/ROTATIONTIMEMS)) {
+			DKSOperationInterval = 1;
+			DKSConsecutiveZeroSeeks = 0;
+		}
+	}
 }
 
 uint32_t DKSBlockBuffer[128];
