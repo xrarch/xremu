@@ -65,7 +65,7 @@ void DKSOperation(uint32_t dt) {
 
 	if (dt >= DKSOperationInterval) {
 		DKSOperationCurrent = 0;
-		DKSHeadLocation = DKSSeekTo;
+		DKSHeadLocation = DKSSeekTo%LBAPERTRACK;
 
 		DKSInfo(0, DKSPortA);
 	} else {
@@ -96,6 +96,8 @@ void DKSSeek(uint32_t lba) {
 			DKSOperationInterval = 1;
 			DKSConsecutiveZeroSeeks = 0;
 		}
+	} else {
+		DKSConsecutiveZeroSeeks = 0;
 	}
 }
 
