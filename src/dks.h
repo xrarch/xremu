@@ -14,8 +14,8 @@ void DKSOperation(uint32_t dt);
 
 // fake disk geometry for simple seek time simulation
 
-#define LBAPERTRACK 70
-#define TRACKPERCYL 10
+#define LBAPERTRACK 63
+#define TRACKPERCYL 4
 #define CYLPERDISK  1000
 
 #define RPM 3600
