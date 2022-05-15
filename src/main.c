@@ -186,7 +186,7 @@ int main(int argc, char *argv[]) {
 		int cyclespertick = CPUHZ/TPS/dt;
 		int extracycles = CPUHZ/TPS - (cyclespertick*dt);
 
-		CPUProgress = 5;
+		CPUProgress = 20;
 
 		for (int i = 0; i < dt; i++) {
 			int cyclesleft = cyclespertick;

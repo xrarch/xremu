@@ -30,6 +30,10 @@ bool DKSDoInterrupt = false;
 
 bool DKSAsynchronous = false;
 
+bool DKSSpinning = true;
+
+uint32_t DKSHeadLocation = 0;
+
 void DKSInfo(int what, int details) {
 	DKSInfoWhat = what;
 	DKSInfoDetails = details;
@@ -47,19 +51,45 @@ void DKSReset() {
 
 uint32_t DKSOperationInterval = 0;
 uint32_t DKSOperationCurrent = 0;
-uint32_t DKSDebt = 0;
+uint32_t DKSSeekTo = 0;
 
 void DKSOperation(uint32_t dt) {
-	if (!DKSOperationCurrent)
+	if (!DKSOperationCurrent) {
+		if (DKSSpinning) {
+			DKSHeadLocation += BLOCKSPERMS;
+			DKSHeadLocation %= LBAPERTRACK;
+		}
 		return;
+	}
 
 	if (dt >= DKSOperationInterval) {
 		DKSOperationCurrent = 0;
+		DKSHeadLocation = DKSSeekTo;
 
 		DKSInfo(0, DKSPortA);
 	} else {
 		DKSOperationInterval -= dt;
 	}
+}
+
+void DKSSeek(uint32_t lba) {
+	// set up the disk for seek
+
+	int cylseek = abs((int)(LBA_TO_CYLINDER(DKSHeadLocation)) - (int)(LBA_TO_CYLINDER(lba))) / (CYLPERDISK/FULLSEEKTIMEMS);
+
+	if (LBA_TO_CYLINDER(DKSHeadLocation) != LBA_TO_CYLINDER(lba))
+		cylseek += SETTLETIMEMS;
+
+	int blockseek = LBA_TO_BLOCK(lba) - LBA_TO_BLOCK(DKSHeadLocation);
+
+	if (blockseek < 0)
+		blockseek += LBAPERTRACK;
+
+	blockseek /= (LBAPERTRACK/ROTATIONTIMEMS);
+
+	DKSOperationInterval = cylseek + blockseek;
+
+	DKSSeekTo = lba;
 }
 
 uint32_t DKSBlockBuffer[128];
@@ -89,15 +119,11 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 			// printf("read %d: %d\n", DKSSelectedDrive->ID, DKSPortA);
 
-			if (DKSDebt || !DKSAsynchronous) {
+			if (!DKSAsynchronous) {
 				DKSInfo(0, DKSPortA);
-
-				if (DKSDebt)
-					DKSDebt--;
 			} else {
 				DKSOperationCurrent = 2;
-				DKSOperationInterval = 4;
-				DKSDebt = 8;
+				DKSSeek(DKSPortA);
 			}
 
 			return EBUSSUCCESS;
@@ -116,15 +142,11 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 			// printf("write %d: %d\n", DKSSelectedDrive->ID, DKSPortA);
 
-			if (DKSDebt || !DKSAsynchronous) {
+			if (!DKSAsynchronous) {
 				DKSInfo(0, DKSPortA);
-
-				if (DKSDebt)
-					DKSDebt--;
 			} else {
 				DKSOperationCurrent = 3;
-				DKSOperationInterval = 8;
-				DKSDebt = 8;
+				DKSSeek(DKSPortA);
 			}
 
 			return EBUSSUCCESS;
