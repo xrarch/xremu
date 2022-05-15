@@ -32,6 +32,7 @@ bool DKSAsynchronous = false;
 
 bool DKSSpinning = true;
 
+uint32_t DKSPlatterLocation = 0;
 uint32_t DKSHeadLocation = 0;
 
 void DKSInfo(int what, int details) {
@@ -57,15 +58,16 @@ uint32_t DKSConsecutiveZeroSeeks = 0;
 void DKSOperation(uint32_t dt) {
 	if (!DKSOperationCurrent) {
 		if (DKSSpinning) {
-			DKSHeadLocation += BLOCKSPERMS;
-			DKSHeadLocation %= LBAPERTRACK;
+			DKSPlatterLocation += BLOCKSPERMS;
+			DKSPlatterLocation %= LBAPERTRACK;
 		}
 		return;
 	}
 
 	if (dt >= DKSOperationInterval) {
 		DKSOperationCurrent = 0;
-		DKSHeadLocation = DKSSeekTo%LBAPERTRACK;
+		DKSPlatterLocation = LBA_TO_BLOCK(DKSSeekTo);
+		DKSHeadLocation = LBA_TO_CYLINDER(DKSSeekTo);
 
 		DKSInfo(0, DKSPortA);
 	} else {
@@ -76,12 +78,12 @@ void DKSOperation(uint32_t dt) {
 void DKSSeek(uint32_t lba) {
 	// set up the disk for seek
 
-	int cylseek = abs((int)(LBA_TO_CYLINDER(DKSHeadLocation)) - (int)(LBA_TO_CYLINDER(lba))) / (CYLPERDISK/FULLSEEKTIMEMS);
+	int cylseek = abs((int)(DKSHeadLocation) - (int)(LBA_TO_CYLINDER(lba))) / (CYLPERDISK/FULLSEEKTIMEMS);
 
-	if (LBA_TO_CYLINDER(DKSHeadLocation) != LBA_TO_CYLINDER(lba))
+	if (DKSHeadLocation != LBA_TO_CYLINDER(lba))
 		cylseek += SETTLETIMEMS;
 
-	int blockseek = LBA_TO_BLOCK(lba) - LBA_TO_BLOCK(DKSHeadLocation);
+	int blockseek = LBA_TO_BLOCK(lba) - DKSPlatterLocation;
 
 	if (blockseek < 0)
 		blockseek += LBAPERTRACK;
