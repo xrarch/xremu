@@ -1,3 +1,7 @@
+#ifdef EMSCRIPTEN
+#include <emscripten.h>
+#endif
+
 #include <SDL.h>
 #include <getopt.h>
 #include <stdarg.h>
@@ -30,10 +34,23 @@ static int best_display(const SDL_Rect *rect);
 
 static double scale_display(SDL_Window *window, const SDL_Rect *risc_rect, SDL_Rect *display_rect);
 
+SDL_Rect risc_rect, display_rect;
+
+bool mousegrabbed = false;
+uint32_t tick_start;
+uint32_t tick_end;
+SDL_Texture *texture;
+SDL_Renderer *renderer;
+SDL_Window *window;
+int ticks;
+bool done = false;
+
+void MainLoop(void);
+
 bool KinnowDraw(SDL_Texture *texture);
 
 int main(int argc, char *argv[]) {
-	SDL_Rect risc_rect = {
+	risc_rect = (SDL_Rect){
 		.w = KINNOW_FRAMEBUFFER_WIDTH,
 		.h = KINNOW_FRAMEBUFFER_HEIGHT
 	};
@@ -73,7 +90,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	SDL_Window *window = SDL_CreateWindow("LIMNstation",
+	window = SDL_CreateWindow("LIMNstation",
 										SDL_WINDOWPOS_UNDEFINED_DISPLAY(display),
 										SDL_WINDOWPOS_UNDEFINED_DISPLAY(display),
 										(int)(risc_rect.w * zoom),
@@ -85,13 +102,13 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, 0);
+	renderer = SDL_CreateRenderer(window, -1, 0);
 	if (renderer == NULL) {
 		fprintf(stderr, "Could not create renderer: %s", SDL_GetError());
 		return 1;
 	}
 
-	SDL_Texture *texture = SDL_CreateTexture(renderer,
+	texture = SDL_CreateTexture(renderer,
 											SDL_PIXELFORMAT_ARGB8888,
 											SDL_TEXTUREACCESS_STREAMING,
 											risc_rect.w,
@@ -103,6 +120,7 @@ int main(int argc, char *argv[]) {
 
 	SDL_SetTextureScaleMode(texture, SDL_ScaleModeNearest);
 
+#ifndef EMSCRIPTEN
 	for (int i = 1; i < argc; i++) {
 		// shut up this is beautiful...
 
@@ -153,10 +171,14 @@ int main(int argc, char *argv[]) {
 			return 1;
 		}
 	}
+#else
+	ROMLoadFile("bin/boot.bin");
+	DKSAttachImage("bin/mintia.img");
+	DKSAttachImage("bin/aisix.img");
+#endif // !EMSCRIPTEN
 
 	CPUReset();
 
-	SDL_Rect display_rect;
 	double display_scale = scale_display(window, &risc_rect, &display_rect);
 	KinnowDraw(texture);
 
@@ -165,113 +187,18 @@ int main(int argc, char *argv[]) {
 	SDL_RenderCopy(renderer, texture, &risc_rect, &display_rect);
 	SDL_RenderPresent(renderer);
 
-	bool done = false;
-	bool mouse_was_offscreen = false;
+	done = false;
 
-	int ticks = 0;
+	ticks = 0;
 
-	uint32_t tick_start = SDL_GetTicks();
-	uint32_t tick_end = SDL_GetTicks();
+	tick_start = SDL_GetTicks();
+	tick_end = SDL_GetTicks();
 
-	bool mousegrabbed = false;
+	mousegrabbed = false;
 
+#ifndef EMSCRIPTEN
 	while (!done) {
-		int dt = SDL_GetTicks() - tick_start;
-
-		tick_start = SDL_GetTicks();
-
-		if (!dt)
-			dt = 1;
-
-		int cyclespertick = CPUHZ/TPS/dt;
-		int extracycles = CPUHZ/TPS - (cyclespertick*dt);
-
-		CPUProgress = 20;
-
-		for (int i = 0; i < dt; i++) {
-			int cyclesleft = cyclespertick;
-
-			if (i == dt-1)
-				cyclesleft += extracycles;
-
-			RTCInterval(1);
-			DKSOperation(1);
-			SerialInterval(1);
-
-			while (cyclesleft > 0) {
-				cyclesleft -= CPUDoCycles(cyclesleft);
-			}
-		}
-
-		if ((ticks%TPF) == 0) {
-			KinnowDraw(texture);
-			
-			SDL_RenderClear(renderer);
-			SDL_RenderCopy(renderer, texture, &risc_rect, &display_rect);
-			SDL_RenderPresent(renderer);
-		}
-
-		SDL_Event event;
-		while (SDL_PollEvent(&event)) {
-			switch (event.type) {
-				case SDL_QUIT: {
-					if (RAMDumpOnExit)
-						RAMDump();
-
-					done = true;
-					break;
-				}
-
-				case SDL_WINDOWEVENT: {
-					break;
-				}
-
-				case SDL_MOUSEMOTION: {
-					if (mousegrabbed)
-						MouseMoved(event.motion.xrel, event.motion.yrel);
-					break;
-				}
-
-				case SDL_MOUSEBUTTONDOWN: {
-					if (!mousegrabbed) {
-						SDL_SetWindowGrab(window, true);
-						SDL_ShowCursor(false);
-						SDL_SetWindowTitle(window, "LIMNstation - strike F12 to uncapture mouse");
-						SDL_SetRelativeMouseMode(true);
-						mousegrabbed = true;
-						break;
-					}
-
-					MousePressed(event.button.button);
-					break;
-				}
-
-
-				case SDL_MOUSEBUTTONUP: {
-					MouseReleased(event.button.button);
-					break;
-				}
-
-				case SDL_KEYDOWN:
-					if ((event.key.keysym.scancode == SDL_SCANCODE_F12) && mousegrabbed) {
-						SDL_SetWindowGrab(window, false);
-						SDL_ShowCursor(true);
-						SDL_SetWindowTitle(window, "LIMNstation");
-						SDL_SetRelativeMouseMode(false);
-						mousegrabbed = false;
-						break;
-					}
-
-					KeyboardPressed(event.key.keysym.scancode);
-					break;
-
-				case SDL_KEYUP:
-					KeyboardReleased(event.key.keysym.scancode);
-					break;
-			}
-		}
-
-		ticks++;
+		MainLoop();
 
 		tick_end = SDL_GetTicks();
 		int delay = 1000/TPS - (tick_end - tick_start);
@@ -281,10 +208,115 @@ int main(int argc, char *argv[]) {
 			// printf("time overrun %d\n", delay);
 		}
 	}
+#else
+	emscripten_set_main_loop(MainLoop, FPS, 0);
+#endif
 
 	NVRAMSave();
 
 	return 0;
+}
+
+void MainLoop(void) {
+	int dt = SDL_GetTicks() - tick_start;
+
+	tick_start = SDL_GetTicks();
+
+	if (!dt)
+		dt = 1;
+
+	int cyclespertick = CPUHZ/TPS/dt;
+	int extracycles = CPUHZ/TPS - (cyclespertick*dt);
+
+	CPUProgress = 20;
+
+	for (int i = 0; i < dt; i++) {
+		int cyclesleft = cyclespertick;
+
+		if (i == dt-1)
+			cyclesleft += extracycles;
+
+		RTCInterval(1);
+		DKSOperation(1);
+		SerialInterval(1);
+
+		while (cyclesleft > 0) {
+			cyclesleft -= CPUDoCycles(cyclesleft);
+		}
+	}
+
+	if ((ticks%TPF) == 0) {
+		KinnowDraw(texture);
+
+		SDL_RenderClear(renderer);
+		SDL_RenderCopy(renderer, texture, &risc_rect, &display_rect);
+		SDL_RenderPresent(renderer);
+	}
+
+	SDL_Event event;
+	while (SDL_PollEvent(&event)) {
+		switch (event.type) {
+			case SDL_QUIT: {
+				if (RAMDumpOnExit)
+					RAMDump();
+
+				done = true;
+#ifdef EMSCRIPTEN
+				emscripten_cancel_main_loop();
+#endif
+				break;
+			}
+
+			case SDL_WINDOWEVENT: {
+				break;
+			}
+
+			case SDL_MOUSEMOTION: {
+				if (mousegrabbed)
+					MouseMoved(event.motion.xrel, event.motion.yrel);
+				break;
+			}
+
+			case SDL_MOUSEBUTTONDOWN: {
+				if (!mousegrabbed) {
+					SDL_SetWindowGrab(window, true);
+					SDL_ShowCursor(false);
+					SDL_SetWindowTitle(window, "LIMNstation - strike F12 to uncapture mouse");
+					SDL_SetRelativeMouseMode(true);
+					mousegrabbed = true;
+					break;
+				}
+
+				MousePressed(event.button.button);
+				break;
+			}
+
+
+			case SDL_MOUSEBUTTONUP: {
+				MouseReleased(event.button.button);
+				break;
+			}
+
+			case SDL_KEYDOWN:
+				if ((event.key.keysym.scancode == SDL_SCANCODE_F12) && mousegrabbed) {
+					SDL_SetWindowGrab(window, false);
+					SDL_ShowCursor(true);
+					SDL_SetWindowTitle(window, "LIMNstation");
+					SDL_SetRelativeMouseMode(false);
+					mousegrabbed = false;
+					break;
+				}
+
+				KeyboardPressed(event.key.keysym.scancode);
+				break;
+
+			case SDL_KEYUP:
+				KeyboardReleased(event.key.keysym.scancode);
+				break;
+		}
+	}
+
+	ticks++;
 }
 
 static double scale_display(SDL_Window *window, const SDL_Rect *risc_rect, SDL_Rect *display_rect) {

@@ -1,7 +1,14 @@
-CFLAGS = -g -Ofast
-SDL2_CONFIG = sdl2-config
-
-RISC_CFLAGS = $(CFLAGS) -std=c99 `$(SDL2_CONFIG) --cflags --libs`
+ifndef EMSCRIPTEN
+	CFLAGS = -g -Ofast
+	SDL2_CONFIG = sdl2-config
+	RISC_CFLAGS = $(CFLAGS) -std=c99 `$(SDL2_CONFIG) --cflags --libs`
+	TARGET=limnemu
+else
+	CFLAGS = -g -O3 -sUSE_SDL=2 -sINITIAL_MEMORY=33554432 -sALLOW_MEMORY_GROWTH=1
+	RISC_CFLAGS = $(CFLAGS) -std=c99 --preload-file bin
+	CC = emcc
+	TARGET=limnemu.html
+endif
 
 CFILES = src/main.c \
 	src/ebus.c src/ebus.h \
@@ -17,8 +24,8 @@ CFILES = src/main.c \
 	src/rtc.c src/rtc.h \
 	src/mouse.c src/mouse.h
 
-limnemu: $(CFILES)
+$(TARGET): $(CFILES)
 	$(CC) -o $@ $(filter %.c, $^) $(RISC_CFLAGS)
 
 clean:
-	rm -f limnemu
+	rm -rf limnemu*

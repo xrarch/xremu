@@ -2,5 +2,9 @@
 *.o
 *.LOFF
 *.dSYM
+*.html
+*.data
+*.wasm
+*.js
 bin/nvram
 limnemu
