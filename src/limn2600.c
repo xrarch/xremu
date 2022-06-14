@@ -106,66 +106,70 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 	uint32_t vpn = virt>>12;
 	uint32_t off = virt&4095;
 
-	uint32_t myasid = ControlReg[TBHI]>>20 & 4095;
-	uint32_t tbhi = (myasid<<20) | vpn;
+	uint32_t tbhi = (ControlReg[TBHI]&0xFFF00000) | vpn;
 
 	int start;
+	int i;
 
-	if (IFetch) {
-		start = ILastIndex;
-	} else {
-		start = DLastIndex;
-	}
+	start = IFetch ? ILastIndex : DLastIndex;
 
-	int j = start ? 0 : 1;
-
-	// look up in the TLB, if not found there, do a miss
-
-	bool found = false;
+	bool found;
 
 	uint64_t tlbe;
 	uint32_t mask;
 
-	int i;
+	tlbe = TLB[start];
+	mask = (tlbe&16) ? 0xFFFFF : 0xFFFFFFFF;
+	found = (tlbe>>32) == (tbhi&mask);
 
-	while (j < 2) {
-		int min;
+	if (!found) {
+		// look up in the TLB, if not found there, do a miss
 
-		if (j == 0) {
-			min = 0;
-			i = start;
-		} else {
-			min = start ? start+1 : 0;
-			i = TLBSIZE-1;
-		}
+		for (int j = 0; j < 2; j++) {
+			int min;
 
-		while (i >= min) {
-			tlbe = TLB[i];
+			if (j) {
+				min = start+1;
+				i = TLBSIZE-1;
+			} else {
+				min = 0;
+				i = start-1;
+			}
 
-			mask = (tlbe&16) ? 0xFFFFF : 0xFFFFFFFF;
+			while (i >= min) {
+				tlbe = TLB[i];
 
-			found = (tlbe>>32) == (tbhi&mask);
+				mask = (tlbe&16) ? 0xFFFFF : 0xFFFFFFFF;
+
+				found = (tlbe>>32) == (tbhi&mask);
+
+				if (found)
+					break;
+
+				i--;
+			}
 
 			if (found)
 				break;
-
-			i--;
 		}
 
-		if (found)
-			break;
+		if (!found) {
+			// didn't find it. TLB miss
+			ControlReg[TBHI] = tbhi;
+			ControlReg[PGTB] = (ControlReg[PGTB]&0xFFFFF000)|((vpn>>10)<<2);
+			ControlReg[TBINDEX] = TLBWriteCount;
 
-		j++;
-	}
+			Limn2500Exception(EXCTLBMISS);
+			return false;
+		}
 
-	if (!found) {
-		// didn't find it. TLB miss
-		ControlReg[TBHI] = tbhi;
-		ControlReg[PGTB] = (ControlReg[PGTB]&0xFFFFF000)|((vpn>>10)<<2);
-		ControlReg[TBINDEX] = TLBWriteCount;
-
-		Limn2500Exception(EXCTLBMISS);
-		return false;
+		if (IFetch) {
+			ILastIndex = i;
+		} else {
+			DLastIndex = i;
+		}
+	} else {
+		i = start;
 	}
 
 	if (!(tlbe&1)) {
@@ -176,12 +180,6 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 	}
 
 	uint32_t ppn = ((tlbe>>5)&0xFFFFF)<<12;
-
-	if (IFetch) {
-		ILastIndex = i;
-	} else {
-		DLastIndex = i;
-	}
 
 	if (((tlbe&4) == 4) && (ControlReg[RS]&RS_USER)) { // kernel (K) bit
 		ControlReg[EBADADDR] = virt;
