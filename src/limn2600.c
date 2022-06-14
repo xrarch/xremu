@@ -15,13 +15,8 @@
 #define RS_ERS_SHIFT 8
 #define RS_ERS_MASK  255
 
-#define RS_ASID_SHIFT 16
-#define RS_ASID_MASK  4095
-
 #define RS_ECAUSE_SHIFT 28
 #define RS_ECAUSE_MASK  15
-
-#define RS_EXC_MASK (RS_ERS_MASK | (RS_ERS_MASK<<RS_ERS_SHIFT) | (RS_ECAUSE_MASK<<RS_ECAUSE_SHIFT))
 
 #define signext23(n) (((int32_t)(n << 9)) >> 9)
 #define signext18(n) (((int32_t)(n << 14)) >> 14)
@@ -44,7 +39,9 @@ enum Limn2500ControlRegisters {
 	EVEC     = 4,
 	PGTB     = 5,
 	EBADADDR = 7,
+	TBVEC    = 8,
 	FWVEC    = 9,
+	TBHI     = 11,
 };
 
 enum Limn2500Exceptions {
@@ -109,7 +106,7 @@ uint32_t RoR(uint32_t x, uint32_t n) {
 }
 
 bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
-	uint32_t myasid = ControlReg[RS]>>RS_ASID_SHIFT & RS_ASID_MASK;
+	uint32_t myasid = ControlReg[TBHI]>>20 & 4095;
 
 	uint32_t vpn = virt>>12;
 	uint32_t off = virt&4095;
@@ -472,7 +469,7 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 
 				uint32_t ers = ControlReg[RS];
 
-				ControlReg[RS] &= (~RS_EXC_MASK);
+				ControlReg[RS] = 0;
 				ControlReg[RS] |= CurrentException<<RS_ECAUSE_SHIFT;
 				ControlReg[RS] |= (ers & RS_ERS_MASK)<<RS_ERS_SHIFT;
 				ControlReg[RS] |= newstate & RS_ERS_MASK;
