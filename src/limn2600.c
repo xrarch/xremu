@@ -464,7 +464,17 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 				if (!CurrentException) // must be an interrupt
 					CurrentException = EXCINTERRUPT;
 
-				ControlReg[EPC] = PC;
+				switch(CurrentException) {
+					case EXCINTERRUPT:
+					case EXCSYSCALL:
+					case EXCFWCALL:
+						ControlReg[EPC] = PC;
+						break;
+					default:
+						ControlReg[EPC] = PC-4;
+						break;
+				}
+
 				PC = evec;
 
 				uint32_t ers = ControlReg[RS];
