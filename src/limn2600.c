@@ -12,9 +12,6 @@
 #define RS_INT  2
 #define RS_MMU  4
 
-#define RS_ERS_SHIFT 8
-#define RS_ERS_MASK  255
-
 #define RS_ECAUSE_SHIFT 28
 #define RS_ECAUSE_MASK  15
 
@@ -35,12 +32,15 @@ uint32_t ControlReg[16];
 
 enum Limn2500ControlRegisters {
 	RS       = 0,
+	TBLO     = 2,
 	EPC      = 3,
 	EVEC     = 4,
 	PGTB     = 5,
+	TBINDEX  = 6,
 	EBADADDR = 7,
 	TBVEC    = 8,
 	FWVEC    = 9,
+	TBSCRATCH = 10,
 	TBHI     = 11,
 };
 
@@ -58,6 +58,8 @@ enum Limn2500Exceptions {
 
 	EXCPAGEFAULT = 12,
 	EXCPAGEWRITE = 13,
+
+	EXCTLBMISS   = 15,
 };
 
 bool UserBreak = false;
@@ -66,27 +68,22 @@ bool Running = true;
 
 uint32_t PC = 0;
 
+uint32_t TLBPC = 0;
+
 int CurrentException;
 
 bool IFetch = false;
 
-uint64_t TLB[64];
+bool TLBMiss = false;
 
-uint32_t ILastASID = -1;
-uint32_t DLastASID = -1;
+#define TLBSIZE 64
 
-bool ILastGlobal = false;
-bool DLastGlobal = false;
+uint64_t TLB[TLBSIZE];
 
-uint32_t ILastVPN = -1;
-uint32_t ILastPPN = -1;
-
-uint32_t DLastVPN = -1;
-uint32_t DLastPPN = -1;
+uint32_t DLastIndex = 0;
+uint32_t ILastIndex = 0;
 
 uint32_t CPULocked = 0;
-
-bool DLastVPNWritable = false;
 
 uint32_t TLBWriteCount = 0;
 
@@ -106,131 +103,93 @@ uint32_t RoR(uint32_t x, uint32_t n) {
 }
 
 bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
-	uint32_t myasid = ControlReg[TBHI]>>20 & 4095;
-
 	uint32_t vpn = virt>>12;
 	uint32_t off = virt&4095;
 
-	// this is a little fast path just in case its the same translation as last time
-	// (which is very likely)
+	uint32_t myasid = ControlReg[TBHI]>>20 & 4095;
+	uint32_t tbhi = (myasid<<20) | vpn;
+
+	int start;
 
 	if (IFetch) {
-		if ((vpn == ILastVPN) && ((myasid == ILastASID) || ILastGlobal)) {
-			*phys = ILastPPN|off;
-			return true;
-		}
+		start = ILastIndex;
 	} else {
-		if ((vpn == DLastVPN) && ((myasid == DLastASID) || DLastGlobal)) {
-			if (writing && (!DLastVPNWritable)) {
-				ControlReg[EBADADDR] = virt;
-				Limn2500Exception(EXCPAGEWRITE);
-				return false;
-			}
+		start = DLastIndex;
+	}
 
-			*phys = DLastPPN|off;
-			return true;
+	int j = start ? 0 : 1;
+
+	// look up in the TLB, if not found there, do a miss
+
+	bool found = false;
+
+	uint64_t tlbe;
+	uint32_t mask;
+
+	int i;
+
+	while (j < 2) {
+		int min;
+
+		if (j == 0) {
+			min = 0;
+			i = start;
+		} else {
+			min = start ? start+1 : 0;
+			i = TLBSIZE-1;
 		}
-	}
 
-	// fast path failed :(
-	// look up in the TLB, if not found there, walk the page tables and insert it
+		while (i >= min) {
+			tlbe = TLB[i];
 
-	uint32_t base = (((vpn>>15)|(vpn&7))&31)<<1;
+			mask = (tlbe&16) ? 0xFFFFF : 0xFFFFFFFF;
 
-	uint64_t tlbe = TLB[base];
+			found = (tlbe>>32) == (tbhi&mask);
 
-	uint32_t tlblo = tlbe&0xFFFFFFFF;
-	uint32_t tlbhi = tlbe>>32;
+			if (found)
+				break;
 
-	uint32_t tlbvpn = tlblo&0xFFFFF;
-	uint32_t asid = tlblo>>20;
-
-	bool global = (tlbhi&16) == 16;
-
-	if ((tlbvpn != vpn) || ((tlbhi&1) == 0) || ((asid != myasid) && !global)) {
-		// not a match, try the other member of the set
-
-		tlbe = TLB[base+1];
-
-		tlblo = tlbe&0xFFFFFFFF;
-		tlbhi = tlbe>>32;
-
-		tlbvpn = tlblo&0xFFFFF;
-		asid = tlblo>>20;
-
-		global = (tlbhi&16) == 16;
-
-		if ((tlbvpn != vpn) || ((tlbhi&1) == 0) || ((asid != myasid) && !global)) {
-			// not a match, walk page table
-
-			uint32_t pde;
-
-			if (EBusRead(ControlReg[PGTB]+((virt>>22)<<2), EBUSLONG, &pde) == EBUSERROR) {
-				ControlReg[EBADADDR] = ControlReg[PGTB]+((virt>>22)<<2);
-				Limn2500Exception(EXCBUSERROR);
-				return false;
-			}
-
-			if ((pde&1) == 0) {
-				ControlReg[EBADADDR] = virt;
-				Limn2500Exception(writing ? EXCPAGEWRITE : EXCPAGEFAULT);
-				return false;
-			}
-
-			if (EBusRead(((pde>>5)<<12)+((vpn&1023)<<2), EBUSLONG, &tlbhi) == EBUSERROR) {
-				ControlReg[EBADADDR] = ((pde>>5)<<12)+((vpn&1023)<<2);
-				Limn2500Exception(EXCBUSERROR);
-				return false;
-			}
-
-			if ((tlbhi&1) == 0) { // valid (V) bit not set
-				ControlReg[EBADADDR] = virt;
-				Limn2500Exception(writing ? EXCPAGEWRITE : EXCPAGEFAULT);
-				return false;
-			}
-
-			global = (tlbhi&16) == 16;
-
-			base = (((vpn>>15)|(vpn&7))&31)<<1;
-
-			if (((TLB[base]>>32)&1) == 1) {
-				if (((TLB[base+1]>>32)&1) == 1) {
-					if (TLBWriteCount&1) {
-						base++;
-					}
-				} else {
-					base++;
-				}
-			}
-
-			TLBWriteCount++;
-
-			TLB[base] = (((uint64_t)tlbhi)<<32) | (((global ? 0 : myasid)<<20) | vpn);
+			i--;
 		}
+
+		if (found)
+			break;
+
+		j++;
 	}
 
-	uint32_t ppn = ((tlbhi>>5)&0xFFFFF)<<12;
+	if (!found) {
+		// didn't find it. TLB miss
+		ControlReg[TBHI] = tbhi;
+		ControlReg[PGTB] = (ControlReg[PGTB]&0xFFFFF000)|((vpn>>10)<<2);
+		ControlReg[TBINDEX] = TLBWriteCount;
 
-	if (IFetch) {
-		ILastPPN = ppn;
-		ILastVPN = vpn;
-		ILastASID = myasid;
-		ILastGlobal = global;
-	} else {
-		DLastPPN = ppn;
-		DLastVPN = vpn;
-		DLastASID = myasid;
-		DLastVPNWritable = (tlbhi&2)==2; // writable (W) bit
-		DLastGlobal = global;
+		Limn2500Exception(EXCTLBMISS);
+		return false;
 	}
 
-	if (((tlbhi&4) == 4) && (ControlReg[RS]&RS_USER)) { // kernel (K) bit
+	if (!(tlbe&1)) {
+		// invalid.
 		ControlReg[EBADADDR] = virt;
 		Limn2500Exception(writing ? EXCPAGEWRITE : EXCPAGEFAULT);
 		return false;
 	}
 
-	if (writing && ((tlbhi&2)==0)) { // writable (W) bit not set
+	uint32_t ppn = ((tlbe>>5)&0xFFFFF)<<12;
+
+	if (IFetch) {
+		ILastIndex = i;
+	} else {
+		DLastIndex = i;
+	}
+
+	if (((tlbe&4) == 4) && (ControlReg[RS]&RS_USER)) { // kernel (K) bit
+		ControlReg[EBADADDR] = virt;
+		Limn2500Exception(writing ? EXCPAGEWRITE : EXCPAGEFAULT);
+		return false;
+	}
+
+	if (writing && ((tlbe&2)==0)) { // writable (W) bit not set
 		ControlReg[EBADADDR] = virt;
 		Limn2500Exception(EXCPAGEWRITE);
 		return false;
@@ -442,16 +401,18 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 		}
 
 		if (CurrentException || ((ControlReg[RS] & RS_INT) && LSICInterruptPending)) {
-			newstate = ControlReg[RS] & 0xFFFFFFFC; // enter kernel mode, disable interrupts
+			newstate = ControlReg[RS] & 0xFC; // enter kernel mode, disable interrupts
 
 			if (CurrentException == EXCFWCALL) {
 				evec = ControlReg[FWVEC];
-
-				newstate &= 0xFFFFFFF8; // disable virtual addressing
+				newstate &= 0xF8; // disable virtual addressing
+			} else if (CurrentException == EXCTLBMISS) {
+				evec = ControlReg[TBVEC];
+				newstate &= 0xF8; // disable virtual addressing
 			} else {
 				if (newstate&128) {
 					// legacy exceptions, disable virtual addressing
-					newstate &= 0xFFFFFFF8;
+					newstate &= 0xF8;
 				}
 				
 				evec = ControlReg[EVEC];
@@ -470,6 +431,11 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 					case EXCFWCALL:
 						ControlReg[EPC] = PC;
 						break;
+					case EXCTLBMISS:
+						CurrentException = ControlReg[RS]>>RS_ECAUSE_SHIFT;
+						TLBPC = PC-4;
+						TLBMiss = true;
+						break;
 					default:
 						ControlReg[EPC] = PC-4;
 						break;
@@ -477,12 +443,7 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 
 				PC = evec;
 
-				uint32_t ers = ControlReg[RS];
-
-				ControlReg[RS] = 0;
-				ControlReg[RS] |= CurrentException<<RS_ECAUSE_SHIFT;
-				ControlReg[RS] |= (ers & RS_ERS_MASK)<<RS_ERS_SHIFT;
-				ControlReg[RS] |= newstate & RS_ERS_MASK;
+				ControlReg[RS] = (CurrentException<<RS_ECAUSE_SHIFT) | ((ControlReg[RS]&0xFFFF)<<8) | newstate;
 			}
 
 			CurrentException = 0;
@@ -729,80 +690,77 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 
 					uint32_t asid;
 					uint32_t vpn;
+					uint32_t index;
+					uint64_t tlbe;
+					uint32_t pde;
+					uint32_t tbhi;
 
 					switch(funct) {
+						case 0: // tbwr
+							index = ControlReg[TBINDEX]&(TLBSIZE-1);
+							tbhi = ControlReg[TBHI];
+
+							if (ControlReg[TBLO]&16)
+								tbhi &= 0x000FFFFF;
+
+							TLB[index] = ((uint64_t)tbhi<<32)|ControlReg[TBLO];
+
+							TLBWriteCount++;
+
+							break;
+
+						case 1: // tbfn
+							ControlReg[TBINDEX] = 0x80000000;
+
+							for (int i = 0; i < TLBSIZE; i++) {
+								if ((TLB[i]>>32) == ControlReg[TBHI]) {
+									ControlReg[TBINDEX] = i;
+									break;
+								}
+							}
+
+							break;
+
+						case 2: // tbrd
+							tlbe = TLB[ControlReg[TBINDEX]&(TLBSIZE-1)];
+
+							ControlReg[TBLO] = tlbe;
+							ControlReg[TBHI] = tlbe>>32;
+
+							break;
+
+						case 3: // tbld
+							pde = ControlReg[TBLO];
+
+							if (!(pde&1)) {
+								ControlReg[TBLO] = 0;
+								break;
+							}
+
+							CPUReadLong(((pde>>5)<<12)|((ControlReg[TBHI]&1023)<<2), &ControlReg[TBLO]);
+
+							break;
+
 						case 10: // fwc
 							Limn2500Exception(EXCFWCALL);
 							break;
 
 						case 11: // rfe
 							CPULocked = 0;
-							PC = ControlReg[EPC];
-							ControlReg[RS] &= (~RS_ERS_MASK);
-							ControlReg[RS] |= (ControlReg[RS]>>RS_ERS_SHIFT)&RS_ERS_MASK;
+
+							if (TLBMiss) {
+								TLBMiss = false;
+								PC = TLBPC;
+							} else {
+								PC = ControlReg[EPC];
+							}
+
+							ControlReg[RS] = (ControlReg[RS]&0xF0000000)|(ControlReg[RS]>>8)&0xFFFF;
+
 							break;
 
 						case 12: // hlt
 							Halted = true;
-							break;
-
-						case 13: // ftlb
-							asid = Reg[ra];
-							vpn = Reg[(ir>>16)&31];
-
-							if (vpn&0x80000000) {
-								if (asid&0x80000000) {
-									memset(&TLB, 0, sizeof(TLB));
-								} else {
-									for (int i = 0; i < 64; i++) {
-										if (((TLB[i]>>20)&4095) == asid) {
-											TLB[i] = 0;
-										}
-									}
-								}
-							} else {
-								uint32_t base = (((vpn>>15)|(vpn&7))&31)<<1;
-
-								uint32_t tlbe = TLB[base];
-
-								uint32_t tlblo = tlbe&0xFFFFFFFF;
-
-								uint32_t tlbvpn = tlblo&0xFFFFF;
-								uint32_t tlbasid = tlblo>>20;
-
-								if ((tlbvpn != vpn) || (tlbasid != asid)) {
-									// not a match, check other member of set
-
-									base++;
-
-									tlbe = TLB[base];
-
-									tlblo = tlbe&0xFFFFFFFF;
-
-									tlbvpn = tlblo&0xFFFFF;
-									tlbasid = tlblo>>20;
-
-									if ((tlbvpn == vpn) && (tlbasid == asid)) {
-										// match, flush
-
-										TLB[base] = 0;
-									}
-								} else {
-									// match, flush
-
-									TLB[base] = 0;
-								}
-							}
-
-							ILastASID = -1;
-							ILastVPN = -1;
-							ILastGlobal = false;
-
-							DLastASID = -1;
-							DLastVPN = -1;
-							DLastGlobal = false;
-							DLastVPNWritable = false;
-
 							break;
 
 						case 14: // mtcr

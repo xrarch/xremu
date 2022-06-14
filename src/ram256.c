@@ -103,7 +103,6 @@ int RAMReadExt(uint32_t address, uint32_t type, uint32_t *value) {
 	int offset = address & (RAMSLOTSIZE-1);
 
 	if (offset >= RAMSlotSizes[slot]){
-		printf("oh read\n");
 		return EBUSERROR;
 	}
 
