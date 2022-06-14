@@ -12,6 +12,17 @@
 #define RS_INT  2
 #define RS_MMU  4
 
+#define RS_ERS_SHIFT 8
+#define RS_ERS_MASK  255
+
+#define RS_ASID_SHIFT 16
+#define RS_ASID_MASK  4095
+
+#define RS_ECAUSE_SHIFT 28
+#define RS_ECAUSE_MASK  15
+
+#define RS_EXC_MASK (RS_ERS_MASK | (RS_ERS_MASK<<RS_ERS_SHIFT) | (RS_ECAUSE_MASK<<RS_ECAUSE_SHIFT))
+
 #define signext23(n) (((int32_t)(n << 9)) >> 9)
 #define signext18(n) (((int32_t)(n << 14)) >> 14)
 #define signext5(n)  (((int32_t)(n << 27)) >> 27)
@@ -29,14 +40,10 @@ uint32_t ControlReg[16];
 
 enum Limn2500ControlRegisters {
 	RS       = 0,
-	ECAUSE   = 1,
-	ERS      = 2,
 	EPC      = 3,
 	EVEC     = 4,
 	PGTB     = 5,
-	ASID     = 6,
 	EBADADDR = 7,
-	CPUID    = 8,
 	FWVEC    = 9,
 };
 
@@ -102,7 +109,7 @@ uint32_t RoR(uint32_t x, uint32_t n) {
 }
 
 bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
-	uint32_t myasid = ControlReg[ASID];
+	uint32_t myasid = ControlReg[RS]>>RS_ASID_SHIFT & RS_ASID_MASK;
 
 	uint32_t vpn = virt>>12;
 	uint32_t off = virt&4095;
@@ -391,7 +398,6 @@ void CPUReset() {
 	PC = 0xFFFE0000;
 	ControlReg[RS] = 0;
 	ControlReg[EVEC] = 0;
-	ControlReg[CPUID] = 0x80060000;
 	CurrentException = 0;
 }
 
@@ -463,9 +469,13 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 
 				ControlReg[EPC] = PC;
 				PC = evec;
-				ControlReg[ECAUSE] = CurrentException;
-				ControlReg[ERS] = ControlReg[RS];
-				ControlReg[RS] = newstate;
+
+				uint32_t ers = ControlReg[RS];
+
+				ControlReg[RS] &= (~RS_EXC_MASK);
+				ControlReg[RS] |= CurrentException<<RS_ECAUSE_SHIFT;
+				ControlReg[RS] |= (ers & RS_ERS_MASK)<<RS_ERS_SHIFT;
+				ControlReg[RS] |= newstate & RS_ERS_MASK;
 			}
 
 			CurrentException = 0;
@@ -721,7 +731,8 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 						case 11: // rfe
 							CPULocked = 0;
 							PC = ControlReg[EPC];
-							ControlReg[RS] = ControlReg[ERS];
+							ControlReg[RS] &= (~RS_ERS_MASK);
+							ControlReg[RS] |= (ControlReg[RS]>>RS_ERS_SHIFT)&RS_ERS_MASK;
 							break;
 
 						case 12: // hlt
