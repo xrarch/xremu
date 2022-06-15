@@ -76,7 +76,7 @@ bool IFetch = false;
 
 bool TLBMiss = false;
 
-#define CACHESIZELOG 15
+#define CACHESIZELOG 13
 #define CACHELINELOG 5
 #define CACHEWAYLOG 1
 #define CACHESETLOG (CACHESIZELOG-CACHELINELOG-CACHEWAYLOG)
@@ -196,6 +196,7 @@ static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 }
 
 uint32_t CacheFillCount = 0;
+uint32_t ICacheFillCount = 0;
 
 static inline bool CPUCacheLine(uint32_t address, uint8_t **value, bool modify) {
 	uint32_t lineaddr = address&(~(CACHELINESIZE-1));
@@ -227,7 +228,10 @@ static inline bool CPUCacheLine(uint32_t address, uint8_t **value, bool modify) 
 	uint32_t line;
 
 	if (rememberindex == -1) {
-		line = (set*CACHEWAYS+(CacheFillCount&(CACHEWAYS-1)));
+		if (IFetch)
+			line = (set*CACHEWAYS+(CacheFillCount&(CACHEWAYS-1)));
+		else
+			line = (set*CACHEWAYS+(ICacheFillCount&(CACHEWAYS-1)));
 	} else {
 		line = (set*CACHEWAYS+rememberindex);
 	}
@@ -253,7 +257,10 @@ static inline bool CPUCacheLine(uint32_t address, uint8_t **value, bool modify) 
 	
 	*value = &cacheline[lineoff];
 
-	CacheFillCount++;
+	if (IFetch)
+		ICacheFillCount++;
+	else
+		CacheFillCount++;
 
 	return true;
 }
