@@ -109,7 +109,6 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 	uint32_t tbhi = (ControlReg[TBHI]&0xFFF00000) | vpn;
 
 	int start;
-	int i;
 
 	start = IFetch ? ILastIndex : DLastIndex;
 
@@ -124,6 +123,8 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 
 	if (!found) {
 		// look up in the TLB, if not found there, do a miss
+
+		int i;
 
 		for (int j = 0; j < 2; j++) {
 			int min;
@@ -174,8 +175,6 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 		} else {
 			DLastIndex = i;
 		}
-	} else {
-		i = start;
 	}
 
 	if (!(tlbe&1)) {
