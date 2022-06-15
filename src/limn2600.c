@@ -77,7 +77,7 @@ bool IFetch = false;
 bool TLBMiss = false;
 
 #define TLBSIZELOG 6
-#define TLBWAYLOG  1
+#define TLBWAYLOG  2
 #define TLBSETLOG  (TLBSIZELOG-TLBWAYLOG)
 
 #define TLBSIZE (1<<TLBSIZELOG)
@@ -90,6 +90,8 @@ uint64_t TLB[TLBSIZE];
 uint32_t CPULocked = 0;
 
 uint32_t TLBWriteCount = 0;
+
+uint32_t TLBMissCount = 0;
 
 uint32_t LastInstruction;
 
@@ -112,6 +114,9 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 
 	uint32_t tbhi = (ControlReg[TBHI]&0xFFF00000) | vpn;
 
+	// the set function is designed to split the TLB into a userspace and
+	// kernel space half.
+
 	uint32_t set = (vpn&((1<<(TLBSETLOG-1))-1))|(vpn>>19<<(TLBSETLOG-1));
 
 	bool found;
@@ -121,6 +126,8 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 
 	// look up in the TLB, if not found there, do a miss
 
+	uint32_t rememberindex = -1;
+
 	for (int i = 0; i < TLBWAYS; i++) {
 		tlbe = TLB[set*TLBWAYS+i];
 		mask = (tlbe&16) ? 0xFFFFF : 0xFFFFFFFF;
@@ -129,13 +136,22 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 		if (found) {
 			break;
 		}
+
+		if (!(tlbe&1))
+			rememberindex = i;
 	}
 
 	if (!found) {
 		// didn't find it. TLB miss
 		ControlReg[TBHI] = tbhi;
 		ControlReg[PGTB] = (ControlReg[PGTB]&0xFFFFF000)|((vpn>>10)<<2);
-		ControlReg[TBINDEX] = set*TLBWAYS+(TLBWriteCount&(TLBWAYS-1));
+
+		if (rememberindex == -1)
+			ControlReg[TBINDEX] = set*TLBWAYS+(TLBWriteCount&(TLBWAYS-1));
+		else
+			ControlReg[TBINDEX] = set*TLBWAYS+rememberindex;
+
+		TLBMissCount++;
 
 		Limn2500Exception(EXCTLBMISS);
 		return false;
