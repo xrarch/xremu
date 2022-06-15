@@ -76,12 +76,16 @@ bool IFetch = false;
 
 bool TLBMiss = false;
 
-#define TLBSIZE 64
+#define TLBSIZELOG 6
+#define TLBWAYLOG  1
+#define TLBSETLOG  (TLBSIZELOG-TLBWAYLOG)
+
+#define TLBSIZE (1<<TLBSIZELOG)
+#define TLBWAYS (1<<TLBWAYLOG) // code not actually generalized for more than 2 ways
+
+#define TLBSETS (1<<TLBSETLOG)
 
 uint64_t TLB[TLBSIZE];
-
-uint32_t DLastIndex = 0;
-uint32_t ILastIndex = 0;
 
 uint32_t CPULocked = 0;
 
@@ -108,73 +112,33 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 
 	uint32_t tbhi = (ControlReg[TBHI]&0xFFF00000) | vpn;
 
-	int start;
-
-	start = IFetch ? ILastIndex : DLastIndex;
+	uint32_t set = (vpn&((1<<(TLBSETLOG-1))-1))|(vpn>>19<<(TLBSETLOG-1));
 
 	bool found;
 
 	uint64_t tlbe;
 	uint32_t mask;
 
-	tlbe = TLB[start];
-	mask = (tlbe&16) ? 0xFFFFF : 0xFFFFFFFF;
-	found = (tlbe>>32) == (tbhi&mask);
+	// look up in the TLB, if not found there, do a miss
+
+	for (int i = 0; i < TLBWAYS; i++) {
+		tlbe = TLB[set*TLBWAYS+i];
+		mask = (tlbe&16) ? 0xFFFFF : 0xFFFFFFFF;
+		found = (tlbe>>32) == (tbhi&mask);
+
+		if (found) {
+			break;
+		}
+	}
 
 	if (!found) {
-		// look up in the TLB, if not found there, do a miss
+		// didn't find it. TLB miss
+		ControlReg[TBHI] = tbhi;
+		ControlReg[PGTB] = (ControlReg[PGTB]&0xFFFFF000)|((vpn>>10)<<2);
+		ControlReg[TBINDEX] = set*TLBWAYS+(TLBWriteCount&(TLBWAYS-1));
 
-		int i;
-
-		for (int j = 0; j < 2; j++) {
-			int min;
-
-			if (j) {
-				min = start+1;
-				i = TLBSIZE-1;
-			} else {
-				min = 0;
-				i = start-1;
-			}
-
-			while (i >= min) {
-				tlbe = TLB[i];
-
-				mask = (tlbe&16) ? 0xFFFFF : 0xFFFFFFFF;
-
-				found = (tlbe>>32) == (tbhi&mask);
-
-				if (found)
-					break;
-
-				i--;
-			}
-
-			if (found)
-				break;
-		}
-
-		if (!found) {
-			// didn't find it. TLB miss
-			ControlReg[TBHI] = tbhi;
-			ControlReg[PGTB] = (ControlReg[PGTB]&0xFFFFF000)|((vpn>>10)<<2);
-			ControlReg[TBINDEX] = TLBWriteCount;
-
-			if (IFetch) {
-				ILastIndex = TLBWriteCount&(TLBSIZE-1);
-			} else {
-				DLastIndex = TLBWriteCount&(TLBSIZE-1);
-			}
-
-			Limn2500Exception(EXCTLBMISS);
-			return false;
-		}
-
-		if (IFetch) {
-			ILastIndex = i;
-		} else {
-			DLastIndex = i;
-		}
+		Limn2500Exception(EXCTLBMISS);
+		return false;
 	}
 
 	if (!(tlbe&1)) {
@@ -707,7 +671,6 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 								tbhi &= 0x000FFFFF;
 
 							TLB[index] = ((uint64_t)tbhi<<32)|ControlReg[TBLO];
-
 							TLBWriteCount++;
 
 							break;
@@ -715,9 +678,13 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 						case 1: // tbfn
 							ControlReg[TBINDEX] = 0x80000000;
 
-							for (int i = 0; i < TLBSIZE; i++) {
-								if ((TLB[i]>>32) == ControlReg[TBHI]) {
-									ControlReg[TBINDEX] = i;
+							vpn = ControlReg[TBHI]&0xFFFFF;
+
+							index = (vpn&((1<<(TLBSETLOG-1))-1))|(vpn>>19<<(TLBSETLOG-1));
+
+							for (int i = 0; i < TLBWAYS; i++) {
+								if ((TLB[index*TLBWAYS+i]>>32) == ControlReg[TBHI]) {
+									ControlReg[TBINDEX] = index*TLBWAYS+i;
 									break;
 								}
 							}
