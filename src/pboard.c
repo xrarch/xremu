@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
 
 #include "ebus.h"
 #include "pboard.h"
@@ -15,26 +16,27 @@ uint32_t PBoardRegisters[PBOARDREGISTERS];
 
 #define NVRAMSIZE (64 * 1024)
 
-uint32_t NVRAM[NVRAMSIZE/4];
+uint8_t NVRAM[NVRAMSIZE];
 
 #define ROMSIZE (128 * 1024)
 
-uint32_t BootROM[ROMSIZE/4];
+uint8_t BootROM[ROMSIZE];
 
 struct CitronPort CitronPorts[CITRONPORTS];
 
 bool NVRAMDirty = false;
 
-int PBoardWrite(uint32_t address, uint32_t type, uint32_t value) {
+int PBoardWrite(uint32_t address, void *src, uint32_t length) {
 	if (address < 0x400) {
 		// citron
 
 		uint32_t port = address/4;
 
 		if (CitronPorts[port].Present)
-			return CitronPorts[port].WritePort(port, type, value);
-		else
-			return EBUSSUCCESS;
+			return CitronPorts[port].WritePort(port, length, *(uint32_t*)src);
+		else {
+			return EBUSERROR;
+		}
 	} else if (address >= 0x7FE0000) {
 		// bootrom
 
@@ -46,19 +48,10 @@ int PBoardWrite(uint32_t address, uint32_t type, uint32_t value) {
 
 		NVRAMDirty = true;
 
-		switch(type) {
-			case EBUSBYTE:
-				((uint8_t*)NVRAM)[address] = value;
-				break;
+		if (address+length > 512)
+			return false;
 
-			case EBUSINT:
-				((uint16_t*)NVRAM)[address/2] = value;
-				break;
-
-			case EBUSLONG:
-				NVRAM[address/4] = value;
-				break;
-		}
+		memcpy(&NVRAM[address], src, length);
 
 		return EBUSSUCCESS;
 	} else if ((address >= 0x800) && (address < 0x880)) {
@@ -66,28 +59,19 @@ int PBoardWrite(uint32_t address, uint32_t type, uint32_t value) {
 
 		address -= 0x800;
 
-		if (type == EBUSLONG) {
+		if (length == 4) {
 			if (address != 0)
-				PBoardRegisters[address/4] = value;
+				PBoardRegisters[address/4] = *(uint32_t*)src;
 
 			return EBUSSUCCESS;
 		}
 	} else if ((address >= 0x20000) && (address < 0x20200)) {
 		address -= 0x20000;
 
-		switch(type) {
-			case EBUSBYTE:
-				((uint8_t*)DKSBlockBuffer)[address] = value;
-				break;
+		if (address+length > 512)
+			return false;
 
-			case EBUSINT:
-				((uint16_t*)DKSBlockBuffer)[address/2] = value;
-				break;
-
-			case EBUSLONG:
-				DKSBlockBuffer[address/4] = value;
-				break;
-		}
+		memcpy(&DKSBlockBuffer[address], src, length);
 
 		return EBUSSUCCESS;
 	} else if ((address >= 0x30000) && (address < 0x30100)) {
@@ -95,13 +79,13 @@ int PBoardWrite(uint32_t address, uint32_t type, uint32_t value) {
 
 		address -= 0x30000;
 
-		if (type == EBUSLONG) {
-			return LSICWrite(address/4, value);
+		if (length == 4) {
+			return LSICWrite(address/4, *(uint32_t*)src);
 		}
 	} else if (address == 0x800000) {
 		// reset
 
-		if (value == RESETMAGIC) {
+		if ((length == 4) && (*(uint32_t*)src == RESETMAGIC)) {
 			EBusReset();
 
 			return EBUSSUCCESS;
@@ -111,37 +95,26 @@ int PBoardWrite(uint32_t address, uint32_t type, uint32_t value) {
 	return EBUSERROR;
 }
 
-int PBoardRead(uint32_t address, uint32_t type, uint32_t *value) {
+int PBoardRead(uint32_t address, void *dest, uint32_t length) {
 	if (address < 0x400) {
 		// citron
 
 		uint32_t port = address/4;
 
 		if (CitronPorts[port].Present)
-			return CitronPorts[port].ReadPort(port, type, value);
+			return CitronPorts[port].ReadPort(port, length, dest);
 		else {
-			// XXX this is incorrect behavior, should bus error here
-			*value = 0;
-			return EBUSSUCCESS;
+			return EBUSERROR;
 		}
 	} else if (address >= 0x7FE0000) {
 		// bootrom
 
 		address -= 0x7FE0000;
 
-		switch(type) {
-			case EBUSBYTE:
-				*value = ((uint8_t*)BootROM)[address];
-				break;
+		if (address+length > ROMSIZE)
+			return false;
 
-			case EBUSINT:
-				*value = ((uint16_t*)BootROM)[address/2];
-				break;
-
-			case EBUSLONG:
-				*value = BootROM[address/4];
-				break;
-		}
+		memcpy(dest, &BootROM[address], length);
 
 		return EBUSSUCCESS;
 	} else if ((address >= 0x1000) && (address < 0x11000)) {
@@ -149,19 +122,10 @@ int PBoardRead(uint32_t address, uint32_t type, uint32_t *value) {
 
 		address -= 0x1000;
 
-		switch(type) {
-			case EBUSBYTE:
-				*value = ((uint8_t*)NVRAM)[address];
-				break;
+		if (address+length > NVRAMSIZE)
+			return false;
 
-			case EBUSINT:
-				*value = ((uint16_t*)NVRAM)[address/2];
-				break;
-
-			case EBUSLONG:
-				*value = NVRAM[address/4];
-				break;
-		}
+		memcpy(dest, &NVRAM[address], length);
 
 		return EBUSSUCCESS;
 	} else if ((address >= 0x800) && (address < 0x880)) {
@@ -169,27 +133,18 @@ int PBoardRead(uint32_t address, uint32_t type, uint32_t *value) {
 
 		address -= 0x800;
 
-		if (type == EBUSLONG) {
-			*value = PBoardRegisters[address/4];
+		if (length == 4) {
+			*(uint32_t*)dest = PBoardRegisters[address/4];
 
 			return EBUSSUCCESS;
 		}
 	} else if ((address >= 0x20000) && (address < 0x21000)) {
 		address -= 0x20000;
 
-		switch(type) {
-			case EBUSBYTE:
-				*value = ((uint8_t*)DKSBlockBuffer)[address];
-				break;
+		if (address+length > 512)
+			return false;
 
-			case EBUSINT:
-				*value = ((uint16_t*)DKSBlockBuffer)[address/2];
-				break;
-
-			case EBUSLONG:
-				*value = DKSBlockBuffer[address/4];
-				break;
-		}
+		memcpy(dest, &DKSBlockBuffer[address], length);
 
 		return EBUSSUCCESS;
 	} else if ((address >= 0x30000) && (address < 0x30100)) {
@@ -197,8 +152,8 @@ int PBoardRead(uint32_t address, uint32_t type, uint32_t *value) {
 
 		address -= 0x30000;
 
-		if (type == EBUSLONG) {
-			return LSICRead(address/4, value);
+		if (length == 4) {
+			return LSICRead(address/4, dest);
 		}
 	}
 

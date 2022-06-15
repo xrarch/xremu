@@ -27,31 +27,6 @@ int EBusInit(uint32_t memsize) {
 	return 0;
 }
 
-int EBusRead(uint32_t address, uint32_t type, uint32_t *value) {
-	int branch = address >> 27;
-
-	if (EBusBranches[branch].Present) {
-		return EBusBranches[branch].Read(address&0x7FFFFFF, type, value);
-	} else if (branch >= 24) {
-		*value = 0;
-		return EBUSSUCCESS;
-	}
-
-	return EBUSERROR;
-}
-
-int EBusWrite(uint32_t address, uint32_t type, uint32_t value) {
-	int branch = address >> 27;
-
-	if (EBusBranches[branch].Present) {
-		return EBusBranches[branch].Write(address&0x7FFFFFF, type, value);
-	} else if (branch >= 24) {
-		return EBUSSUCCESS;
-	}
-
-	return EBUSERROR;
-}
-
 void EBusReset() {
 	for (int i = 0; i < EBUSBRANCHES; i++) {
 		if (EBusBranches[i].Present && EBusBranches[i].Reset)

@@ -10,9 +10,7 @@
 #include "ebus.h"
 #include "ram256.h"
 
-uint32_t *RAM = 0;
-
-uint32_t *RAMSlots[RAMSLOTCOUNT];
+uint8_t  *RAMSlots[RAMSLOTCOUNT];
 uint32_t RAMSlotSizes[RAMSLOTCOUNT];
 
 uint32_t RAMSize;
@@ -21,104 +19,56 @@ void RAMDump() {
 	// TODO make work in a sane way again
 }
 
-int RAMWrite(uint32_t address, uint32_t type, uint32_t value) {
+int RAMWrite(uint32_t address, void *src, uint32_t length) {
 	int slot = address >> 25;
 	int offset = address & (RAMSLOTSIZE-1);
 
-	if (offset >= RAMSlotSizes[slot])
+	if (offset+length > RAMSlotSizes[slot])
 		return EBUSERROR;
 
-	switch(type) {
-		case EBUSBYTE:
-			((uint8_t*)RAMSlots[slot])[offset] = value;
-			break;
-
-		case EBUSINT:
-			((uint16_t*)RAMSlots[slot])[offset>>1] = value;
-			break;
-
-		case EBUSLONG:
-			RAMSlots[slot][offset>>2] = value;
-			break;
-	}
+	memcpy(RAMSlots[slot]+offset, src, length);
 
 	return EBUSSUCCESS;
 }
 
-int RAMRead(uint32_t address, uint32_t type, uint32_t *value) {
+int RAMRead(uint32_t address, void *dest, uint32_t length) {
 	int slot = address >> 25;
 	int offset = address & (RAMSLOTSIZE-1);
 
-	if (offset >= RAMSlotSizes[slot])
+	if (offset+length > RAMSlotSizes[slot])
 		return EBUSERROR;
 
-	switch(type) {
-		case EBUSBYTE:
-			*value = ((uint8_t*)RAMSlots[slot])[offset];
-			break;
-
-		case EBUSINT:
-			*value = ((uint16_t*)RAMSlots[slot])[offset>>1];
-			break;
-
-		case EBUSLONG:
-			*value = RAMSlots[slot][offset>>2];
-			break;
-	}
+	memcpy(dest, RAMSlots[slot]+offset, length);
 
 	return EBUSSUCCESS;
 }
 
-int RAMWriteExt(uint32_t address, uint32_t type, uint32_t value) {
+int RAMWriteExt(uint32_t address, void *src, uint32_t length) {
 	address += EBUSBRANCHSIZE;
 
 	int slot = address >> 25;
 	int offset = address & (RAMSLOTSIZE-1);
 
-	if (offset >= RAMSlotSizes[slot]){
+	if (offset+length > RAMSlotSizes[slot]){
 		return EBUSERROR;
 	}
 
-	switch(type) {
-		case EBUSBYTE:
-			((uint8_t*)RAMSlots[slot])[offset] = value;
-			break;
-
-		case EBUSINT:
-			((uint16_t*)RAMSlots[slot])[offset>>1] = value;
-			break;
-
-		case EBUSLONG:
-			RAMSlots[slot][offset>>2] = value;
-			break;
-	}
+	memcpy(RAMSlots[slot]+offset, src, length);
 
 	return EBUSSUCCESS;
 }
 
-int RAMReadExt(uint32_t address, uint32_t type, uint32_t *value) {
+int RAMReadExt(uint32_t address, void *dest, uint32_t length) {
 	address += EBUSBRANCHSIZE;
 
 	int slot = address >> 25;
 	int offset = address & (RAMSLOTSIZE-1);
 
-	if (offset >= RAMSlotSizes[slot]){
+	if (offset+length > RAMSlotSizes[slot]){
 		return EBUSERROR;
 	}
 
-	switch(type) {
-		case EBUSBYTE:
-			*value = ((uint8_t*)RAMSlots[slot])[offset];
-			break;
-
-		case EBUSINT:
-			*value = ((uint16_t*)RAMSlots[slot])[offset>>1];
-			break;
-
-		case EBUSLONG:
-			*value = RAMSlots[slot][offset>>2];
-			break;
-	}
+	memcpy(dest, RAMSlots[slot]+offset, length);
 
 	return EBUSSUCCESS;
 }
@@ -131,11 +81,6 @@ int RAMInit(uint32_t memsize) {
 
 	RAMSize = memsize;
 
-	if (RAM) {
-		memset(&RAMSlotSizes, 0, sizeof(RAMSlotSizes));
-		free(RAM);
-	}
-
 	EBusBranches[0].Present = 1;
 	EBusBranches[0].Write = RAMWrite;
 	EBusBranches[0].Read = RAMRead;
@@ -145,11 +90,6 @@ int RAMInit(uint32_t memsize) {
 	EBusBranches[1].Write = RAMWriteExt;
 	EBusBranches[1].Read = RAMReadExt;
 	EBusBranches[1].Reset = 0;
-
-	RAM = malloc(memsize);
-
-	if (RAM == 0)
-		return -1;
 
 	// try to stack the RAM into slots in units of 4MB.
 	// add the remainder to the first slot.

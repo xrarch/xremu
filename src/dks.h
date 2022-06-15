@@ -4,7 +4,7 @@ void DKSInit();
 
 void DKSReset();
 
-extern uint32_t DKSBlockBuffer[128];
+extern uint8_t DKSBlockBuffer[512];
 
 extern bool DKSAsynchronous;
 

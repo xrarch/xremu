@@ -76,13 +76,29 @@ bool IFetch = false;
 
 bool TLBMiss = false;
 
+#define CACHESIZELOG 16
+#define CACHELINELOG 5
+#define CACHEWAYLOG 1
+#define CACHESETLOG (CACHESIZELOG-CACHELINELOG-CACHEWAYLOG)
+
+#define CACHESIZE (1<<CACHESIZELOG)
+#define CACHELINES (CACHESIZE>>CACHELINELOG)
+#define CACHELINESIZE (1<<CACHELINELOG)
+#define CACHESETS (1<<CACHESETLOG)
+#define CACHEWAYS (1<<CACHEWAYLOG)
+
+uint32_t ICacheTags[CACHELINES];
+uint8_t ICache[CACHESIZE];
+
+uint32_t DCacheTags[CACHELINES];
+uint8_t DCache[CACHESIZE];
+
 #define TLBSIZELOG 6
 #define TLBWAYLOG  2
 #define TLBSETLOG  (TLBSIZELOG-TLBWAYLOG)
 
 #define TLBSIZE (1<<TLBSIZELOG)
-#define TLBWAYS (1<<TLBWAYLOG) // code not actually generalized for more than 2 ways
-
+#define TLBWAYS (1<<TLBWAYLOG)
 #define TLBSETS (1<<TLBSETLOG)
 
 uint64_t TLB[TLBSIZE];
@@ -91,11 +107,9 @@ uint32_t CPULocked = 0;
 
 uint32_t TLBWriteCount = 0;
 
-uint32_t TLBMissCount = 0;
-
 uint32_t LastInstruction;
 
-void Limn2500Exception(int exception) {
+static inline void Limn2500Exception(int exception) {
 	if (CurrentException) {
 		fprintf(stderr, "double exception, shouldnt ever happen");
 		abort();
@@ -104,11 +118,11 @@ void Limn2500Exception(int exception) {
 	CurrentException = exception;
 }
 
-uint32_t RoR(uint32_t x, uint32_t n) {
+static inline uint32_t RoR(uint32_t x, uint32_t n) {
     return (x >> n & 31) | (x << (32-n) & 31);
 }
 
-bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
+static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 	uint32_t vpn = virt>>12;
 	uint32_t off = virt&4095;
 
@@ -151,8 +165,6 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 		else
 			ControlReg[TBINDEX] = set*TLBWAYS+rememberindex;
 
-		TLBMissCount++;
-
 		Limn2500Exception(EXCTLBMISS);
 		return false;
 	}
@@ -183,34 +195,98 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 	return true;
 }
 
-bool CPUReadByte(uint32_t address, uint32_t *value) {
-	if ((address < 0x1000) || (address >= 0xFFFFF000)) {
-		ControlReg[EBADADDR] = address;
-		Limn2500Exception(EXCPAGEFAULT);
-		return false;
+uint32_t CacheFillCount = 0;
+
+static inline bool CPUCacheLine(uint32_t address, uint8_t **value, bool modify) {
+	uint32_t lineaddr = address&(~(CACHELINESIZE-1));
+	uint32_t lineoff = address&(CACHELINESIZE-1);
+
+	uint32_t lineno = address>>CACHELINELOG;
+
+	uint32_t set = (lineno<<CACHEWAYLOG)&(CACHESETS-1);
+
+	uint32_t rememberindex = -1;
+
+	uint32_t *Tags = IFetch ? ICacheTags : DCacheTags;
+	uint8_t *Cache = IFetch ? ICache : DCache;
+
+	for (int i = 0; i < CACHEWAYS; i++) {
+		if ((Tags[set*CACHEWAYS+i] & ~(CACHELINESIZE-1)) == lineaddr) {
+			if (modify)
+				Tags[set*CACHEWAYS+i] |= 1;
+
+			*value = &Cache[(set*CACHEWAYS+i)*CACHELINESIZE+lineoff];
+
+			return true;
+		}
+
+		if (Tags[set*CACHEWAYS+i] == 0)
+			rememberindex = i;
 	}
 
-	if (ControlReg[RS]&RS_MMU) {
-		if (!CPUTranslate(address, &address, false))
-			return false;
+	uint32_t line;
+
+	if (rememberindex == -1) {
+		line = (set*CACHEWAYS+(CacheFillCount&(CACHEWAYS-1)));
+	} else {
+		line = (set*CACHEWAYS+rememberindex);
 	}
 
-	if (EBusRead(address, EBUSBYTE, value) == EBUSERROR) {
+	uint8_t *cacheline = &Cache[line*CACHELINESIZE];
+
+	if (Tags[line]&1) {
+		// writeback
+		Tags[line] &= ~1;
+		EBusWrite(Tags[line] & ~(CACHELINESIZE-1), cacheline, CACHELINESIZE);
+	}
+
+	if (EBusRead(lineaddr, cacheline, CACHELINESIZE) == EBUSERROR) {
 		ControlReg[EBADADDR] = address;
 		Limn2500Exception(EXCBUSERROR);
 		return false;
 	}
 
+	Tags[line] = lineaddr;
+
+	if (modify)
+		Tags[line] |= 1;
+	
+	*value = &cacheline[lineoff];
+
+	CacheFillCount++;
+
 	return true;
 }
 
-bool CPUReadInt(uint32_t address, uint32_t *value) {
-	if ((address < 0x1000) || (address >= 0xFFFFF000)) {
-		ControlReg[EBADADDR] = address;
-		Limn2500Exception(EXCPAGEFAULT);
-		return false;
+#define NOCACHEAREA 0xC0000000
+
+static inline bool CPUReadByte(uint32_t address, uint32_t *value) {
+	if (ControlReg[RS]&RS_MMU) {
+		if (!CPUTranslate(address, &address, false))
+			return false;
 	}
 
+	if (address & NOCACHEAREA) {
+		if (EBusRead(address, value, 1) == EBUSERROR) {
+			ControlReg[EBADADDR] = address;
+			Limn2500Exception(EXCBUSERROR);
+			return false;
+		}
+
+		*value &= 0xFF;
+	} else {
+		uint8_t *addr;
+
+		if (!CPUCacheLine(address, &addr, false))
+			return false;
+
+		*value = *addr;
+	}
+
+	return true;
+}
+
+static inline bool CPUReadInt(uint32_t address, uint32_t *value) {
 	if (address & 0x1) {
 		ControlReg[EBADADDR] = address;
 		Limn2500Exception(EXCUNALIGNED);
@@ -222,22 +298,27 @@ bool CPUReadInt(uint32_t address, uint32_t *value) {
 			return false;
 	}
 
-	if (EBusRead(address, EBUSINT, value) == EBUSERROR) {
-		ControlReg[EBADADDR] = address;
-		Limn2500Exception(EXCBUSERROR);
-		return false;
+	if (address & NOCACHEAREA) {
+		if (EBusRead(address, value, 2) == EBUSERROR) {
+			ControlReg[EBADADDR] = address;
+			Limn2500Exception(EXCBUSERROR);
+			return false;
+		}
+
+		*value &= 0xFFFF;
+	} else {
+		uint8_t *addr;
+
+		if (!CPUCacheLine(address, &addr, false))
+			return false;
+
+		*value = *(uint16_t*)addr;
 	}
 
 	return true;
 }
 
-bool CPUReadLong(uint32_t address, uint32_t *value) {
-	if ((address < 0x1000) || (address >= 0xFFFFF000)) {
-		ControlReg[EBADADDR] = address;
-		Limn2500Exception(EXCPAGEFAULT);
-		return false;
-	}
-
+static inline bool CPUReadLong(uint32_t address, uint32_t *value) {
 	if (address & 0x3) {
 		Limn2500Exception(EXCUNALIGNED);
 		ControlReg[EBADADDR] = address;
@@ -249,43 +330,49 @@ bool CPUReadLong(uint32_t address, uint32_t *value) {
 			return false;
 	}
 
-	if (EBusRead(address, EBUSLONG, value) == EBUSERROR) {
-		ControlReg[EBADADDR] = address;
-		Limn2500Exception(EXCBUSERROR);
-		return false;
+	if (address & NOCACHEAREA) {
+		if (EBusRead(address, value, 4) == EBUSERROR) {
+			ControlReg[EBADADDR] = address;
+			Limn2500Exception(EXCBUSERROR);
+			return false;
+		}
+	} else {
+		uint8_t *addr;
+
+		if (!CPUCacheLine(address, &addr, false))
+			return false;
+
+		*value = *(uint32_t*)addr;
 	}
 
 	return true;
 }
 
-bool CPUWriteByte(uint32_t address, uint32_t value) {
-	if ((address < 0x1000) || (address >= 0xFFFFF000)) {
-		ControlReg[EBADADDR] = address;
-		Limn2500Exception(EXCPAGEWRITE);
-		return false;
-	}
-
+static inline bool CPUWriteByte(uint32_t address, uint32_t value) {
 	if (ControlReg[RS]&RS_MMU) {
 		if (!CPUTranslate(address, &address, true))
 			return false;
 	}
 
-	if (EBusWrite(address, EBUSBYTE, value) == EBUSERROR) {
-		ControlReg[EBADADDR] = address;
-		Limn2500Exception(EXCBUSERROR);
-		return false;
+	if (address & NOCACHEAREA) {
+		if (EBusWrite(address, &value, 1) == EBUSERROR) {
+			ControlReg[EBADADDR] = address;
+			Limn2500Exception(EXCBUSERROR);
+			return false;
+		}
+	} else {
+		uint8_t *addr;
+
+		if (!CPUCacheLine(address, &addr, true))
+			return false;
+
+		*addr = (uint8_t)value;
 	}
 
 	return true;
 }
 
-bool CPUWriteInt(uint32_t address, uint32_t value) {
-	if ((address < 0x1000) || (address >= 0xFFFFF000)) {
-		ControlReg[EBADADDR] = address;
-		Limn2500Exception(EXCPAGEWRITE);
-		return false;
-	}
-
+static inline bool CPUWriteInt(uint32_t address, uint32_t value) {
 	if (address & 0x1) {
 		ControlReg[EBADADDR] = address;
 		Limn2500Exception(EXCUNALIGNED);
@@ -297,22 +384,25 @@ bool CPUWriteInt(uint32_t address, uint32_t value) {
 			return false;
 	}
 
-	if (EBusWrite(address, EBUSINT, value) == EBUSERROR) {
-		ControlReg[EBADADDR] = address;
-		Limn2500Exception(EXCBUSERROR);
-		return false;
+	if (address & NOCACHEAREA) {
+		if (EBusWrite(address, &value, 2) == EBUSERROR) {
+			ControlReg[EBADADDR] = address;
+			Limn2500Exception(EXCBUSERROR);
+			return false;
+		}
+	} else {
+		uint8_t *addr;
+
+		if (!CPUCacheLine(address, &addr, true))
+			return false;
+
+		*(uint16_t*)addr = (uint16_t)value;
 	}
 
 	return true;
 }
 
-bool CPUWriteLong(uint32_t address, uint32_t value) {
-	if ((address < 0x1000) || (address >= 0xFFFFF000)) {
-		ControlReg[EBADADDR] = address;
-		Limn2500Exception(EXCPAGEWRITE);
-		return false;
-	}
-
+static inline bool CPUWriteLong(uint32_t address, uint32_t value) {
 	if (address & 0x3) {
 		ControlReg[EBADADDR] = address;
 		Limn2500Exception(EXCUNALIGNED);
@@ -324,10 +414,19 @@ bool CPUWriteLong(uint32_t address, uint32_t value) {
 			return false;
 	}
 
-	if (EBusWrite(address, EBUSLONG, value) == EBUSERROR) {
-		ControlReg[EBADADDR] = address;
-		Limn2500Exception(EXCBUSERROR);
-		return false;
+	if (address & NOCACHEAREA) {
+		if (EBusWrite(address, &value, 4) == EBUSERROR) {
+			ControlReg[EBADADDR] = address;
+			Limn2500Exception(EXCBUSERROR);
+			return false;
+		}
+	} else {
+		uint8_t *addr;
+
+		if (!CPUCacheLine(address, &addr, true))
+			return false;
+
+		*(uint32_t*)addr = (uint32_t)value;
 	}
 
 	return true;
@@ -727,6 +826,31 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 
 							break;
 
+						case 8: // cachei
+							if (rd&1) {
+								// invalidate icache
+								for (int i = 0; i<CACHELINES; i++) {
+									ICacheTags[i] = 0;
+								}
+							}
+							if (rd&2) {
+								// write dcache
+								for (int i = 0; i<CACHELINES; i++) {
+									if (DCacheTags[i]&1) {
+										EBusWrite(DCacheTags[i] & ~(CACHELINESIZE-1), &DCache[i*CACHELINESIZE], CACHELINESIZE);
+										DCacheTags[i] &= ~1;
+									}
+								}
+							}
+							if (rd&4) {
+								// invalidate dcache
+								for (int i = 0; i<CACHELINES; i++) {
+									DCacheTags[i] = 0;
+								}
+							}
+
+							break;
+
 						case 10: // fwc
 							Limn2500Exception(EXCFWCALL);
 							break;
@@ -746,6 +870,7 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 							break;
 
 						case 12: // hlt
+							printf("%d\n", CacheFillCount);
 							Halted = true;
 							break;
 

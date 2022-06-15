@@ -129,7 +129,7 @@ int SerialWriteData(uint32_t port, uint32_t type, uint32_t value) {
 	return EBUSSUCCESS;
 }
 
-int SerialReadData(uint32_t port, uint32_t type, uint32_t *value) {
+int SerialReadData(uint32_t port, uint32_t length, uint32_t *value) {
 	struct SerialPort *thisport;
 
 	if (port == 0x11) {
@@ -138,19 +138,7 @@ int SerialReadData(uint32_t port, uint32_t type, uint32_t *value) {
 		thisport = &SerialPorts[1];
 	}
 
-	switch(type) {
-		case EBUSBYTE:
-			*value = 0xFF;
-			break;
-
-		case EBUSINT:
-			*value = 0xFFFF;
-			break;
-
-		case EBUSLONG:
-			*value = 0xFFFF;
-			break;
-	}
+	*value = 0xFFFF;
 
 	return EBUSSUCCESS;
 }

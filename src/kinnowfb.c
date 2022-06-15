@@ -14,7 +14,7 @@
 
 #include "lsic.h"
 
-uint32_t *KinnowFB = 0;
+uint8_t *KinnowFB = 0;
 
 uint32_t FBSize;
 
@@ -73,54 +73,30 @@ void MakeDirty(uint32_t x1, uint32_t y1, uint32_t x2, uint32_t y2) {
 	}
 }
 
-int KinnowWrite(uint32_t address, uint32_t type, uint32_t value) {
+int KinnowWrite(uint32_t address, void *src, uint32_t length) {
 	if ((address >= 0x3000) && (address < 0x3100)) {
 		address -= 0x3000;
 
-		switch(type) {
-			case EBUSBYTE:
-				((uint8_t*)KinnowRegisters)[address] = value;
-				break;
-
-			case EBUSINT:
-				((uint16_t*)KinnowRegisters)[address/2] = value;
-				break;
-
-			case EBUSLONG:
-				KinnowRegisters[address/4] = value;
-				break;
-		}
+		KinnowRegisters[address/4] = *(uint32_t*)src;
 
 		return EBUSSUCCESS;
 	} else if (address >= 0x100000) {
 		address -= 0x100000;
 
-		if (address >= FBSize)
+		if (address+length > FBSize)
 			return EBUSERROR;
 
 		uint32_t pix = address/2;
 		uint32_t x = pix%KINNOW_FRAMEBUFFER_WIDTH;
 		uint32_t y = pix/KINNOW_FRAMEBUFFER_WIDTH;
 
-		switch(type) {
-			case EBUSBYTE:
-				if (((uint8_t*)KinnowFB)[address] != value)
-					MakeDirty(x, y, x, y);
-				((uint8_t*)KinnowFB)[address] = value;
-				break;
+		uint32_t pix1= (address+length+1)/2;
+		uint32_t x1 = pix1%KINNOW_FRAMEBUFFER_WIDTH;
+		uint32_t y1 = pix1/KINNOW_FRAMEBUFFER_WIDTH;
 
-			case EBUSINT:
-				if (((uint16_t*)KinnowFB)[address/2] != value)
-					MakeDirty(x, y, x, y);
-				((uint16_t*)KinnowFB)[address/2] = value;
-				break;
+		MakeDirty(x, y, x1, y1);
 
-			case EBUSLONG:
-				if (((uint32_t*)KinnowFB)[address/4] != value)
-					MakeDirty(x, y, x+1, y);
-				KinnowFB[address/4] = value;
-				break;
-		}
+		memcpy(&KinnowFB[address], src, length);
 
 		return EBUSSUCCESS;
 	}
@@ -128,39 +104,15 @@ int KinnowWrite(uint32_t address, uint32_t type, uint32_t value) {
 	return EBUSERROR;
 }
 
-int KinnowRead(uint32_t address, uint32_t type, uint32_t *value) {
+int KinnowRead(uint32_t address, void *dest, uint32_t length) {
 	if (address < 0x100) { // SlotInfo
-		switch(type) {
-			case EBUSBYTE:
-				*value = ((uint8_t*)SlotInfo)[address];
-				break;
-
-			case EBUSINT:
-				*value = ((uint16_t*)SlotInfo)[address/2];
-				break;
-
-			case EBUSLONG:
-				*value = SlotInfo[address/4];
-				break;
-		}
+		*(uint32_t*)dest = SlotInfo[address/4];
 
 		return EBUSSUCCESS;
 	} else if ((address >= 0x3000) && (address < 0x3100)) {
 		address -= 0x3000;
 
-		switch(type) {
-			case EBUSBYTE:
-				*value = ((uint8_t*)KinnowRegisters)[address];
-				break;
-
-			case EBUSINT:
-				*value = ((uint16_t*)KinnowRegisters)[address/2];
-				break;
-
-			case EBUSLONG:
-				*value = KinnowRegisters[address/4];
-				break;
-		}
+		*(uint32_t*)dest = KinnowRegisters[address/4];
 
 		return EBUSSUCCESS;
 	} else if (address >= 0x100000) {
@@ -169,19 +121,7 @@ int KinnowRead(uint32_t address, uint32_t type, uint32_t *value) {
 		if (address >= FBSize)
 			return EBUSERROR;
 
-		switch(type) {
-			case EBUSBYTE:
-				*value = ((uint8_t*)KinnowFB)[address];
-				break;
-
-			case EBUSINT:
-				*value = ((uint16_t*)KinnowFB)[address/2];
-				break;
-
-			case EBUSLONG:
-				*value = KinnowFB[address/4];
-				break;
-		}
+		memcpy(dest, &KinnowFB[address], length);
 
 		return EBUSSUCCESS;
 	}

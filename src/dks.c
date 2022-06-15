@@ -103,7 +103,7 @@ void DKSSeek(uint32_t lba) {
 	}
 }
 
-uint32_t DKSBlockBuffer[128];
+uint8_t DKSBlockBuffer[512];
 
 int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 	switch(value) {
