@@ -76,7 +76,7 @@ bool IFetch = false;
 
 bool TLBMiss = false;
 
-#define CACHESIZELOG 16
+#define CACHESIZELOG 15
 #define CACHELINELOG 5
 #define CACHEWAYLOG 1
 #define CACHESETLOG (CACHESIZELOG-CACHELINELOG-CACHEWAYLOG)
@@ -870,7 +870,6 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 							break;
 
 						case 12: // hlt
-							printf("%d\n", CacheFillCount);
 							Halted = true;
 							break;
 
