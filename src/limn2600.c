@@ -15,10 +15,14 @@
 #define RS_ECAUSE_SHIFT 28
 #define RS_ECAUSE_MASK  15
 
+#define CACHEMISSSTALL 4 // per the MIPS R3000 as i read in a paper somewhere
+
 #define signext23(n) (((int32_t)(n << 9)) >> 9)
 #define signext18(n) (((int32_t)(n << 14)) >> 14)
 #define signext5(n)  (((int32_t)(n << 27)) >> 27)
 #define signext16(n) (((int32_t)(n << 16)) >> 16)
+
+int CPUStall = 0;
 
 int CPUProgress;
 
@@ -76,7 +80,7 @@ bool IFetch = false;
 
 bool TLBMiss = false;
 
-#define CACHESIZELOG 13
+#define CACHESIZELOG 14
 #define CACHELINELOG 5
 #define CACHEWAYLOG 1
 #define CACHESETLOG (CACHESIZELOG-CACHELINELOG-CACHEWAYLOG)
@@ -224,6 +228,8 @@ static inline bool CPUCacheLine(uint32_t address, uint8_t **value, bool modify) 
 		if (Tags[set*CACHEWAYS+i] == 0)
 			rememberindex = i;
 	}
+
+	CPUStall += CACHEMISSSTALL;
 
 	uint32_t line;
 
@@ -487,6 +493,11 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 			// the CPU did a poll-y looking thing too many times this tick.
 			// skip the rest of the tick so as not to eat up too much of the host's CPU.
 			return cycles;
+		}
+
+		if (CPUStall) {
+			CPUStall--;
+			continue;
 		}
 
 		if (CurrentException || ((ControlReg[RS] & RS_INT) && LSICInterruptPending)) {
