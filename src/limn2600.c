@@ -159,6 +159,12 @@ bool CPUTranslate(uint32_t virt, uint32_t *phys, bool writing) {
 			ControlReg[PGTB] = (ControlReg[PGTB]&0xFFFFF000)|((vpn>>10)<<2);
 			ControlReg[TBINDEX] = TLBWriteCount;
 
+			if (IFetch) {
+				ILastIndex = TLBWriteCount&(TLBSIZE-1);
+			} else {
+				DLastIndex = TLBWriteCount&(TLBSIZE-1);
+			}
+
 			Limn2500Exception(EXCTLBMISS);
 			return false;
 		}
