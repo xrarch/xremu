@@ -279,7 +279,7 @@ static inline bool CPUReadByte(uint32_t address, uint32_t *value) {
 			return false;
 	}
 
-	if (address & NOCACHEAREA) {
+	if (address >= NOCACHEAREA) {
 		if (EBusRead(address, value, 1) == EBUSERROR) {
 			ControlReg[EBADADDR] = address;
 			Limn2500Exception(EXCBUSERROR);
@@ -311,7 +311,7 @@ static inline bool CPUReadInt(uint32_t address, uint32_t *value) {
 			return false;
 	}
 
-	if (address & NOCACHEAREA) {
+	if (address >= NOCACHEAREA) {
 		if (EBusRead(address, value, 2) == EBUSERROR) {
 			ControlReg[EBADADDR] = address;
 			Limn2500Exception(EXCBUSERROR);
@@ -343,7 +343,7 @@ static inline bool CPUReadLong(uint32_t address, uint32_t *value) {
 			return false;
 	}
 
-	if (address & NOCACHEAREA) {
+	if (address >= NOCACHEAREA) {
 		if (EBusRead(address, value, 4) == EBUSERROR) {
 			ControlReg[EBADADDR] = address;
 			Limn2500Exception(EXCBUSERROR);
@@ -367,7 +367,7 @@ static inline bool CPUWriteByte(uint32_t address, uint32_t value) {
 			return false;
 	}
 
-	if (address & NOCACHEAREA) {
+	if (address >= NOCACHEAREA) {
 		if (EBusWrite(address, &value, 1) == EBUSERROR) {
 			ControlReg[EBADADDR] = address;
 			Limn2500Exception(EXCBUSERROR);
@@ -397,7 +397,7 @@ static inline bool CPUWriteInt(uint32_t address, uint32_t value) {
 			return false;
 	}
 
-	if (address & NOCACHEAREA) {
+	if (address >= NOCACHEAREA) {
 		if (EBusWrite(address, &value, 2) == EBUSERROR) {
 			ControlReg[EBADADDR] = address;
 			Limn2500Exception(EXCBUSERROR);
@@ -427,7 +427,7 @@ static inline bool CPUWriteLong(uint32_t address, uint32_t value) {
 			return false;
 	}
 
-	if (address & NOCACHEAREA) {
+	if (address >= NOCACHEAREA) {
 		if (EBusWrite(address, &value, 4) == EBUSERROR) {
 			ControlReg[EBADADDR] = address;
 			Limn2500Exception(EXCBUSERROR);
