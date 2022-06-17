@@ -15,8 +15,8 @@
 #define RS_ECAUSE_SHIFT 28
 #define RS_ECAUSE_MASK  15
 
-#define CACHEMISSSTALL 4 // per the MIPS R3000 as i read in a paper somewhere
-#define UNCACHEDSTALL  3
+#define UNCACHEDSTALL  (CPUHZ/8333333)
+#define CACHEMISSSTALL (UNCACHEDSTALL+1) // per the MIPS R3000 as i read in a paper somewhere
 
 #define signext23(n) (((int32_t)(n << 9)) >> 9)
 #define signext18(n) (((int32_t)(n << 14)) >> 14)
