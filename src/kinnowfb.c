@@ -90,7 +90,7 @@ int KinnowWrite(uint32_t address, void *src, uint32_t length) {
 		uint32_t x = pix%KINNOW_FRAMEBUFFER_WIDTH;
 		uint32_t y = pix/KINNOW_FRAMEBUFFER_WIDTH;
 
-		uint32_t pix1= (address+length+1)/2;
+		uint32_t pix1 = (address+length+1)/2-1;
 		uint32_t x1 = pix1%KINNOW_FRAMEBUFFER_WIDTH;
 		uint32_t y1 = pix1/KINNOW_FRAMEBUFFER_WIDTH;
 
@@ -118,7 +118,7 @@ int KinnowRead(uint32_t address, void *dest, uint32_t length) {
 	} else if (address >= 0x100000) {
 		address -= 0x100000;
 
-		if (address >= FBSize)
+		if (address+length > FBSize)
 			return EBUSERROR;
 
 		memcpy(dest, &KinnowFB[address], length);
