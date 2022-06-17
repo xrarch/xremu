@@ -48,7 +48,7 @@ int PBoardWrite(uint32_t address, void *src, uint32_t length) {
 
 		NVRAMDirty = true;
 
-		if (address+length > 512)
+		if (address+length > NVRAMSIZE)
 			return false;
 
 		memcpy(&NVRAM[address], src, length);
