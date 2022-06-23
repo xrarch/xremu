@@ -74,7 +74,7 @@ int main(int argc, char *argv[]) {
 
 	int zoom = 0;
 
-	int window_flags = SDL_WINDOW_HIDDEN;
+	int window_flags = SDL_WINDOW_HIDDEN | SDL_WINDOW_ALLOW_HIGHDPI;
 	int display = 0;
 	if (fullscreen) {
 		window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;

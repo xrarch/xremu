@@ -6,8 +6,6 @@ The long-term goal is to create a really neat (but useless) emulated desktop com
 
 Ships with a pre-built [boot ROM](https://github.com/limnarch/a3x) binary.
 
-Also see the more featured, but way (way) slower, [Love2D/LuaJIT implementation](https://github.com/limnarch/emu).
-
 ## Running
 
 Make sure you have SDL2 installed.
