@@ -65,10 +65,12 @@ int PBoardWrite(uint32_t address, void *src, uint32_t length) {
 
 			return EBUSSUCCESS;
 		}
-	} else if ((address >= 0x20000) && (address < 0x20200)) {
+	} else if ((address >= 0x20000) && (address < 0x21000)) {
+		// DKS controller buffer
+
 		address -= 0x20000;
 
-		if (address+length > 512)
+		if (address+length > 0x1000)
 			return false;
 
 		memcpy(&DKSBlockBuffer[address], src, length);
@@ -139,9 +141,11 @@ int PBoardRead(uint32_t address, void *dest, uint32_t length) {
 			return EBUSSUCCESS;
 		}
 	} else if ((address >= 0x20000) && (address < 0x21000)) {
+		// DKS controller buffer
+
 		address -= 0x20000;
 
-		if (address+length > 512)
+		if (address+length > 0x1000)
 			return false;
 
 		memcpy(dest, &DKSBlockBuffer[address], length);

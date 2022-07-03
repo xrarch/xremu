@@ -14,30 +14,31 @@ struct DKSDisk {
 	int ID;
 	int Present;
 	uint32_t BlockCount;
+	bool Spinning;
+	uint32_t PlatterLocation;
+	uint32_t HeadLocation;
+	uint32_t OperationInterval;
+	uint32_t SeekTo;
+	uint32_t ConsecutiveZeroSeeks;
 };
 
 struct DKSDisk DKSDisks[DKSDISKS];
 
 int DKSInfoWhat = 0;
-int DKSInfoDetails = 0;
 
 struct DKSDisk *DKSSelectedDrive = 0;
+
+uint32_t DKSStatus = 0;
+uint32_t DKSCompleted = 0;
 
 uint32_t DKSPortA = 0;
 uint32_t DKSPortB = 0;
 
 bool DKSDoInterrupt = false;
-
 bool DKSAsynchronous = false;
 
-bool DKSSpinning = true;
-
-uint32_t DKSPlatterLocation = 0;
-uint32_t DKSHeadLocation = 0;
-
-void DKSInfo(int what, int details) {
+void DKSInfo(int what) {
 	DKSInfoWhat = what;
-	DKSInfoDetails = details;
 
 	if (DKSDoInterrupt)
 		LSICInterrupt(0x3);
@@ -50,60 +51,62 @@ void DKSReset() {
 	DKSSelectedDrive = 0;
 }
 
-uint32_t DKSOperationInterval = 0;
-uint32_t DKSOperationCurrent = 0;
-uint32_t DKSSeekTo = 0;
-uint32_t DKSConsecutiveZeroSeeks = 0;
-
 void DKSOperation(uint32_t dt) {
-	if (!DKSOperationCurrent) {
-		if (DKSSpinning) {
-			DKSPlatterLocation += BLOCKSPERMS;
-			DKSPlatterLocation %= LBAPERTRACK;
+	for (int i = 0; i < DKSDISKS; i++) {
+		if (!DKSDisks[i].Present)
+			break;
+
+		if (!(DKSStatus&(1<<i))) {
+			if (DKSDisks[i].Spinning) {
+				DKSDisks[i].PlatterLocation += BLOCKSPERMS;
+				DKSDisks[i].PlatterLocation %= LBAPERTRACK;
+			}
+		} else if (dt >= DKSDisks[i].OperationInterval) {
+			DKSStatus &= ~(1<<i);
+			DKSCompleted |= 1<<i;
+
+			DKSDisks[i].OperationInterval = 0;
+			DKSDisks[i].PlatterLocation = LBA_TO_BLOCK(DKSDisks[i].SeekTo);
+			DKSDisks[i].HeadLocation = LBA_TO_CYLINDER(DKSDisks[i].SeekTo);
+
+			DKSInfo(0);
+		} else {
+			DKSDisks[i].OperationInterval -= dt;
 		}
-		return;
-	}
-
-	if (dt >= DKSOperationInterval) {
-		DKSOperationCurrent = 0;
-		DKSPlatterLocation = LBA_TO_BLOCK(DKSSeekTo);
-		DKSHeadLocation = LBA_TO_CYLINDER(DKSSeekTo);
-
-		DKSInfo(0, DKSPortA);
-	} else {
-		DKSOperationInterval -= dt;
 	}
 }
 
 void DKSSeek(uint32_t lba) {
+	struct DKSDisk *disk = DKSSelectedDrive;
+
 	// set up the disk for seek
 
-	int cylseek = abs((int)(DKSHeadLocation) - (int)(LBA_TO_CYLINDER(lba))) / (CYLPERDISK/FULLSEEKTIMEMS);
+	int cylseek = abs((int)(disk->HeadLocation) - (int)(LBA_TO_CYLINDER(lba))) / (CYLPERDISK/FULLSEEKTIMEMS);
 
-	if (DKSHeadLocation != LBA_TO_CYLINDER(lba))
+	if (disk->HeadLocation != LBA_TO_CYLINDER(lba))
 		cylseek += SETTLETIMEMS;
 
-	int blockseek = LBA_TO_BLOCK(lba) - DKSPlatterLocation;
+	int blockseek = LBA_TO_BLOCK(lba) - disk->PlatterLocation;
 
 	if (blockseek < 0)
 		blockseek += LBAPERTRACK;
 
-	DKSOperationInterval = cylseek + blockseek/(LBAPERTRACK/ROTATIONTIMEMS);
-	DKSSeekTo = lba;
+	disk->OperationInterval = cylseek + blockseek/(LBAPERTRACK/ROTATIONTIMEMS);
+	disk->SeekTo = lba;
 
-	if (DKSOperationInterval == 0) {
-		DKSConsecutiveZeroSeeks += blockseek;
+	if (disk->OperationInterval == 0) {
+		disk->ConsecutiveZeroSeeks += blockseek;
 
-		if (DKSConsecutiveZeroSeeks > (LBAPERTRACK/ROTATIONTIMEMS)) {
-			DKSOperationInterval = 1;
-			DKSConsecutiveZeroSeeks = 0;
+		if (disk->ConsecutiveZeroSeeks > (LBAPERTRACK/ROTATIONTIMEMS)) {
+			disk->OperationInterval = 1;
+			disk->ConsecutiveZeroSeeks = 0;
 		}
 	} else {
-		DKSConsecutiveZeroSeeks = 0;
+		disk->ConsecutiveZeroSeeks = 0;
 	}
 }
 
-uint8_t DKSBlockBuffer[512];
+uint8_t DKSBlockBuffer[512*DKSDISKS];
 
 int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 	switch(value) {
@@ -124,16 +127,20 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 			if (DKSPortA >= DKSSelectedDrive->BlockCount)
 				return EBUSERROR;
 
+			if (DKSStatus&(1<<DKSSelectedDrive->ID))
+				return EBUSERROR;
+
 			fseek(DKSSelectedDrive->DiskImage, DKSPortA*512, SEEK_SET);
 
-			fread(&DKSBlockBuffer, 512, 1, DKSSelectedDrive->DiskImage);
+			fread(&DKSBlockBuffer[512 * DKSSelectedDrive->ID], 512, 1, DKSSelectedDrive->DiskImage);
 
 			// printf("read %d: %d\n", DKSSelectedDrive->ID, DKSPortA);
 
 			if (!DKSAsynchronous) {
-				DKSInfo(0, DKSPortA);
+				DKSCompleted |= 1<<DKSSelectedDrive->ID;
+				DKSInfo(0);
 			} else {
-				DKSOperationCurrent = 2;
+				DKSStatus |= 1<<DKSSelectedDrive->ID;
 				DKSSeek(DKSPortA);
 			}
 
@@ -147,16 +154,20 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 			if (DKSPortA >= DKSSelectedDrive->BlockCount)
 				return EBUSERROR;
 
+			if (DKSStatus&(1<<DKSSelectedDrive->ID))
+				return EBUSERROR;
+
 			fseek(DKSSelectedDrive->DiskImage, DKSPortA*512, SEEK_SET);
 
-			fwrite(&DKSBlockBuffer, 512, 1, DKSSelectedDrive->DiskImage);
+			fwrite(&DKSBlockBuffer[512 * DKSSelectedDrive->ID], 512, 1, DKSSelectedDrive->DiskImage);
 
 			// printf("write %d: %d\n", DKSSelectedDrive->ID, DKSPortA);
 
 			if (!DKSAsynchronous) {
-				DKSInfo(0, DKSPortA);
+				DKSCompleted |= 1<<DKSSelectedDrive->ID;
+				DKSInfo(0);
 			} else {
-				DKSOperationCurrent = 3;
+				DKSStatus |= 1<<DKSSelectedDrive->ID;
 				DKSSeek(DKSPortA);
 			}
 
@@ -165,7 +176,9 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 		case 4:
 			// read info
 			DKSPortA = DKSInfoWhat;
-			DKSPortB = DKSInfoDetails;
+			DKSPortB = DKSCompleted;
+
+			DKSCompleted = 0;
 
 			return EBUSSUCCESS;
 
@@ -198,10 +211,7 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 }
 
 int DKSReadCMD(uint32_t port, uint32_t type, uint32_t *value) {
-	if (DKSOperationCurrent)
-		*value = DKSOperationCurrent;
-	else
-		*value = 0;
+	*value = DKSStatus;
 
 	return EBUSSUCCESS;
 }
@@ -252,8 +262,8 @@ int DKSAttachImage(char *path) {
 	fseek(disk->DiskImage, 0, SEEK_END);
 
 	disk->BlockCount = ftell(disk->DiskImage)/512;
-
 	disk->Present = 1;
+	disk->Spinning = true;
 
 	printf("%s as dks%d (%d blocks)\n", path, disk->ID, disk->BlockCount);
 
