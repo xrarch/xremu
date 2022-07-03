@@ -164,7 +164,7 @@ static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, int *cachetype, b
 
 	for (int i = 0; i < TLBWAYS; i++) {
 		tlbe = TLB[set*TLBWAYS+i];
-		mask = (tlbe&16) ? 0xFFFFF : 0xFFFFFFFF;
+		mask = (tlbe&1) ? ((tlbe&16) ? 0xFFFFF : 0xFFFFFFFF) : 0xFFFFFFFF;
 		found = (tlbe>>32) == (tbhi&mask);
 
 		if (found) {
@@ -814,7 +814,7 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 							index = ControlReg[TBINDEX]&(TLBSIZE-1);
 							tbhi = ControlReg[TBHI];
 
-							if (ControlReg[TBLO]&16)
+							if ((ControlReg[TBLO]&1) && (ControlReg[TBLO]&16))
 								tbhi &= 0x000FFFFF;
 
 							TLB[index] = ((uint64_t)tbhi<<32)|ControlReg[TBLO];
