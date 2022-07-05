@@ -106,7 +106,7 @@ int KinnowWrite(uint32_t address, void *src, uint32_t length) {
 
 int KinnowRead(uint32_t address, void *dest, uint32_t length) {
 	if (address < 0x100) { // SlotInfo
-		*(uint32_t*)dest = SlotInfo[address/4];
+		memcpy(dest, &((char*)SlotInfo)[address], length);
 
 		return EBUSSUCCESS;
 	} else if ((address >= 0x3000) && (address < 0x3100)) {
