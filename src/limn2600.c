@@ -847,14 +847,14 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 							break;
 
 						case 3: // tbld
-							pde = ControlReg[TBLO];
+							pde = Reg[ra];
 
 							if (!(pde&1)) {
-								ControlReg[TBLO] = 0;
+								Reg[rd] = 0;
 								break;
 							}
 
-							CPUReadLong(((pde>>5)<<12)|((ControlReg[TBHI]&1023)<<2), &ControlReg[TBLO]);
+							CPUReadLong(((pde>>5)<<12)|((ControlReg[TBHI]&1023)<<2), &Reg[rd]);
 
 							break;
 
