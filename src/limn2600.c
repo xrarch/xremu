@@ -946,6 +946,31 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 							PC = currentpc + signext23((ir>>11)<<2);
 						break;
 
+					case 37: // BGT
+						if ((int32_t) Reg[rd] > 0)
+							PC = currentpc + signext23((ir>>11)<<2);
+						break;
+
+					case 29: // BGE
+						if ((int32_t) Reg[rd] >= 0)
+							PC = currentpc + signext23((ir>>11)<<2);
+						break;
+
+					case 21: // BLE
+						if ((int32_t) Reg[rd] <= 0)
+							PC = currentpc + signext23((ir>>11)<<2);
+						break;
+
+					case 13: // BPE
+						if ((Reg[rd]&1) == 0)
+							PC = currentpc + signext23((ir>>11)<<2);
+						break;
+
+					case 5: // BPO
+						if (Reg[rd]&1)
+							PC = currentpc + signext23((ir>>11)<<2);
+						break;
+
 					// ALU
 
 					case 60: // ADDI
