@@ -63,11 +63,6 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	if (EBusInit(4 * 1024 * 1024)) {
-		fprintf(stderr, "failed to initialize ebus\n");
-		return 1;
-	}
-
 	SDL_EnableScreenSaver();
 
 	bool fullscreen = false;
@@ -120,6 +115,8 @@ int main(int argc, char *argv[]) {
 
 	SDL_SetTextureScaleMode(texture, SDL_ScaleModeNearest);
 
+	uint32_t memsize = 4 * 1024 * 1024;
+
 #ifndef EMSCRIPTEN
 	for (int i = 1; i < argc; i++) {
 		// shut up this is beautiful...
@@ -159,8 +156,7 @@ int main(int argc, char *argv[]) {
 			SerialAsynchronous = true;
 		} else if (strcmp(argv[i], "-ramsize") == 0) {
 			if (i+1 < argc) {
-				if (RAMInit(atoi(argv[i+1])) == -1)
-					return 1;
+				memsize = atoi(argv[i+1]);
 				i++;
 			} else {
 				fprintf(stderr, "no ram size specified\n");
@@ -171,11 +167,18 @@ int main(int argc, char *argv[]) {
 			return 1;
 		}
 	}
-#else
+#endif // !EMSCRIPTEN
+
+	if (EBusInit(memsize)) {
+		fprintf(stderr, "failed to initialize ebus\n");
+		return 1;
+	}
+
+#ifdef EMSCRIPTEN
 	ROMLoadFile("bin/boot.bin");
 	DKSAttachImage("bin/mintia.img");
 	DKSAttachImage("bin/aisix.img");
-#endif // !EMSCRIPTEN
+#endif
 
 	CPUReset();
 

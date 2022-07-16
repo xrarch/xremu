@@ -272,10 +272,6 @@ int DKSAttachImage(char *path) {
 
 void DKSInit() {
 	for (int i = 0; i < DKSDISKS; i++) {
-		if (DKSDisks[i].Present) {
-			fclose(DKSDisks[i].DiskImage);
-			DKSDisks[i].Present = 0;
-		}
 		DKSDisks[i].ID = i;
 	}
 

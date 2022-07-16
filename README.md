@@ -13,3 +13,21 @@ Make sure you have SDL2 installed.
 Building the emulator should be as simple as typing `make`.
 
 Then, type `./graphical.sh` in the project directory.
+
+    -ramsize [bytes]
+	    Specify the size of RAM in bytes.
+
+    -dks [diskimage]
+	    Attach a file as a disk image.
+
+    -nvram [file]
+	    Specify an NVRAM file.
+
+    -rom [file]
+	    Specify a file to use as the boot ROM.
+
+    -asyncdisk
+	    Simulate disk seek times.
+
+    -asyncserial
+	    Simulate serial latency.
