@@ -242,8 +242,6 @@ int PBoardInit() {
 	DKSInit();
 	RTCInit();
 
-	nvramfile = 0;
-
 	AmtsuInit();
 
 	return 0;
