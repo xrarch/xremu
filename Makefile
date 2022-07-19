@@ -25,6 +25,11 @@ CFILES = src/main.c \
 	src/mouse.c src/mouse.h
 
 $(TARGET): $(CFILES)
+ifdef EMSCRIPTEN
+	rm -f bin/.DS_Store
+	rm -f bin/nvram
+endif
+
 	$(CC) -o $@ $(filter %.c, $^) $(RISC_CFLAGS)
 
 clean:
