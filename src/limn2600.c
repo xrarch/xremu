@@ -827,10 +827,15 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 
 							vpn = ControlReg[TBHI]&0xFFFFF;
 
+							uint32_t mask = 0xFFFFFFFF;
+
+							if ((ControlReg[TBLO]&1) && (ControlReg[TBLO]&16))
+								mask = 0x000FFFFF;
+
 							index = (vpn&((1<<(TLBSETLOG-1))-1))|(vpn>>19<<(TLBSETLOG-1));
 
 							for (int i = 0; i < TLBWAYS; i++) {
-								if ((TLB[index*TLBWAYS+i]>>32) == ControlReg[TBHI]) {
+								if (((TLB[index*TLBWAYS+i]>>32)&mask) == (ControlReg[TBHI]&mask)) {
 									ControlReg[TBINDEX] = index*TLBWAYS+i;
 									break;
 								}
