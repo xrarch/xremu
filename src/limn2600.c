@@ -60,6 +60,7 @@ enum Limn2500Exceptions {
 	EXCFWCALL    = 3,
 	EXCBUSERROR  = 4,
 	
+	EXCNMI       = 5,
 	EXCBRKPOINT  = 6,
 	EXCINVINST   = 7,
 	EXCINVPRVG   = 8,
@@ -440,7 +441,7 @@ uint32_t CPUDoCycles(uint32_t cycles) {
 		return cycles;
 
 	if (UserBreak && !CurrentException) {
-		Limn2500Exception(6); // breakpoint
+		Limn2500Exception(EXCNMI);
 		UserBreak = false;
 	}
 
