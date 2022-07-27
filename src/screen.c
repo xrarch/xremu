@@ -122,6 +122,10 @@ void ScreenPrev() {
 	ScreenCurrent = &Screens[ScreenCurrentID];
 }
 
+bool IsCtrlDown = false;
+
+extern bool UserBreak;
+
 int ScreenProcessEvents() {
 	SDL_Event event;
 	while (SDL_PollEvent(&event)) {
@@ -178,6 +182,11 @@ int ScreenProcessEvents() {
 				} else if (event.key.keysym.scancode == SDL_SCANCODE_RALT) {
 					ScreenNext();
 					break;
+				} else if (event.key.keysym.scancode == SDL_SCANCODE_LCTRL) {
+					IsCtrlDown = true;
+				} else if (event.key.keysym.scancode == SDL_SCANCODE_TAB && IsCtrlDown) {
+					// ctrl-tab means NMI
+					UserBreak = true;
 				}
 
 				if (ScreenCurrent->KeyPressed)
@@ -185,6 +194,10 @@ int ScreenProcessEvents() {
 				break;
 
 			case SDL_KEYUP:
+				if (event.key.keysym.scancode == SDL_SCANCODE_LCTRL) {
+					IsCtrlDown = false;
+				}
+
 				if (ScreenCurrent->KeyReleased)
 					ScreenCurrent->KeyReleased(ScreenCurrent, event.key.keysym.scancode);
 				break;
