@@ -14,6 +14,8 @@ Building the emulator should be as simple as typing `make`.
 
 Then, type `./graphical.sh` in the project directory.
 
+Striking the right ALT key will switch the display between the framebuffer and the serial TTYs.
+
     -ramsize [bytes]
 	    Specify the size of RAM in bytes.
 
@@ -31,3 +33,6 @@ Then, type `./graphical.sh` in the project directory.
 
     -asyncserial
 	    Simulate serial latency.
+
+	-headless
+	    Don't attach framebuffer, keyboard, or mouse.
