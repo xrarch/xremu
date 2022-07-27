@@ -113,8 +113,10 @@ int ScreenProcessEvents() {
 			}
 
 			case SDL_MOUSEMOTION: {
-				if (ScreenMouseGrabbed)
-					ScreenCurrent->MouseMoved(ScreenCurrent, event.motion.xrel, event.motion.yrel);
+				if (ScreenMouseGrabbed) {
+					if (ScreenCurrent->MouseMoved)
+						ScreenCurrent->MouseMoved(ScreenCurrent, event.motion.xrel, event.motion.yrel);
+				}
 				break;
 			}
 
@@ -128,13 +130,15 @@ int ScreenProcessEvents() {
 					break;
 				}
 
-				ScreenCurrent->MousePressed(ScreenCurrent, event.button.button);
+				if (ScreenCurrent->MousePressed)
+					ScreenCurrent->MousePressed(ScreenCurrent, event.button.button);
 				break;
 			}
 
 
 			case SDL_MOUSEBUTTONUP: {
-				ScreenCurrent->MouseReleased(ScreenCurrent, event.button.button);
+				if (ScreenCurrent->MouseReleased)
+					ScreenCurrent->MouseReleased(ScreenCurrent, event.button.button);
 				break;
 			}
 
@@ -148,11 +152,13 @@ int ScreenProcessEvents() {
 					break;
 				}
 
-				ScreenCurrent->KeyPressed(ScreenCurrent, event.key.keysym.scancode);
+				if (ScreenCurrent->KeyPressed)
+					ScreenCurrent->KeyPressed(ScreenCurrent, event.key.keysym.scancode);
 				break;
 
 			case SDL_KEYUP:
-				ScreenCurrent->KeyReleased(ScreenCurrent, event.key.keysym.scancode);
+				if (ScreenCurrent->KeyReleased)
+					ScreenCurrent->KeyReleased(ScreenCurrent, event.key.keysym.scancode);
 				break;
 		}
 	}

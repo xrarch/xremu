@@ -102,6 +102,16 @@ int main(int argc, char *argv[]) {
 	}
 #endif // !EMSCRIPTEN
 
+	ScreenCreate(KINNOW_FRAMEBUFFER_WIDTH,
+				KINNOW_FRAMEBUFFER_HEIGHT,
+				"LIMNstation Framebuffer",
+				KinnowDraw,
+				KeyboardPressed,
+				KeyboardReleased,
+				MousePressed,
+				MouseReleased,
+				MouseMoved);
+
 	if (EBusInit(memsize)) {
 		fprintf(stderr, "failed to initialize ebus\n");
 		return 1;
@@ -114,24 +124,6 @@ int main(int argc, char *argv[]) {
 #endif
 
 	CPUReset();
-
-struct Screen *ScreenCreate(int w, int h, char *title,
-							ScreenDrawF draw,
-							ScreenKeyPressedF keypressed,
-							ScreenKeyReleasedF keyreleased,
-							ScreenMousePressedF mousepressed,
-							ScreenMouseReleasedF mousereleased,
-							ScreenMouseMovedF mousemoved);
-
-	ScreenCreate(KINNOW_FRAMEBUFFER_WIDTH,
-				KINNOW_FRAMEBUFFER_HEIGHT,
-				"LIMNstation Framebuffer",
-				KinnowDraw,
-				KeyboardPressed,
-				KeyboardReleased,
-				MousePressed,
-				MouseReleased,
-				MouseMoved);
 
 	ScreenInit();
 	ScreenDraw();

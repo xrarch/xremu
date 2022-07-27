@@ -12,6 +12,9 @@
 #include "lsic.h"
 #include "serial.h"
 
+#include "screen.h"
+#include "tty.h"
+
 // assumes about 1ms per character transmission
 
 #define TRANSMITBUFFERSIZE 16
@@ -22,6 +25,7 @@ enum SerialCommands {
 };
 
 struct SerialPort {
+	struct TTY *Tty;
 	uint32_t DataValue;
 	uint32_t DoInterrupts;
 	uint32_t LastChar;
@@ -156,6 +160,9 @@ int SerialInit(int num) {
 
 	SerialPorts[0].LastChar = 0xFFFF;
 	SerialPorts[1].LastChar = 0xFFFF;
+
+	SerialPorts[0].Tty = TTYCreate(80, 25, "ttyS0");
+	SerialPorts[1].Tty = TTYCreate(80, 25, "ttyS1");
 
 	return 0;
 }
