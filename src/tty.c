@@ -14,25 +14,22 @@
 #include "tty.h"
 
 uint32_t TTYPalette[16] = {
-	0x191919,
-	0xCC4C4C,
-	0x57A64E,
-	0xDEDE6C,
-	0x3366CC,
-	0xE57FD8,
-	0x00FFFF,
-	0x999999,
-
-// light palette
-
-	0x4C4C4C,
-	0xF2B2CC,
-	0x7FCC19,
-	0xDEDE6C,
-	0x99B2F2,
-	0x99B2F2,
-	0xB4FFFF,
-	0xF0F0F0,
+	0x1E1D1F, // black
+	0xFF0000, // red
+	0x007300, // green
+	0xFFFF00, // yellow
+	0x8373EE, // blue
+	0xFF00FF, // magenta
+	0x00FFFF, // cyan
+	0xB4B4B4, // light gray
+	0x393939, // dark gray
+	0xF68373, // light red
+	0x7BFFBD, // light green
+	0xFFFFB4, // light yellow
+	0xB4D5FF, // light blue
+	0xFF7BFF, // light magenta
+	0xB4FFFF, // light cyan
+	0xFFFFFF, // white
 };
 
 #define TTYDEFAULTATTR 0x0F
