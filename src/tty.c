@@ -317,8 +317,8 @@ void TTYEscSetColor(struct TTY *tty) {
 		tty->CurrentAttributes |= tty->EscapeParams[0]-30;
 	} else if (param0 >= 40 && param0 <= 47) {
 		// dark background
-		tty->CurrentAttributes &= 0xF0;
-		tty->CurrentAttributes |= (tty->EscapeParams[0]-30)<<4;
+		tty->CurrentAttributes &= 0x0F;
+		tty->CurrentAttributes |= (tty->EscapeParams[0]-40)<<4;
 	} else if (param0 >= 90 && param0 <= 97) {
 		// light foreground
 		tty->CurrentAttributes &= 0xF0;
@@ -326,7 +326,7 @@ void TTYEscSetColor(struct TTY *tty) {
 	} else if (param0 >= 100 && param0 <= 107) {
 		// light background
 		tty->CurrentAttributes &= 0x0F;
-		tty->CurrentAttributes |= (tty->EscapeParams[0]-90+8)<<4;
+		tty->CurrentAttributes |= (tty->EscapeParams[0]-100+8)<<4;
 	}
 }
 
