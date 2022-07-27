@@ -71,7 +71,7 @@ int KeyboardAction(struct AmtsuDevice *dev, uint32_t value) {
 	return EBUSSUCCESS;
 }
 
-void KeyboardPressed(int sdlscancode) {
+void KeyboardPressed(struct Screen *screen, int sdlscancode) {
 	int code = KeyMap[sdlscancode].code;
 
 	if (code) {
@@ -82,7 +82,7 @@ void KeyboardPressed(int sdlscancode) {
 	}
 }
 
-void KeyboardReleased(int sdlscancode) {
+void KeyboardReleased(struct Screen *screen, int sdlscancode) {
 	int code = KeyMap[sdlscancode].code;
 
 	if (code) {

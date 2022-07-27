@@ -1,7 +1,9 @@
+#include "screen.h"
+
 void MouseInit();
 
-void MousePressed(int button);
+void MousePressed(struct Screen *screen, int button);
 
-void MouseReleased(int button);
+void MouseReleased(struct Screen *screen, int button);
 
-void MouseMoved(int dx, int dy);
+void MouseMoved(struct Screen *screen, int dx, int dy);

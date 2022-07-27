@@ -14,6 +14,8 @@
 
 #include "lsic.h"
 
+#include "screen.h"
+
 uint8_t *KinnowFB = 0;
 
 uint32_t FBSize;
@@ -23,11 +25,11 @@ uint32_t SlotInfo[64];
 uint32_t KinnowRegisters[64];
 
 enum KINNOWREGISTERS {
-	REGSIZE = 0,
-	REGVRAM = 1,
+	REGSIZE   = 0,
+	REGVRAM   = 1,
 	REGSTATUS = 5,
-	REGMODE = 6,
-	REGCAUSE = 7,
+	REGMODE   = 6,
+	REGCAUSE  = 7,
 };
 
 uint32_t DirtyRectX1 = 0;
@@ -131,9 +133,11 @@ int KinnowRead(uint32_t address, void *dest, uint32_t length) {
 
 static uint32_t PixelBuffer[KINNOW_FRAMEBUFFER_WIDTH*KINNOW_FRAMEBUFFER_HEIGHT];
 
-bool KinnowDraw(SDL_Texture *texture) {
+void KinnowDraw(struct Screen *screen) {
 	if (!IsDirty)
-		return false;
+		return;
+
+	SDL_Texture *texture = ScreenGetTexture(screen);
 
 	uint32_t dirtyaddr = (DirtyRectY1*KINNOW_FRAMEBUFFER_WIDTH)+DirtyRectX1;
 
@@ -160,8 +164,6 @@ bool KinnowDraw(SDL_Texture *texture) {
 	SDL_UpdateTexture(texture, &rect, PixelBuffer, rect.w * 4);
 
 	IsDirty = false;
-
-	return true;
 }
 
 int KinnowInit() {

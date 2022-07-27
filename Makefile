@@ -22,7 +22,8 @@ CFILES = src/main.c \
 	src/keybd.c src/keybd.h \
 	src/dks.c src/dks.h \
 	src/rtc.c src/rtc.h \
-	src/mouse.c src/mouse.h
+	src/mouse.c src/mouse.h \
+	src/screen.c src/screen.h
 
 $(TARGET): $(CFILES)
 ifdef EMSCRIPTEN

@@ -64,7 +64,7 @@ int MouseAction(struct AmtsuDevice *dev, uint32_t value) {
 	return EBUSSUCCESS;
 }
 
-void MousePressed(int button) {
+void MousePressed(struct Screen *screen, int button) {
 	if ((button >= 1) && (button <= 3)) {
 		if (button == 3)
 			button = 2;
@@ -77,7 +77,7 @@ void MousePressed(int button) {
 	}
 }
 
-void MouseReleased(int button) {
+void MouseReleased(struct Screen *screen, int button) {
 	if ((button >= 1) && (button <= 3)) {
 		if (button == 3)
 			button = 2;
@@ -90,7 +90,7 @@ void MouseReleased(int button) {
 	}
 }
 
-void MouseMoved(int dx, int dy) {
+void MouseMoved(struct Screen *screen, int dx, int dy) {
 	MouseDX += dx;
 	MouseDY += dy;
 

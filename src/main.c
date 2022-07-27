@@ -26,35 +26,18 @@
 #include "ram256.h"
 #include "serial.h"
 
-void RAMDump();
+#include "screen.h"
 
 bool RAMDumpOnExit = false;
 
-static int best_display(const SDL_Rect *rect);
-
-static double scale_display(SDL_Window *window, const SDL_Rect *risc_rect, SDL_Rect *display_rect);
-
-SDL_Rect risc_rect, display_rect;
-
-bool mousegrabbed = false;
 uint32_t tick_start;
 uint32_t tick_end;
-SDL_Texture *texture;
-SDL_Renderer *renderer;
-SDL_Window *window;
 int ticks;
 bool done = false;
 
 void MainLoop(void);
 
-bool KinnowDraw(SDL_Texture *texture);
-
 int main(int argc, char *argv[]) {
-	risc_rect = (SDL_Rect){
-		.w = KINNOW_FRAMEBUFFER_WIDTH,
-		.h = KINNOW_FRAMEBUFFER_HEIGHT
-	};
-
 	SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "0", SDL_HINT_OVERRIDE);
 	SDL_SetHintWithPriority(SDL_HINT_VIDEO_HIGHDPI_DISABLED, "1", SDL_HINT_OVERRIDE);
 
@@ -64,56 +47,6 @@ int main(int argc, char *argv[]) {
 	}
 
 	SDL_EnableScreenSaver();
-
-	bool fullscreen = false;
-
-	int zoom = 0;
-
-	int window_flags = SDL_WINDOW_HIDDEN | SDL_WINDOW_ALLOW_HIGHDPI;
-	int display = 0;
-	if (fullscreen) {
-		window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
-		display = best_display(&risc_rect);
-	}
-	if (zoom == 0) {
-		SDL_Rect bounds;
-		if (SDL_GetDisplayBounds(display, &bounds) == 0 &&
-			bounds.h >= risc_rect.h * 2 && bounds.w >= risc_rect.w * 2) {
-			zoom = 2;
-		} else {
-			zoom = 1;
-		}
-	}
-
-	window = SDL_CreateWindow("LIMNstation",
-										SDL_WINDOWPOS_UNDEFINED_DISPLAY(display),
-										SDL_WINDOWPOS_UNDEFINED_DISPLAY(display),
-										(int)(risc_rect.w * zoom),
-										(int)(risc_rect.h * zoom),
-										window_flags);
-
-	if (!window) {
-		fprintf(stderr, "failed to create window\n");
-		return 1;
-	}
-
-	renderer = SDL_CreateRenderer(window, -1, 0);
-	if (renderer == NULL) {
-		fprintf(stderr, "Could not create renderer: %s", SDL_GetError());
-		return 1;
-	}
-
-	texture = SDL_CreateTexture(renderer,
-											SDL_PIXELFORMAT_ARGB8888,
-											SDL_TEXTUREACCESS_STREAMING,
-											risc_rect.w,
-											risc_rect.h);
-	if (texture == NULL) {
-		fprintf(stderr, "Could not create texture: %s", SDL_GetError());
-		return 1;
-	}
-
-	SDL_SetTextureScaleMode(texture, SDL_ScaleModeNearest);
 
 	uint32_t memsize = 4 * 1024 * 1024;
 
@@ -182,13 +115,26 @@ int main(int argc, char *argv[]) {
 
 	CPUReset();
 
-	double display_scale = scale_display(window, &risc_rect, &display_rect);
-	KinnowDraw(texture);
+struct Screen *ScreenCreate(int w, int h, char *title,
+							ScreenDrawF draw,
+							ScreenKeyPressedF keypressed,
+							ScreenKeyReleasedF keyreleased,
+							ScreenMousePressedF mousepressed,
+							ScreenMouseReleasedF mousereleased,
+							ScreenMouseMovedF mousemoved);
 
-	SDL_ShowWindow(window);
-	SDL_RenderClear(renderer);
-	SDL_RenderCopy(renderer, texture, &risc_rect, &display_rect);
-	SDL_RenderPresent(renderer);
+	ScreenCreate(KINNOW_FRAMEBUFFER_WIDTH,
+				KINNOW_FRAMEBUFFER_HEIGHT,
+				"LIMNstation Framebuffer",
+				KinnowDraw,
+				KeyboardPressed,
+				KeyboardReleased,
+				MousePressed,
+				MouseReleased,
+				MouseMoved);
+
+	ScreenInit();
+	ScreenDraw();
 
 	done = false;
 
@@ -196,8 +142,6 @@ int main(int argc, char *argv[]) {
 
 	tick_start = SDL_GetTicks();
 	tick_end = SDL_GetTicks();
-
-	mousegrabbed = false;
 
 #ifndef EMSCRIPTEN
 	while (!done) {
@@ -249,115 +193,10 @@ void MainLoop(void) {
 	}
 
 	if ((ticks%TPF) == 0) {
-		KinnowDraw(texture);
-
-		SDL_RenderClear(renderer);
-		SDL_RenderCopy(renderer, texture, &risc_rect, &display_rect);
-		SDL_RenderPresent(renderer);
+		ScreenDraw();
 	}
 
-	SDL_Event event;
-	while (SDL_PollEvent(&event)) {
-		switch (event.type) {
-			case SDL_QUIT: {
-				if (RAMDumpOnExit)
-					RAMDump();
-
-				done = true;
-#ifdef EMSCRIPTEN
-				emscripten_cancel_main_loop();
-#endif
-				break;
-			}
-
-			case SDL_WINDOWEVENT: {
-				break;
-			}
-
-			case SDL_MOUSEMOTION: {
-				if (mousegrabbed)
-					MouseMoved(event.motion.xrel, event.motion.yrel);
-				break;
-			}
-
-			case SDL_MOUSEBUTTONDOWN: {
-				if (!mousegrabbed) {
-					SDL_SetWindowGrab(window, true);
-					SDL_ShowCursor(false);
-					SDL_SetWindowTitle(window, "LIMNstation - strike F12 to uncapture mouse");
-					SDL_SetRelativeMouseMode(true);
-					mousegrabbed = true;
-					break;
-				}
-
-				MousePressed(event.button.button);
-				break;
-			}
-
-
-			case SDL_MOUSEBUTTONUP: {
-				MouseReleased(event.button.button);
-				break;
-			}
-
-			case SDL_KEYDOWN:
-				if ((event.key.keysym.scancode == SDL_SCANCODE_F12) && mousegrabbed) {
-					SDL_SetWindowGrab(window, false);
-					SDL_ShowCursor(true);
-					SDL_SetWindowTitle(window, "LIMNstation");
-					SDL_SetRelativeMouseMode(false);
-					mousegrabbed = false;
-					break;
-				}
-
-				KeyboardPressed(event.key.keysym.scancode);
-				break;
-
-			case SDL_KEYUP:
-				KeyboardReleased(event.key.keysym.scancode);
-				break;
-		}
-	}
+	done = ScreenProcessEvents();
 
 	ticks++;
-}
-
-static double scale_display(SDL_Window *window, const SDL_Rect *risc_rect, SDL_Rect *display_rect) {
-	int win_w, win_h;
-	SDL_GetWindowSize(window, &win_w, &win_h);
-	double limn_aspect = (double)risc_rect->w / risc_rect->h;
-	double window_aspect = (double)win_w / win_h;
-
-	double scale;
-	if (limn_aspect > window_aspect) {
-		scale = (double)win_w / risc_rect->w;
-	} else {
-		scale = (double)win_h / risc_rect->h;
-	}
-
-	int w = (int)ceil(risc_rect->w * scale);
-	int h = (int)ceil(risc_rect->h * scale);
-
-	*display_rect = (SDL_Rect){
-		.w = w, .h = h,
-		.x = (win_w - w) / 2,
-		.y = (win_h - h) / 2
-	};
-	return scale;
-}
-
-static int best_display(const SDL_Rect *rect) {
-	int best = 0;
-	int display_cnt = SDL_GetNumVideoDisplays();
-	for (int i = 0; i < display_cnt; i++) {
-		SDL_Rect bounds;
-		if (SDL_GetDisplayBounds(i, &bounds) == 0 &&
-			bounds.h == rect->h && bounds.w >= rect->w) {
-			best = i;
-			if (bounds.w == rect->w) {
-				break;  // exact match
-			}
-		}
-	}
-	return best;
 }
