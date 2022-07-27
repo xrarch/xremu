@@ -10,6 +10,8 @@
 
 struct EBusBranch EBusBranches[EBUSBRANCHES];
 
+extern bool Headless;
+
 int EBusInit(uint32_t memsize) {
 	for (int i = 0; i < EBUSBRANCHES; i++) {
 		EBusBranches[i].Present = 0;
@@ -21,8 +23,10 @@ int EBusInit(uint32_t memsize) {
 	if (PBoardInit())
 		return -1;
 
-	if (KinnowInit())
-		return -1;
+	if (!Headless) {
+		if (KinnowInit())
+			return -1;
+	}
 
 	return 0;
 }

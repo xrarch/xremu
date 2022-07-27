@@ -13,6 +13,8 @@ struct AmtsuDevice AmtsuDevices[AMTSUDEVICES];
 
 int CurrentDevice = 0;
 
+extern bool Headless;
+
 int AmtsuWrite30(uint32_t port, uint32_t type, uint32_t value) {
 	if (value < AMTSUDEVICES) {
 		CurrentDevice = value;
@@ -160,6 +162,8 @@ void AmtsuInit() {
 	AmtsuDevices[0].Present = 1;
 	AmtsuDevices[0].Action = AmtsuControllerAction;
 
-	KeyboardInit();
-	MouseInit();
+	if (!Headless) {
+		KeyboardInit();
+		MouseInit();
+	}
 }

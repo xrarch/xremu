@@ -150,6 +150,9 @@ int ScreenProcessEvents() {
 					SDL_SetRelativeMouseMode(false);
 					ScreenMouseGrabbed = false;
 					break;
+				} else if (event.key.keysym.scancode == SDL_SCANCODE_RALT) {
+					ScreenNext();
+					break;
 				}
 
 				if (ScreenCurrent->KeyPressed)

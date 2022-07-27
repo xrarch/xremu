@@ -29,16 +29,22 @@ struct SerialPort {
 	uint32_t DataValue;
 	uint32_t DoInterrupts;
 	uint32_t LastChar;
+	uint8_t LastArrowKey;
+	uint8_t ArrowKeyState;
 	unsigned char TransmitBuffer[TRANSMITBUFFERSIZE];
 	int TransmitBufferIndex;
 	int SendIndex;
-	bool ReadBusy;
 	bool WriteBusy;
+	int Number;
 };
 
 struct SerialPort SerialPorts[2];
 
 bool SerialAsynchronous = false;
+
+void SerialPutCharacter(struct SerialPort *port, char c) {
+	TTYPutCharacter(port->Tty, c);
+}
 
 void SerialInterval(uint32_t dt) {
 	if (!SerialAsynchronous)
@@ -49,7 +55,7 @@ void SerialInterval(uint32_t dt) {
 
 		while (dt) {
 			if (thisport->SendIndex < thisport->TransmitBufferIndex)
-				putchar(thisport->TransmitBuffer[thisport->SendIndex++]);
+				SerialPutCharacter(thisport, thisport->TransmitBuffer[thisport->SendIndex++]);
 			else
 				break;
 
@@ -65,7 +71,7 @@ void SerialInterval(uint32_t dt) {
 			dt--;
 		}
 
-		fflush(stdout);
+		// fflush(stdout);
 	}
 }
 
@@ -115,8 +121,7 @@ int SerialWriteData(uint32_t port, uint32_t type, uint32_t value) {
 	}
 
 	if (!SerialAsynchronous) {
-		putchar(value&0xFF);
-		fflush(stdout);
+		SerialPutCharacter(thisport, value&0xFF);
 		return EBUSSUCCESS;
 	}
 
@@ -142,10 +147,44 @@ int SerialReadData(uint32_t port, uint32_t length, uint32_t *value) {
 		thisport = &SerialPorts[1];
 	}
 
-	*value = 0xFFFF;
+	if (thisport->LastArrowKey) {
+		if (thisport->ArrowKeyState == 0) {
+			*value = 0x1B;
+		} else if (thisport->ArrowKeyState == 1) {
+			*value = '[';
+		} else if (thisport->ArrowKeyState == 2) {
+			*value = thisport->LastArrowKey;
+			thisport->LastArrowKey = 0;
+		}
+
+		thisport->ArrowKeyState++;
+	} else {
+		*value = thisport->LastChar;
+		thisport->LastChar = 0xFFFF;
+	}
 
 	return EBUSSUCCESS;
 }
+
+void SerialInput(struct TTY *tty, uint16_t c) {
+	struct SerialPort *port = (struct SerialPort *)(tty->Context);
+
+	if (c&0x8000) {
+		// hacky way to do arrow keys
+		port->LastArrowKey = c&0xFF;
+		port->ArrowKeyState = 0;
+	} else {
+		port->LastChar = c;
+	}
+
+	if (port->DoInterrupts)
+		LSICInterrupt(0x4+port->Number);
+}
+
+char *SerialNames[] = {
+	"ttyS0",
+	"ttyS1"
+};
 
 int SerialInit(int num) {
 	int citronoffset = num*2;
@@ -158,11 +197,14 @@ int SerialInit(int num) {
 	CitronPorts[0x11+citronoffset].WritePort = SerialWriteData;
 	CitronPorts[0x11+citronoffset].ReadPort = SerialReadData;
 
-	SerialPorts[0].LastChar = 0xFFFF;
-	SerialPorts[1].LastChar = 0xFFFF;
+	SerialPorts[num].LastChar = 0xFFFF;
+	SerialPorts[num].LastArrowKey = 0;
+	SerialPorts[num].ArrowKeyState = 0;
+	SerialPorts[num].Number = num;
 
-	SerialPorts[0].Tty = TTYCreate(80, 25, "ttyS0");
-	SerialPorts[1].Tty = TTYCreate(80, 25, "ttyS1");
+	SerialPorts[num].Tty = TTYCreate(80, 25, SerialNames[num], SerialInput);
+
+	SerialPorts[num].Tty->Context = &SerialPorts[num];
 
 	return 0;
 }

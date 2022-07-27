@@ -131,7 +131,7 @@ int KinnowRead(uint32_t address, void *dest, uint32_t length) {
 	return EBUSERROR;
 }
 
-static uint32_t PixelBuffer[KINNOW_FRAMEBUFFER_WIDTH*KINNOW_FRAMEBUFFER_HEIGHT];
+uint32_t PixelBuffer[KINNOW_FRAMEBUFFER_WIDTH*KINNOW_FRAMEBUFFER_HEIGHT];
 
 void KinnowDraw(struct Screen *screen) {
 	if (!IsDirty)

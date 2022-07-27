@@ -35,6 +35,8 @@ uint32_t tick_end;
 int ticks;
 bool done = false;
 
+bool Headless = false;
+
 void MainLoop(void);
 
 int main(int argc, char *argv[]) {
@@ -63,6 +65,8 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "no disk image specified\n");
 				return 1;
 			}
+		} else if (strcmp(argv[i], "-headless") == 0) {
+			Headless = true;
 		} else if (strcmp(argv[i], "-nvram") == 0) {
 			if (i+1 < argc) {
 				if (!NVRAMLoadFile(argv[i+1]))
@@ -102,15 +106,17 @@ int main(int argc, char *argv[]) {
 	}
 #endif // !EMSCRIPTEN
 
-	ScreenCreate(KINNOW_FRAMEBUFFER_WIDTH,
-				KINNOW_FRAMEBUFFER_HEIGHT,
-				"LIMNstation Framebuffer",
-				KinnowDraw,
-				KeyboardPressed,
-				KeyboardReleased,
-				MousePressed,
-				MouseReleased,
-				MouseMoved);
+	if (!Headless) {
+		ScreenCreate(KINNOW_FRAMEBUFFER_WIDTH,
+					KINNOW_FRAMEBUFFER_HEIGHT,
+					"LIMNstation Framebuffer",
+					KinnowDraw,
+					KeyboardPressed,
+					KeyboardReleased,
+					MousePressed,
+					MouseReleased,
+					MouseMoved);
+	}
 
 	if (EBusInit(memsize)) {
 		fprintf(stderr, "failed to initialize ebus\n");
