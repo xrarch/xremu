@@ -64,13 +64,38 @@ void ScreenInit() {
 void ScreenDraw() {
 	ScreenCurrent->Draw(ScreenCurrent);
 
+	ScreenCurrent->FirstDraw = 0;
+
 	SDL_Rect screenrect = {
 		.w = ScreenCurrent->Width,
 		.h = ScreenCurrent->Height,
 	};
 
+	SDL_Rect winrect = {
+		.w = ScreenCurrent->Width,
+		.h = ScreenCurrent->Height,
+		.x = 0,
+		.y = 0
+	};
+
+	if ((WindowRect.w != screenrect.w) || (WindowRect.h != screenrect.h)) {
+		int oldx;
+		int oldy;
+
+		SDL_GetWindowPosition(ScreenWindow, &oldx, &oldy);
+
+		oldx += (WindowRect.w - screenrect.w)/2;
+		oldy += (WindowRect.h - screenrect.h)/2;
+
+		SDL_SetWindowSize(ScreenWindow, screenrect.w, screenrect.h);
+		SDL_SetWindowPosition(ScreenWindow, oldx, oldy);
+
+		WindowRect.w = screenrect.w;
+		WindowRect.h = screenrect.h;
+	}
+
 	SDL_RenderClear(ScreenRenderer);
-	SDL_RenderCopy(ScreenRenderer, ScreenCurrent->Texture, &screenrect, 0);
+	SDL_RenderCopy(ScreenRenderer, ScreenCurrent->Texture, &screenrect, &winrect);
 	SDL_RenderPresent(ScreenRenderer);
 
 	if (ScreenFirstDraw) {
@@ -209,6 +234,7 @@ struct Screen *ScreenCreate(int w, int h, char *title,
 	screen->Width = w;
 	screen->Height = h;
 	screen->Title = title;
+	screen->FirstDraw = 1;
 
 	screen->Draw = draw;
 	screen->KeyPressed = keypressed;

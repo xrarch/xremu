@@ -16,6 +16,7 @@ typedef void (*ScreenMouseMovedF)(struct Screen *screen, int dx, int dy);
 struct Screen {
 	int Width;
 	int Height;
+	int FirstDraw;
 	void *Context1;
 	void *Context2;
 	char *Title;
