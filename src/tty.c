@@ -121,11 +121,19 @@ void TTYDraw(struct Screen *screen) {
 	int width = tty->DirtyX2-tty->DirtyX1+1;
 	int height = tty->DirtyY2-tty->DirtyY1+1;
 
+	int checkcurx;
+
+	if (tty->CursorX < tty->Width) {
+		checkcurx = tty->CursorX;
+	} else {
+		checkcurx = tty->Width-1;
+	}
+
 	for (int y = 0; y < height; y++) {
 		for (int x = 0; x < width; x++) {
 			uint16_t cell = textbuffer[dirtyaddr+x];
 
-			if ((((tty->DirtyX1+x) == tty->CursorX) && ((tty->DirtyY1+y) == tty->CursorY))
+			if ((((tty->DirtyX1+x) == checkcurx) && ((tty->DirtyY1+y) == tty->CursorY))
 				&& !tty->IsCursorHidden) {
 				TextBlitCharacter(cell&0xFF,
 							TextFont8x16,
@@ -252,11 +260,7 @@ void TTYScrollDown(struct TTY *tty) {
 void TTYNewline(struct TTY *tty) {
 	tty->CursorY++;
 
-	int oldx = tty->CursorX;
-
-	tty->CursorX = 0;
-
-	TTYMakeDirty(tty, oldx, tty->CursorY-1, 0, tty->CursorY);
+	TTYMakeDirty(tty, tty->CursorX, tty->CursorY-1, 0, tty->CursorY);
 
 	if (tty->CursorY > tty->ScrollWindowBottom) {
 		tty->CursorY = tty->ScrollWindowBottom;
@@ -518,14 +522,16 @@ void TTYPutCharacter(struct TTY *tty, char c) {
 			return;
 
 		default:
-			tty->TextBuffer[cury*tty->Width+curx] = (tty->CurrentAttributes<<8)|c;
+			if (tty->CursorX >= tty->Width) {
+				tty->CursorX = 0;
+				TTYNewline(tty);
+			}
+
+			tty->TextBuffer[tty->CursorY*tty->Width+tty->CursorX] = (tty->CurrentAttributes<<8)|c;
 
 			tty->CursorX++;
 
-			TTYMakeDirty(tty, curx, cury, tty->CursorX, cury);
-
-			if (tty->CursorX >= tty->Width)
-				TTYNewline(tty);
+			TTYMakeDirty(tty, curx, cury, tty->CursorX, tty->CursorY);
 
 			return;
 	}
