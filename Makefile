@@ -17,7 +17,7 @@ CFILES = src/main.c \
 	src/serial.c src/serial.h \
 	src/pboard.c src/pboard.h \
 	src/limn2600.c src/cpu.h \
-	src/kinnowfb.c src/kinnowfb.h \
+	src/kinnowfb.c src/kinnowfb.h src/kinnowpal.h \
 	src/amtsu.c src/amtsu.h \
 	src/keybd.c src/keybd.h \
 	src/dks.c src/dks.h \

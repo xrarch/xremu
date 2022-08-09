@@ -88,11 +88,11 @@ int KinnowWrite(uint32_t address, void *src, uint32_t length) {
 		if (address+length > FBSize)
 			return EBUSERROR;
 
-		uint32_t pix = address/2;
+		uint32_t pix = address;
 		uint32_t x = pix%KINNOW_FRAMEBUFFER_WIDTH;
 		uint32_t y = pix/KINNOW_FRAMEBUFFER_WIDTH;
 
-		uint32_t pix1 = (address+length+1)/2-1;
+		uint32_t pix1 = (address+length)-1;
 		uint32_t x1 = pix1%KINNOW_FRAMEBUFFER_WIDTH;
 		uint32_t y1 = pix1/KINNOW_FRAMEBUFFER_WIDTH;
 
@@ -148,7 +148,7 @@ void KinnowDraw(struct Screen *screen) {
 
 	for (int y = 0; y < height; y++) {
 		for (int x = 0; x < width; x++) {
-			PixelBuffer[pixbufindex++] = KinnowPalette[((uint16_t*)KinnowFB)[dirtyaddr+x]&0x7FFF];
+			PixelBuffer[pixbufindex++] = KinnowPalette[((uint8_t*)KinnowFB)[dirtyaddr+x]];
 		}
 
 		dirtyaddr += KINNOW_FRAMEBUFFER_WIDTH;
@@ -167,7 +167,7 @@ void KinnowDraw(struct Screen *screen) {
 }
 
 int KinnowInit() {
-	FBSize = KINNOW_FRAMEBUFFER_WIDTH * KINNOW_FRAMEBUFFER_HEIGHT * 2;
+	FBSize = KINNOW_FRAMEBUFFER_WIDTH * KINNOW_FRAMEBUFFER_HEIGHT;
 
 	KinnowFB = malloc(FBSize);
 
@@ -184,9 +184,9 @@ int KinnowInit() {
 	memset(&SlotInfo, 0, 256);
 
 	SlotInfo[0] = 0x0C007CA1; // ebus magic number
-	SlotInfo[1] = 0x4B494E35; // board ID
+	SlotInfo[1] = 0x4B494E36; // board ID
 
-	strcpy(&((char*)SlotInfo)[8], "kinnowfb,16");
+	strcpy(&((char*)SlotInfo)[8], "kinnowfb,8");
 
 	KinnowRegisters[REGSIZE] = (KINNOW_FRAMEBUFFER_HEIGHT << 12) | KINNOW_FRAMEBUFFER_WIDTH;
 	KinnowRegisters[REGVRAM] = FBSize;
