@@ -14,7 +14,7 @@
 #include "tty.h"
 
 uint32_t TTYPalette[16] = {
-	0x1E1D1F, // black
+	0x000000, // black
 	0xFF0000, // red
 	0x007300, // green
 	0xFFFF00, // yellow
