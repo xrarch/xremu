@@ -18,8 +18,8 @@ int MouseReleasedButton = 0;
 
 uint32_t MouseMovedV = 0;
 
-int MouseDX = 0;
-int MouseDY = 0;
+uint32_t MouseDX = 0;
+uint32_t MouseDY = 0;
 
 void MouseReset(struct AmtsuDevice *dev) {
 	dev->PortAValue = 0;

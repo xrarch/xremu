@@ -252,7 +252,7 @@ int DKSAttachImage(char *path) {
 		return false;
 	}
 
-	disk->DiskImage = fopen(path, "r+");
+	disk->DiskImage = fopen(path, "r+b");
 
 	if (!disk->DiskImage) {
 		fprintf(stderr, "couldn't open disk image\n");

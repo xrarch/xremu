@@ -81,7 +81,7 @@ uint32_t PC = 0;
 
 uint32_t TLBPC = 0;
 
-int CurrentException;
+uint32_t CurrentException;
 
 bool IFetch = false;
 

@@ -228,7 +228,7 @@ void TTYScrollUp(struct TTY *tty) {
 
 	textbuffer += tty->ScrollWindowTop * tty->Width;
 
-	memcpy(textbuffer,
+	memmove(textbuffer,
 		&textbuffer[tty->Width],
 		(tty->ScrollWindowBottom - tty->ScrollWindowTop)*tty->Width*2);
 
