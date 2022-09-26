@@ -53,7 +53,7 @@ void SerialInterval(uint32_t dt) {
 	for (int port = 0; port < 2; port++) {
 		struct SerialPort *thisport = &SerialPorts[port];
 
-		while (dt) {
+		for (int i = 0; i < dt; i++) {
 			if (thisport->SendIndex < thisport->TransmitBufferIndex)
 				SerialPutCharacter(thisport, thisport->TransmitBuffer[thisport->SendIndex++]);
 			else
@@ -67,8 +67,6 @@ void SerialInterval(uint32_t dt) {
 				if (thisport->DoInterrupts)
 					LSICInterrupt(0x4+port);
 			}
-
-			dt--;
 		}
 
 		// fflush(stdout);
@@ -82,6 +80,8 @@ int SerialWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 		thisport = &SerialPorts[0];
 	} else if (port == 0x12) {
 		thisport = &SerialPorts[1];
+	} else {
+		return EBUSERROR;
 	}
 
 	switch(value) {
@@ -104,6 +104,8 @@ int SerialReadCMD(uint32_t port, uint32_t type, uint32_t *value) {
 		thisport = &SerialPorts[0];
 	} else if (port == 0x12) {
 		thisport = &SerialPorts[1];
+	} else {
+		return EBUSERROR;
 	}
 
 	*value = thisport->WriteBusy;
@@ -118,6 +120,8 @@ int SerialWriteData(uint32_t port, uint32_t type, uint32_t value) {
 		thisport = &SerialPorts[0];
 	} else if (port == 0x13) {
 		thisport = &SerialPorts[1];
+	} else {
+		return EBUSERROR;
 	}
 
 	if (!SerialAsynchronous) {
@@ -145,6 +149,8 @@ int SerialReadData(uint32_t port, uint32_t length, uint32_t *value) {
 		thisport = &SerialPorts[0];
 	} else if (port == 0x13) {
 		thisport = &SerialPorts[1];
+	} else {
+		return EBUSERROR;
 	}
 
 	if (thisport->LastArrowKey) {
