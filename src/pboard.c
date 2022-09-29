@@ -172,7 +172,7 @@ void PBoardReset() {
 	LSICReset();
 }
 
-FILE *nvramfile;
+FILE *nvramfile = 0;
 
 void NVRAMSave() {
 	if (NVRAMDirty && nvramfile) {
@@ -203,6 +203,9 @@ bool ROMLoadFile(char *romname) {
 }
 
 bool NVRAMLoadFile(char *nvramname) {
+	if (nvramfile)
+		fclose(nvramfile);
+
 	nvramfile = fopen(nvramname, "a+");
 
 	if (!nvramfile) {
@@ -221,7 +224,9 @@ bool NVRAMLoadFile(char *nvramname) {
 
 	fseek(nvramfile, 0, SEEK_SET);
 
-	fread(&NVRAM, NVRAMSIZE, 1, nvramfile);
+	int bytes = fread(&NVRAM, NVRAMSIZE, 1, nvramfile);
+
+	memset(&NVRAM[bytes], 0, NVRAMSIZE-bytes);
 
 	return true;
 }
