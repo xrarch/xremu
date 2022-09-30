@@ -224,7 +224,7 @@ bool NVRAMLoadFile(char *nvramname) {
 
 	fseek(nvramfile, 0, SEEK_SET);
 
-	int bytes = fread(&NVRAM, NVRAMSIZE, 1, nvramfile);
+	int bytes = fread(&NVRAM, 1, NVRAMSIZE, nvramfile);
 
 	memset(&NVRAM[bytes], 0, NVRAMSIZE-bytes);
 
