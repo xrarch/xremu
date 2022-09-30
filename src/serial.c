@@ -208,7 +208,7 @@ int SerialInit(int num) {
 	SerialPorts[num].ArrowKeyState = 0;
 	SerialPorts[num].Number = num;
 
-	SerialPorts[num].Tty = TTYCreate(80, 25, SerialNames[num], SerialInput);
+	SerialPorts[num].Tty = TTYCreate(80, 24, SerialNames[num], SerialInput);
 
 	SerialPorts[num].Tty->Context = &SerialPorts[num];
 
