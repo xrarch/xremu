@@ -99,6 +99,24 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "no ram size specified\n");
 				return 1;
 			}
+		} else if (strcmp(argv[i], "-serialrx") == 0) {
+			if (i+1 < argc) {
+				if (!SerialSetRXFile(argv[i+1]))
+					return 1;
+				i++;
+			} else {
+				fprintf(stderr, "no file name specified\n");
+				return 1;
+			}
+		} else if (strcmp(argv[i], "-serialtx") == 0) {
+			if (i+1 < argc) {
+				if (!SerialSetTXFile(argv[i+1]))
+					return 1;
+				i++;
+			} else {
+				fprintf(stderr, "no file name specified\n");
+				return 1;
+			}
 		} else {
 			fprintf(stderr, "don't recognize option %s\n", argv[i]);
 			return 1;

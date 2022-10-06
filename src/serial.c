@@ -6,6 +6,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <errno.h>
 
 #include "ebus.h"
 #include "pboard.h"
@@ -36,22 +39,73 @@ struct SerialPort {
 	int SendIndex;
 	bool WriteBusy;
 	int Number;
+
+	int RXFile;
+	int TXFile;
 };
 
 struct SerialPort SerialPorts[2];
 
 bool SerialAsynchronous = false;
 
+int SerialRXFile = 0;
+int SerialTXFile = 0;
+
+bool SerialSetRXFile(char *filename) {
+	if (SerialRXFile)
+		close(SerialRXFile);
+
+	SerialRXFile = open(filename, O_RDWR | O_NONBLOCK);
+
+	if (SerialRXFile == -1) {
+		SerialRXFile = 0;
+		fprintf(stderr, "couldn't open serialrx file '%s': %s\n", filename, strerror(errno));
+		return false;
+	}
+
+	return true;
+}
+
+bool SerialSetTXFile(char *filename) {
+	if (SerialTXFile)
+		close(SerialTXFile);
+
+	SerialTXFile = open(filename, O_RDWR | O_NONBLOCK);
+
+	if (SerialTXFile == -1) {
+		SerialTXFile = 0;
+		fprintf(stderr, "couldn't open serialtx file '%s': %s\n", filename, strerror(errno));
+		return false;
+	}
+
+	return true;
+}
+
 void SerialPutCharacter(struct SerialPort *port, char c) {
 	TTYPutCharacter(port->Tty, c);
+
+	if (port->TXFile != -1) {
+		write(port->TXFile, &c, 1);
+	}
 }
 
 void SerialInterval(uint32_t dt) {
-	if (!SerialAsynchronous)
-		return;
-
 	for (int port = 0; port < 2; port++) {
 		struct SerialPort *thisport = &SerialPorts[port];
+
+		if ((thisport->RXFile != -1) && (thisport->DoInterrupts)) {
+			struct pollfd rxpoll = { 0 };
+
+			rxpoll.fd = thisport->RXFile;
+			rxpoll.events = POLLIN;
+
+			if (poll(&rxpoll, 1, 0) > 0) {
+				LSICInterrupt(0x4+port);
+			}
+		}
+
+		if (!SerialAsynchronous)
+			continue;
 
 		for (int i = 0; i < dt; i++) {
 			if (thisport->SendIndex < thisport->TransmitBufferIndex)
@@ -153,6 +207,15 @@ int SerialReadData(uint32_t port, uint32_t length, uint32_t *value) {
 		return EBUSERROR;
 	}
 
+	if (thisport->RXFile != -1) {
+		uint8_t nextchar;
+
+		if (read(thisport->RXFile, &nextchar, 1) > 0) {
+			*value = nextchar;
+			return EBUSSUCCESS;
+		}
+	}
+
 	if (thisport->LastArrowKey) {
 		if (thisport->ArrowKeyState == 0) {
 			*value = 0x1B;
@@ -208,8 +271,19 @@ int SerialInit(int num) {
 	SerialPorts[num].ArrowKeyState = 0;
 	SerialPorts[num].Number = num;
 
-	SerialPorts[num].Tty = TTYCreate(80, 24, SerialNames[num], SerialInput);
+	if ((num == 1) && SerialTXFile) {
+		SerialPorts[num].TXFile = SerialTXFile;
+	} else {
+		SerialPorts[num].TXFile = -1;
+	}
 
+	if ((num == 1) && SerialRXFile) {
+		SerialPorts[num].RXFile = SerialRXFile;
+	} else {
+		SerialPorts[num].RXFile = -1;
+	}
+
+	SerialPorts[num].Tty = TTYCreate(80, 24, SerialNames[num], SerialInput);
 	SerialPorts[num].Tty->Context = &SerialPorts[num];
 
 	return 0;
