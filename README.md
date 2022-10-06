@@ -36,3 +36,9 @@ Striking the right ALT key will switch the display between the framebuffer and t
 
 	-headless
 	    Don't attach framebuffer, keyboard, or mouse.
+
+	-serialrx [file]
+		Specify a file (i.e. a FIFO) as the RX line for serial port B.
+
+	-serialtx [file]
+		Specify a file (i.e. a FIFO) as the TX line for serial port B.
