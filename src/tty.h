@@ -112,7 +112,7 @@ static uint8_t KeyMapNormal[SDL_NUM_SCANCODES] = {
 
 	[SDL_SCANCODE_KP_DIVIDE]   = '\\',
 	[SDL_SCANCODE_KP_MINUS]    = '-',
-	[SDL_SCANCODE_KP_ENTER]    = '\n',
+	[SDL_SCANCODE_KP_ENTER]    = '\r',
 	[SDL_SCANCODE_KP_0]        = '0',
 	[SDL_SCANCODE_KP_1]        = '1',
 	[SDL_SCANCODE_KP_2]        = '2',
@@ -278,7 +278,7 @@ static uint8_t KeyMapShift[SDL_NUM_SCANCODES] = {
 
 	[SDL_SCANCODE_KP_DIVIDE]   = '\\',
 	[SDL_SCANCODE_KP_MINUS]    = '-',
-	[SDL_SCANCODE_KP_ENTER]    = '\n',
+	[SDL_SCANCODE_KP_ENTER]    = '\r',
 	[SDL_SCANCODE_KP_0]        = '0',
 	[SDL_SCANCODE_KP_1]        = '1',
 	[SDL_SCANCODE_KP_2]        = '2',
