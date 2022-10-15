@@ -40,13 +40,20 @@ struct SerialPort {
 	bool WriteBusy;
 	int Number;
 
+#ifndef EMSCRIPTEN
 	int RXFile;
 	int TXFile;
+#endif
 };
 
 struct SerialPort SerialPorts[2];
 
 bool SerialAsynchronous = false;
+
+#ifndef EMSCRIPTEN
+// emcc dies compiling this code for reasons I am too lazy to discover. plus
+// this feature is irrelevant for the web emulator, so just ifdef everything
+// related to it out.
 
 int SerialRXFile = 0;
 int SerialTXFile = 0;
@@ -81,18 +88,23 @@ bool SerialSetTXFile(char *filename) {
 	return true;
 }
 
+#endif
+
 void SerialPutCharacter(struct SerialPort *port, char c) {
 	TTYPutCharacter(port->Tty, c);
 
+#ifndef EMSCRIPTEN
 	if (port->TXFile != -1) {
 		write(port->TXFile, &c, 1);
 	}
+#endif
 }
 
 void SerialInterval(uint32_t dt) {
 	for (int port = 0; port < 2; port++) {
 		struct SerialPort *thisport = &SerialPorts[port];
 
+#ifndef EMSCRIPTEN
 		if ((thisport->RXFile != -1) && (thisport->DoInterrupts)) {
 			struct pollfd rxpoll = { 0 };
 
@@ -103,6 +115,7 @@ void SerialInterval(uint32_t dt) {
 				LSICInterrupt(0x4+port);
 			}
 		}
+#endif
 
 		if (!SerialAsynchronous)
 			continue;
@@ -207,6 +220,7 @@ int SerialReadData(uint32_t port, uint32_t length, uint32_t *value) {
 		return EBUSERROR;
 	}
 
+#ifndef EMSCRIPTEN
 	if (thisport->RXFile != -1) {
 		uint8_t nextchar;
 
@@ -215,6 +229,7 @@ int SerialReadData(uint32_t port, uint32_t length, uint32_t *value) {
 			return EBUSSUCCESS;
 		}
 	}
+#endif
 
 	if (thisport->LastArrowKey) {
 		if (thisport->ArrowKeyState == 0) {
@@ -271,6 +286,7 @@ int SerialInit(int num) {
 	SerialPorts[num].ArrowKeyState = 0;
 	SerialPorts[num].Number = num;
 
+#ifndef EMSCRIPTEN
 	if ((num == 1) && SerialTXFile) {
 		SerialPorts[num].TXFile = SerialTXFile;
 	} else {
@@ -282,6 +298,7 @@ int SerialInit(int num) {
 	} else {
 		SerialPorts[num].RXFile = -1;
 	}
+#endif
 
 	SerialPorts[num].Tty = TTYCreate(80, 24, SerialNames[num], SerialInput);
 	SerialPorts[num].Tty->Context = &SerialPorts[num];
