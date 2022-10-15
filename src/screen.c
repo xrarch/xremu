@@ -35,6 +35,14 @@ SDL_Rect WindowRect;
 void ScreenInit() {
 	// all the screens should have been created before this is called.
 
+	SDL_Rect bounds;
+	if (SDL_GetDisplayBounds(0, &bounds) == 0 &&
+	    bounds.h >= WindowHeight * 2 && bounds.w >= WindowWidth * 2) {
+	  ScreenZoom = 2;
+	} else {
+	  ScreenZoom = 1;
+	}
+
 	ScreenWindow = SDL_CreateWindow("LIMNstation Emulator",
 										SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
 										(int)(WindowWidth * ScreenZoom),
@@ -55,7 +63,7 @@ void ScreenInit() {
 
 	WindowRect = (SDL_Rect){
 		.w = WindowWidth,
-		.h = WindowHeight
+		.h = WindowHeight,
 	};
 
 	ScreenCurrent = &Screens[0];
@@ -72,8 +80,8 @@ void ScreenDraw() {
 	};
 
 	SDL_Rect winrect = {
-		.w = ScreenCurrent->Width,
-		.h = ScreenCurrent->Height,
+		.w = ScreenCurrent->Width*ScreenZoom,
+		.h = ScreenCurrent->Height*ScreenZoom,
 		.x = 0,
 		.y = 0
 	};
@@ -87,7 +95,7 @@ void ScreenDraw() {
 		oldx += (WindowRect.w - screenrect.w)/2;
 		oldy += (WindowRect.h - screenrect.h)/2;
 
-		SDL_SetWindowSize(ScreenWindow, screenrect.w, screenrect.h);
+		SDL_SetWindowSize(ScreenWindow, screenrect.w * ScreenZoom, screenrect.h * ScreenZoom);
 		SDL_SetWindowPosition(ScreenWindow, oldx, oldy);
 
 		WindowRect.w = screenrect.w;
