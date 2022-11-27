@@ -91,7 +91,7 @@ bool IFetch = false;
 
 bool TLBMiss = false;
 
-#define CACHESIZELOG 15
+#define CACHESIZELOG 14
 #define CACHELINELOG 4
 #define CACHEWAYLOG 1
 #define CACHESETLOG (CACHESIZELOG-CACHELINELOG-CACHEWAYLOG)
