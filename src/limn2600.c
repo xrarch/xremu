@@ -15,7 +15,7 @@
 #define RS_ECAUSE_SHIFT 28
 #define RS_ECAUSE_MASK  15
 
-#define UNCACHEDSTALL  (CPUHZ/8333333)
+#define UNCACHEDSTALL  3
 #define CACHEMISSSTALL (UNCACHEDSTALL+1) // per the MIPS R3000 as i read in a paper somewhere
 
 #define signext23(n) (((int32_t)(n << 9)) >> 9)
@@ -25,6 +25,7 @@
 
 bool CPUSimulateCaches = false;
 bool CPUSimulateCacheStalls = false;
+bool CPUPrintCache = false;
 
 int CPUStall = 0;
 
@@ -92,7 +93,7 @@ bool TLBMiss = false;
 
 #define CACHESIZELOG 15
 #define CACHELINELOG 4
-#define CACHEWAYLOG 0
+#define CACHEWAYLOG 1
 #define CACHESETLOG (CACHESIZELOG-CACHELINELOG-CACHEWAYLOG)
 
 #define CACHESIZE (1<<CACHESIZELOG)
@@ -222,6 +223,9 @@ static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, int *cachetype, b
 
 uint32_t CacheFillCount = 0;
 uint32_t ICacheFillCount = 0;
+
+uint32_t CacheHitCount = 0;
+uint32_t ICacheHitCount = 0;
 
 #define NOCACHEAREA 0xC0000000
 
@@ -353,6 +357,11 @@ static inline bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue
 			else
 				CacheFillCount++;
 		} else {
+			if (IFetch)
+				ICacheHitCount++;
+			else
+				CacheHitCount++;
+
 			insertindex = -1;
 		}
 
@@ -448,13 +457,35 @@ void CPUReset() {
 	CurrentException = 0;
 }
 
-uint32_t CPUDoCycles(uint32_t cycles) {
+int TimeToNextPrint = 2000;
+
+uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 	if (!Running)
 		return cycles;
 
 	if (UserBreak && !CurrentException) {
 		Limn2500Exception(EXCNMI);
 		UserBreak = false;
+	}
+
+	if (CPUPrintCache) {
+		TimeToNextPrint -= dt;
+
+		if (TimeToNextPrint <= 0) {
+			int itotal = ICacheFillCount+ICacheHitCount;
+			int dtotal = CacheFillCount+CacheHitCount;
+
+			printf("icache misses: %d (%.2f%% miss rate)\n", ICacheFillCount, (double)ICacheFillCount/(double)itotal*100.0);
+			printf("dcache misses: %d (%.2f%% miss rate)\n", CacheFillCount, (double)CacheFillCount/(double)dtotal*100.0);
+
+			CacheFillCount = 0;
+			ICacheFillCount = 0;
+
+			CacheHitCount = 0;
+			ICacheHitCount = 0;
+
+			TimeToNextPrint = 2000;
+		}
 	}
 
 	if (Halted) {

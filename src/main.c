@@ -121,6 +121,8 @@ int main(int argc, char *argv[]) {
 			CPUSimulateCaches = true;
 		} else if (strcmp(argv[i], "-cachemiss") == 0) {
 			CPUSimulateCacheStalls = true;
+		} else if (strcmp(argv[i], "-cacheprint") == 0) {
+			CPUPrintCache = true;
 		} else {
 			fprintf(stderr, "don't recognize option %s\n", argv[i]);
 			return 1;
@@ -208,7 +210,7 @@ void MainLoop(void) {
 		SerialInterval(1);
 
 		while (cyclesleft > 0) {
-			cyclesleft -= CPUDoCycles(cyclesleft);
+			cyclesleft -= CPUDoCycles(cyclesleft, 1);
 		}
 	}
 

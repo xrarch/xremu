@@ -44,6 +44,9 @@ be simulated using the switches `-asyncdisk`, `-asyncserial`, and `-cachesim` re
 	-cachemiss
 		Simulate cycle delays on cache misses.
 
+	-cacheprint
+		Print cache statistics every 2 seconds.
+
 	-headless
 	    Don't attach framebuffer, keyboard, or mouse.
 
