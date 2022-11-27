@@ -117,6 +117,10 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "no file name specified\n");
 				return 1;
 			}
+		} else if (strcmp(argv[i], "-cachesim") == 0) {
+			CPUSimulateCaches = true;
+		} else if (strcmp(argv[i], "-cachemiss") == 0) {
+			CPUSimulateCacheStalls = true;
 		} else {
 			fprintf(stderr, "don't recognize option %s\n", argv[i]);
 			return 1;
