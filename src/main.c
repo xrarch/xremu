@@ -123,6 +123,8 @@ int main(int argc, char *argv[]) {
 			CPUSimulateCacheStalls = true;
 		} else if (strcmp(argv[i], "-cacheprint") == 0) {
 			CPUPrintCache = true;
+		} else if (strcmp(argv[i], "-diskprint") == 0) {
+			DKSPrint = true;
 		} else {
 			fprintf(stderr, "don't recognize option %s\n", argv[i]);
 			return 1;
@@ -182,6 +184,9 @@ int main(int argc, char *argv[]) {
 #endif
 
 	NVRAMSave();
+
+	if (RAMDumpOnExit)
+		RAMDump();
 
 	return 0;
 }

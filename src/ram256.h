@@ -3,3 +3,5 @@
 #define RAMMAXIMUM (RAMSLOTSIZE * RAMSLOTCOUNT)
 
 int RAMInit(uint32_t memsize);
+
+void RAMDump();

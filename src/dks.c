@@ -36,6 +36,7 @@ uint32_t DKSPortB = 0;
 
 bool DKSDoInterrupt = false;
 bool DKSAsynchronous = false;
+bool DKSPrint = false;
 
 void DKSInfo(int what) {
 	DKSInfoWhat = what;
@@ -134,7 +135,8 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 			fread(&DKSBlockBuffer[512 * DKSSelectedDrive->ID], 512, 1, DKSSelectedDrive->DiskImage);
 
-			// printf("read %d: %d\n", DKSSelectedDrive->ID, DKSPortA);
+			if (DKSPrint)
+				printf("dks%d: read  %d\n", DKSSelectedDrive->ID, DKSPortA);
 
 			if (!DKSAsynchronous) {
 				DKSCompleted |= 1<<DKSSelectedDrive->ID;
@@ -161,7 +163,8 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 			fwrite(&DKSBlockBuffer[512 * DKSSelectedDrive->ID], 512, 1, DKSSelectedDrive->DiskImage);
 
-			// printf("write %d: %d\n", DKSSelectedDrive->ID, DKSPortA);
+			if (DKSPrint)
+				printf("dks%d: write %d\n", DKSSelectedDrive->ID, DKSPortA);
 
 			if (!DKSAsynchronous) {
 				DKSCompleted |= 1<<DKSSelectedDrive->ID;

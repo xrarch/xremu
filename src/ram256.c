@@ -15,8 +15,32 @@ uint32_t RAMSlotSizes[RAMSLOTCOUNT];
 
 uint32_t RAMSize;
 
+char *RAMSlotNames[RAMSLOTCOUNT] = {
+	"bank0.bin",
+	"bank1.bin",
+	"bank2.bin",
+	"bank3.bin",
+	"bank4.bin",
+	"bank5.bin",
+	"bank6.bin",
+	"bank7.bin"
+};
+
 void RAMDump() {
-	// TODO make work in a sane way again
+	// dump each bank
+
+	for (int i = 0; i < RAMSLOTCOUNT; i++) {
+		if (RAMSlotSizes[i] > 0) {
+			// dump
+
+			FILE *dumpfile = fopen(RAMSlotNames[i], "wb");
+
+			if (dumpfile) {
+				fwrite(RAMSlots[i], 1, RAMSlotSizes[i], dumpfile);
+				fclose(dumpfile);
+			}
+		}
+	}
 }
 
 int RAMWrite(uint32_t address, void *src, uint32_t length) {

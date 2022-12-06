@@ -7,6 +7,7 @@ void DKSReset();
 extern uint8_t DKSBlockBuffer[512*DKSDISKS];
 
 extern bool DKSAsynchronous;
+extern bool DKSPrint;
 
 int DKSAttachImage(char *path);
 

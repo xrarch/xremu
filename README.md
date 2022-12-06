@@ -47,6 +47,12 @@ be simulated using the switches `-asyncdisk`, `-asyncserial`, and `-cachesim` re
 	-cacheprint
 		Print cache statistics every 2 seconds.
 
+	-diskprint
+		Print disk accesses.
+
+	-dumpram
+		Dump the contents of RAM to a file called bank0.bin upon exit.
+
 	-headless
 	    Don't attach framebuffer, keyboard, or mouse.
 
