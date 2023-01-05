@@ -6,6 +6,8 @@ The long-term goal is to create a really neat (but useless) emulated desktop com
 
 Ships with a pre-built [boot ROM](https://github.com/limnarch/a3x) binary.
 
+![Badge](https://raw.githubusercontent.com/xrarch/xremu/master/17032.png)
+
 ## Running
 
 Make sure you have SDL2 installed.
