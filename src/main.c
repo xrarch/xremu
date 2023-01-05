@@ -135,7 +135,7 @@ int main(int argc, char *argv[]) {
 	if (!Headless) {
 		ScreenCreate(KINNOW_FRAMEBUFFER_WIDTH,
 					KINNOW_FRAMEBUFFER_HEIGHT,
-					"LIMNstation Framebuffer",
+					"XR/STATION Framebuffer",
 					KinnowDraw,
 					KeyboardPressed,
 					KeyboardReleased,

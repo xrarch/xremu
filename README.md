@@ -1,6 +1,6 @@
-# LIMNemu (C+SDL)
+# XR/EMU (C+SDL)
 
-Emulates the LIMNstation fantasy computer, inspired by late 80s Unix workstations.
+Emulates the XR/station fantasy computer, inspired by late 80s RISC workstations.
 
 The long-term goal is to create a really neat (but useless) emulated desktop computer.
 

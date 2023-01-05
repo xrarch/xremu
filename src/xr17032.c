@@ -33,13 +33,13 @@ int CPUProgress;
 
 uint32_t Reg[32];
 
-enum Limn2500Registers {
+enum Xr17032Registers {
 	LR = 31,
 };
 
 uint32_t ControlReg[16];
 
-enum Limn2500ControlRegisters {
+enum Xr17032ControlRegisters {
 	RS       = 0,
 	TBLO     = 2,
 	EPC      = 3,
@@ -53,12 +53,12 @@ enum Limn2500ControlRegisters {
 	TBHI     = 11,
 };
 
-enum Limn2500CacheTypes {
+enum Xr17032CacheTypes {
 	NOCACHE  = 1,
 	CACHE    = 0,
 };
 
-enum Limn2500Exceptions {
+enum Xr17032Exceptions {
 	EXCINTERRUPT = 1,
 	EXCSYSCALL   = 2,
 	EXCFWCALL    = 3,
@@ -134,7 +134,7 @@ uint32_t TLBWriteCount = 0;
 
 uint32_t LastInstruction;
 
-static inline void Limn2500Exception(int exception) {
+static inline void Xr17032Exception(int exception) {
 	if (CurrentException) {
 		fprintf(stderr, "double exception, shouldnt ever happen");
 		abort();
@@ -190,14 +190,14 @@ static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, int *cachetype, b
 		else
 			ControlReg[TBINDEX] = set*TLBWAYS+rememberindex;
 
-		Limn2500Exception(EXCTLBMISS);
+		Xr17032Exception(EXCTLBMISS);
 		return false;
 	}
 
 	if (!(tlbe&1)) {
 		// invalid.
 		ControlReg[EBADADDR] = virt;
-		Limn2500Exception(writing ? EXCPAGEWRITE : EXCPAGEFAULT);
+		Xr17032Exception(writing ? EXCPAGEWRITE : EXCPAGEFAULT);
 		return false;
 	}
 
@@ -205,13 +205,13 @@ static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, int *cachetype, b
 
 	if (((tlbe&4) == 4) && (ControlReg[RS]&RS_USER)) { // kernel (K) bit
 		ControlReg[EBADADDR] = virt;
-		Limn2500Exception(writing ? EXCPAGEWRITE : EXCPAGEFAULT);
+		Xr17032Exception(writing ? EXCPAGEWRITE : EXCPAGEFAULT);
 		return false;
 	}
 
 	if (writing && ((tlbe&2)==0)) { // writable (W) bit not set
 		ControlReg[EBADADDR] = virt;
-		Limn2500Exception(EXCPAGEWRITE);
+		Xr17032Exception(EXCPAGEWRITE);
 		return false;
 	}
 
@@ -239,7 +239,7 @@ uint32_t AccessMasks[5] = {
 
 static inline bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, bool writing) {
 	if (address & (length-1)) {
-		Limn2500Exception(EXCUNALIGNED);
+		Xr17032Exception(EXCUNALIGNED);
 		ControlReg[EBADADDR] = address;
 		return false;
 	}
@@ -268,7 +268,7 @@ static inline bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue
 
 		if (result == EBUSERROR) {
 			ControlReg[EBADADDR] = address;
-			Limn2500Exception(EXCBUSERROR);
+			Xr17032Exception(EXCBUSERROR);
 			return false;
 		}
 
@@ -345,7 +345,7 @@ static inline bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue
 			} else {
 				if (EBusRead(lineaddr, cacheline, CACHELINESIZE) == EBUSERROR) {
 					ControlReg[EBADADDR] = address;
-					Limn2500Exception(EXCBUSERROR);
+					Xr17032Exception(EXCBUSERROR);
 					return false;
 				}
 			}
@@ -464,7 +464,7 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 		return cycles;
 
 	if (UserBreak && !CurrentException) {
-		Limn2500Exception(EXCNMI);
+		Xr17032Exception(EXCNMI);
 		UserBreak = false;
 	}
 
@@ -580,7 +580,7 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 			} else {
 				if (newstate&128) {
 					// legacy exceptions are enabled, disable virtual
-					// addressing. this is NOT part of the "official" limn2600
+					// addressing. this is NOT part of the "official" xr17032
 					// architecture and is a hack to continue running AISIX in
 					// emulation.
 
@@ -747,7 +747,7 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 							break;
 
 						case 12: // invalid
-							Limn2500Exception(EXCINVINST);
+							Xr17032Exception(EXCINVINST);
 							break;
 
 						case 13: // MOV RD, LONG
@@ -775,11 +775,11 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 
 				switch(funct) {
 					case 0: // SYS
-						Limn2500Exception(EXCSYSCALL);
+						Xr17032Exception(EXCSYSCALL);
 						break;
 
 					case 1: // BRK
-						Limn2500Exception(EXCBRKPOINT);
+						Xr17032Exception(EXCBRKPOINT);
 						break;
 
 					case 8: // SC
@@ -847,12 +847,12 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 						break;
 
 					default:
-						Limn2500Exception(EXCINVINST);
+						Xr17032Exception(EXCINVINST);
 						break;
 				}
 			} else if (majoropcode == 41) { // privileged instructions 101001
 				if (ControlReg[RS]&RS_USER) {
-					Limn2500Exception(EXCINVPRVG);
+					Xr17032Exception(EXCINVPRVG);
 				} else {
 					funct = ir>>28;
 
@@ -947,7 +947,7 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 							break;
 
 						case 10: // FWC
-							Limn2500Exception(EXCFWCALL);
+							Xr17032Exception(EXCFWCALL);
 							break;
 
 						case 11: // RFE
@@ -980,7 +980,7 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 							break;
 
 						default:
-							Limn2500Exception(EXCINVINST);
+							Xr17032Exception(EXCINVINST);
 							break;
 					}
 				}
@@ -1149,7 +1149,7 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 						break;
 
 					default:
-						Limn2500Exception(EXCINVINST);
+						Xr17032Exception(EXCINVINST);
 						break;
 				}
 			}

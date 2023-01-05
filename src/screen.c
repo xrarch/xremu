@@ -43,7 +43,7 @@ void ScreenInit() {
 	  ScreenZoom = 1;
 	}
 
-	ScreenWindow = SDL_CreateWindow("LIMNstation Emulator",
+	ScreenWindow = SDL_CreateWindow("XR/station Emulator",
 										SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
 										(int)(WindowWidth * ScreenZoom),
 										(int)(WindowHeight * ScreenZoom),
@@ -161,7 +161,7 @@ int ScreenProcessEvents() {
 				if (!ScreenMouseGrabbed) {
 					SDL_SetWindowGrab(ScreenWindow, true);
 					SDL_ShowCursor(false);
-					SDL_SetWindowTitle(ScreenWindow, "LIMNstation - strike F12 to uncapture mouse");
+					SDL_SetWindowTitle(ScreenWindow, "XR/station - strike F12 to uncapture mouse");
 					SDL_SetRelativeMouseMode(true);
 					ScreenMouseGrabbed = true;
 					break;
@@ -183,7 +183,7 @@ int ScreenProcessEvents() {
 				if ((event.key.keysym.scancode == SDL_SCANCODE_F12) && ScreenMouseGrabbed) {
 					SDL_SetWindowGrab(ScreenWindow, false);
 					SDL_ShowCursor(true);
-					SDL_SetWindowTitle(ScreenWindow, "LIMNstation");
+					SDL_SetWindowTitle(ScreenWindow, "XR/station");
 					SDL_SetRelativeMouseMode(false);
 					ScreenMouseGrabbed = false;
 					break;
