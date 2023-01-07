@@ -4,7 +4,9 @@ Emulates the XR/station fantasy computer, inspired by late 80s RISC workstations
 
 The long-term goal is to create a really neat (but useless) emulated desktop computer.
 
-Ships with a pre-built [boot ROM](https://github.com/limnarch/a3x) binary.
+For easy testing and experimentation, you can check out the [web emulator](https://xrarch.github.io).
+
+Ships with a pre-built [boot ROM](https://github.com/xrarch/a3x) binary.
 
 <img src="https://raw.githubusercontent.com/xrarch/xremu/master/17032.png" width="256">
 

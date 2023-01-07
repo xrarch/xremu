@@ -36,4 +36,4 @@ endif
 	$(CC) -o $@ $(filter %.c, $^) $(RISC_CFLAGS)
 
 clean:
-	rm -rf limnemu*
+	rm -rf xremu*
