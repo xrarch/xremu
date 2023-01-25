@@ -25,43 +25,43 @@ and caches aren't simulated. In order to test for accuracy in systems programmin
 be simulated using the switches `-asyncdisk`, `-asyncserial`, and `-cachesim` respectively.
 
     -ramsize [bytes]
-	    Specify the size of RAM in bytes.
+        Specify the size of RAM in bytes.
 
     -dks [diskimage]
-	    Attach a file as a disk image.
+        Attach a file as a disk image.
 
     -nvram [file]
-	    Specify an NVRAM file.
+        Specify an NVRAM file.
 
     -rom [file]
-	    Specify a file to use as the boot ROM.
+        Specify a file to use as the boot ROM.
 
     -asyncdisk
-	    Simulate disk seek times.
+        Simulate disk seek times.
 
     -asyncserial
-	    Simulate serial latency.
+        Simulate serial latency.
 
-	-cachesim
-		Simulate an I-cache and a writethrough D-cache with a 4-entry writebuffer.
+    -cachesim
+        Simulate an I-cache and a writethrough D-cache with a 4-entry writebuffer.
 
-	-cachemiss
-		Simulate cycle delays on cache misses.
+    -cachemiss
+        Simulate cycle delays on cache misses.
 
-	-cacheprint
-		Print cache statistics every 2 seconds.
+    -cacheprint
+        Print cache statistics every 2 seconds.
 
-	-diskprint
-		Print disk accesses.
+    -diskprint
+        Print disk accesses.
 
-	-dumpram
-		Dump the contents of RAM to a file called bank0.bin upon exit.
+    -dumpram
+        Dump the contents of RAM to a file called bank0.bin upon exit.
 
-	-headless
-	    Don't attach framebuffer, keyboard, or mouse.
+    -headless
+        Don't attach framebuffer, keyboard, or mouse.
 
-	-serialrx [file]
-		Specify a file (i.e. a FIFO) as the RX line for serial port B.
+    -serialrx [file]
+        Specify a file (i.e. a FIFO) as the RX line for serial port B.
 
-	-serialtx [file]
-		Specify a file (i.e. a FIFO) as the TX line for serial port B.
+    -serialtx [file]
+        Specify a file (i.e. a FIFO) as the TX line for serial port B.
