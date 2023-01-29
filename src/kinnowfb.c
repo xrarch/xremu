@@ -32,25 +32,15 @@ enum KINNOWREGISTERS {
 	REGCAUSE  = 7,
 };
 
-uint32_t DirtyRectX1 = 0;
+uint32_t DirtyRectX1 = -1;
 uint32_t DirtyRectX2 = 0;
-uint32_t DirtyRectY1 = 0;
+uint32_t DirtyRectY1 = -1;
 uint32_t DirtyRectY2 = 0;
 
 bool IsDirty = false;
 
-void MakeDirty(uint32_t x1, uint32_t y1, uint32_t x2, uint32_t y2) {
-	if (!IsDirty) {
-		DirtyRectX1 = x1;
-		DirtyRectY1 = y1;
-
-		DirtyRectX2 = x2;
-		DirtyRectY2 = y2;
-
-		IsDirty = true;
-
-		return;
-	}
+static inline void MakeDirty(uint32_t x1, uint32_t y1, uint32_t x2, uint32_t y2) {
+	IsDirty = true;
 
 	if (x1 < DirtyRectX1)
 		DirtyRectX1 = x1;
@@ -59,19 +49,11 @@ void MakeDirty(uint32_t x1, uint32_t y1, uint32_t x2, uint32_t y2) {
 		DirtyRectY1 = y1;
 
 	if (x2 > DirtyRectX2) {
-		if (x2 < KINNOW_FRAMEBUFFER_WIDTH) {
-			DirtyRectX2 = x2;
-		} else {
-			DirtyRectX2 = KINNOW_FRAMEBUFFER_WIDTH-1;
-		}
+		DirtyRectX2 = x2;
 	}
 
 	if (y2 > DirtyRectY2) {
-		if (y2 < KINNOW_FRAMEBUFFER_HEIGHT) {
-			DirtyRectY2 = y2;
-		} else {
-			DirtyRectY2 = KINNOW_FRAMEBUFFER_HEIGHT-1;
-		}
+		DirtyRectY2 = y2;
 	}
 }
 
@@ -98,7 +80,7 @@ int KinnowWrite(uint32_t address, void *src, uint32_t length) {
 
 		MakeDirty(x, y, x1, y1);
 
-		memcpy(&KinnowFB[address], src, length);
+		CopyWithLength(&KinnowFB[address], src, length);
 
 		return EBUSSUCCESS;
 	}
@@ -108,7 +90,7 @@ int KinnowWrite(uint32_t address, void *src, uint32_t length) {
 
 int KinnowRead(uint32_t address, void *dest, uint32_t length) {
 	if (address < 0x100) { // SlotInfo
-		memcpy(dest, &((char*)SlotInfo)[address], length);
+		CopyWithLength(dest, &((char*)SlotInfo)[address], length);
 
 		return EBUSSUCCESS;
 	} else if ((address >= 0x3000) && (address < 0x3100)) {
@@ -123,7 +105,7 @@ int KinnowRead(uint32_t address, void *dest, uint32_t length) {
 		if (address+length > FBSize)
 			return EBUSERROR;
 
-		memcpy(dest, &KinnowFB[address], length);
+		CopyWithLength(dest, &KinnowFB[address], length);
 
 		return EBUSSUCCESS;
 	}
@@ -163,6 +145,11 @@ void KinnowDraw(struct Screen *screen) {
 
 	SDL_UpdateTexture(texture, &rect, PixelBuffer, rect.w * 4);
 
+	DirtyRectX1 = -1;
+	DirtyRectX2 = 0;
+	DirtyRectY1 = -1;
+	DirtyRectY2 = 0;
+
 	IsDirty = false;
 }
 
@@ -190,10 +177,6 @@ int KinnowInit() {
 
 	KinnowRegisters[REGSIZE] = (KINNOW_FRAMEBUFFER_HEIGHT << 12) | KINNOW_FRAMEBUFFER_WIDTH;
 	KinnowRegisters[REGVRAM] = FBSize;
-
-	IsDirty = true;
-	DirtyRectX2 = KINNOW_FRAMEBUFFER_WIDTH-1;
-	DirtyRectY2 = KINNOW_FRAMEBUFFER_HEIGHT-1;
 
 	return 0;
 }

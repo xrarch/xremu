@@ -92,7 +92,7 @@ bool IFetch = false;
 bool TLBMiss = false;
 
 #define CACHESIZELOG 14
-#define CACHELINELOG 4
+#define CACHELINELOG 4 // WARNING: 16 bytes is special cased in CopyWithLength.
 #define CACHEWAYLOG 1
 #define CACHESETLOG (CACHESIZELOG-CACHELINELOG-CACHEWAYLOG)
 
@@ -141,6 +141,11 @@ static inline void Xr17032Exception(int exception) {
 	}
 
 	CurrentException = exception;
+}
+
+static inline void MoveCacheLine(void *dest, void *src) {
+	((uint64_t*)dest)[0] = ((uint64_t*)src)[0];
+	((uint64_t*)dest)[1] = ((uint64_t*)src)[1];
 }
 
 static inline uint32_t RoR(uint32_t x, uint32_t n) {
@@ -237,7 +242,7 @@ uint32_t AccessMasks[5] = {
 	0xFFFFFFFF
 };
 
-static inline bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, bool writing) {
+static bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, bool writing) {
 	if (address & (length-1)) {
 		Xr17032Exception(EXCUNALIGNED);
 		ControlReg[EBADADDR] = address;
@@ -341,7 +346,7 @@ static inline bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue
 			}
 
 			if (found) {
-				memcpy(cacheline, wbaddr, CACHELINESIZE);
+				CopyWithLength(cacheline, wbaddr, CACHELINESIZE);
 			} else {
 				if (EBusRead(lineaddr, cacheline, CACHELINESIZE) == EBUSERROR) {
 					ControlReg[EBADADDR] = address;
@@ -398,7 +403,7 @@ static inline bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue
 				wbaddr = &WriteBuffer[insertindex*CACHELINESIZE];
 
 				WriteBufferTags[insertindex] = lineaddr;
-				memcpy(wbaddr, cacheline, CACHELINESIZE);
+				CopyWithLength(wbaddr, cacheline, CACHELINESIZE);
 			}
 
 			wbaddr = &wbaddr[lineoff];

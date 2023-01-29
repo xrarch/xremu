@@ -50,7 +50,7 @@ int RAMWrite(uint32_t address, void *src, uint32_t length) {
 	if (offset+length > RAMSlotSizes[slot])
 		return EBUSERROR;
 
-	memcpy(RAMSlots[slot]+offset, src, length);
+	CopyWithLength(&RAMSlots[slot][offset], src, length);
 
 	return EBUSSUCCESS;
 }
@@ -62,7 +62,7 @@ int RAMRead(uint32_t address, void *dest, uint32_t length) {
 	if (offset+length > RAMSlotSizes[slot])
 		return EBUSERROR;
 
-	memcpy(dest, RAMSlots[slot]+offset, length);
+	CopyWithLength(dest, &RAMSlots[slot][offset], length);
 
 	return EBUSSUCCESS;
 }
@@ -77,7 +77,7 @@ int RAMWriteExt(uint32_t address, void *src, uint32_t length) {
 		return EBUSERROR;
 	}
 
-	memcpy(RAMSlots[slot]+offset, src, length);
+	CopyWithLength(&RAMSlots[slot][offset], src, length);
 
 	return EBUSSUCCESS;
 }
@@ -92,7 +92,7 @@ int RAMReadExt(uint32_t address, void *dest, uint32_t length) {
 		return EBUSERROR;
 	}
 
-	memcpy(dest, RAMSlots[slot]+offset, length);
+	CopyWithLength(dest, &RAMSlots[slot][offset], length);
 
 	return EBUSSUCCESS;
 }

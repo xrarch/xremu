@@ -46,6 +46,48 @@ static inline int EBusWrite(uint32_t address, void *src, uint32_t length) {
 	return EBUSERROR;
 }
 
+static inline void CopyWithLength(void *dest, void *src, uint32_t length) {
+	switch (length) {
+		case 1:
+			*(uint8_t*)dest = *(uint8_t*)src;
+			break;
+
+		case 2:
+			*(uint8_t*)dest     = *(uint8_t*)src;
+			*(uint8_t*)(dest+1) = *(uint8_t*)(src+1);
+
+			break;
+
+		case 4:
+			*(uint8_t*)dest     = *(uint8_t*)src;
+			*(uint8_t*)(dest+1) = *(uint8_t*)(src+1);
+			*(uint8_t*)(dest+2) = *(uint8_t*)(src+2);
+			*(uint8_t*)(dest+3) = *(uint8_t*)(src+3);
+
+			break;
+
+		case 16:
+			*(uint8_t*)dest      = *(uint8_t*)src;
+			*(uint8_t*)(dest+1)  = *(uint8_t*)(src+1);
+			*(uint8_t*)(dest+2)  = *(uint8_t*)(src+2);
+			*(uint8_t*)(dest+3)  = *(uint8_t*)(src+3);
+			*(uint8_t*)(dest+4)  = *(uint8_t*)(src+4);
+			*(uint8_t*)(dest+5)  = *(uint8_t*)(src+5);
+			*(uint8_t*)(dest+6)  = *(uint8_t*)(src+6);
+			*(uint8_t*)(dest+7)  = *(uint8_t*)(src+7);
+			*(uint8_t*)(dest+8)  = *(uint8_t*)(src+8);
+			*(uint8_t*)(dest+9)  = *(uint8_t*)(src+9);
+			*(uint8_t*)(dest+10) = *(uint8_t*)(src+10);
+			*(uint8_t*)(dest+11) = *(uint8_t*)(src+11);
+			*(uint8_t*)(dest+12) = *(uint8_t*)(src+12);
+			*(uint8_t*)(dest+13) = *(uint8_t*)(src+13);
+			*(uint8_t*)(dest+14) = *(uint8_t*)(src+14);
+			*(uint8_t*)(dest+15) = *(uint8_t*)(src+15);
+
+			break;
+	}
+}
+
 void EBusReset();
 
 #define EBUSSLOTSTART 24

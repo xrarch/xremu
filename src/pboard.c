@@ -51,7 +51,7 @@ int PBoardWrite(uint32_t address, void *src, uint32_t length) {
 		if (address+length > NVRAMSIZE)
 			return false;
 
-		memcpy(&NVRAM[address], src, length);
+		CopyWithLength(&NVRAM[address], src, length);
 
 		return EBUSSUCCESS;
 	} else if ((address >= 0x800) && (address < 0x880)) {
@@ -73,7 +73,7 @@ int PBoardWrite(uint32_t address, void *src, uint32_t length) {
 		if (address+length > 0x1000)
 			return false;
 
-		memcpy(&DKSBlockBuffer[address], src, length);
+		CopyWithLength(&DKSBlockBuffer[address], src, length);
 
 		return EBUSSUCCESS;
 	} else if ((address >= 0x30000) && (address < 0x30100)) {
@@ -116,7 +116,7 @@ int PBoardRead(uint32_t address, void *dest, uint32_t length) {
 		if (address+length > ROMSIZE)
 			return false;
 
-		memcpy(dest, &BootROM[address], length);
+		CopyWithLength(dest, &BootROM[address], length);
 
 		return EBUSSUCCESS;
 	} else if ((address >= 0x1000) && (address < 0x11000)) {
@@ -127,7 +127,7 @@ int PBoardRead(uint32_t address, void *dest, uint32_t length) {
 		if (address+length > NVRAMSIZE)
 			return false;
 
-		memcpy(dest, &NVRAM[address], length);
+		CopyWithLength(dest, &NVRAM[address], length);
 
 		return EBUSSUCCESS;
 	} else if ((address >= 0x800) && (address < 0x880)) {
@@ -148,7 +148,7 @@ int PBoardRead(uint32_t address, void *dest, uint32_t length) {
 		if (address+length > 0x1000)
 			return false;
 
-		memcpy(dest, &DKSBlockBuffer[address], length);
+		CopyWithLength(dest, &DKSBlockBuffer[address], length);
 
 		return EBUSSUCCESS;
 	} else if ((address >= 0x30000) && (address < 0x30100)) {
