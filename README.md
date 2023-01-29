@@ -42,8 +42,8 @@ be simulated using the switches `-asyncdisk`, `-asyncserial`, and `-cachesim` re
     -asyncserial
         Simulate serial latency.
 
-    -cachesim
-        Simulate an I-cache and a writethrough D-cache with a 4-entry writebuffer.
+    -nocachesim
+        Don't simulate an I-cache and a writethrough D-cache with a 4-entry writebuffer.
 
     -cachemiss
         Simulate cycle delays on cache misses.

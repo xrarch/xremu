@@ -23,6 +23,7 @@
 #define signext5(n)  (((int32_t)(n << 27)) >> 27)
 #define signext16(n) (((int32_t)(n << 16)) >> 16)
 
+bool CPUSimulateCaches = true;
 bool CPUSimulateCacheStalls = false;
 bool CPUPrintCache = false;
 
@@ -257,6 +258,10 @@ static bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue, uint3
 		cachetype = NOCACHE;
 	}
 
+	if (!CPUSimulateCaches) {
+		cachetype = NOCACHE;
+	}
+
 	if (cachetype == NOCACHE) {
 		int result;
 
@@ -275,7 +280,8 @@ static bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue, uint3
 		if (!writing)
 			*dest &= AccessMasks[length];
 
-		CPUStall += UNCACHEDSTALL;
+		if (CPUSimulateCaches)
+			CPUStall += UNCACHEDSTALL;
 	} else {
 		// simulate a writethrough icache and dcache,
 		// along with a 4-entry writebuffer.
@@ -526,42 +532,44 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 			continue;
 		}
 
-		if (WriteBufferCyclesTilNextWrite && (!--WriteBufferCyclesTilNextWrite)) {
-			bool found = false;
-			uint32_t i;
+		if (CPUSimulateCaches) {
+			if (WriteBufferCyclesTilNextWrite && (!--WriteBufferCyclesTilNextWrite)) {
+				bool found = false;
+				uint32_t i;
 
-			// time to write an entry out of the write buffer.
-			// first search from the next index to the end.
+				// time to write an entry out of the write buffer.
+				// first search from the next index to the end.
 
-			for (i = WriteBufferWBIndex; i<WRITEBUFFERDEPTH; i++) {
-				if (WriteBufferTags[i]) {
-					found = true;
-					break;
-				}
-			}
-
-			// if we didn't find a pending entry, search from the beginning
-			// to the next index.
-
-			if (!found) {
-				for (i = 0; i<WriteBufferWBIndex; i++) {
+				for (i = WriteBufferWBIndex; i<WRITEBUFFERDEPTH; i++) {
 					if (WriteBufferTags[i]) {
 						found = true;
 						break;
 					}
 				}
-			}
 
-			// if we found a pending entry, write it out, and update the
-			// index for the next write-out. set up CyclesTilNextWrite to
-			// indicate when to write the next entry.
+				// if we didn't find a pending entry, search from the beginning
+				// to the next index.
 
-			if (found) {
-				EBusWrite(WriteBufferTags[i], &WriteBuffer[i*CACHELINESIZE], CACHELINESIZE);
-				WriteBufferTags[i] = 0;
-				WriteBufferWBIndex = (i+1)&(WRITEBUFFERDEPTH-1);
-				if (WriteBufferSize--)
-					WriteBufferCyclesTilNextWrite = UNCACHEDSTALL;
+				if (!found) {
+					for (i = 0; i<WriteBufferWBIndex; i++) {
+						if (WriteBufferTags[i]) {
+							found = true;
+							break;
+						}
+					}
+				}
+
+				// if we found a pending entry, write it out, and update the
+				// index for the next write-out. set up CyclesTilNextWrite to
+				// indicate when to write the next entry.
+
+				if (found) {
+					EBusWrite(WriteBufferTags[i], &WriteBuffer[i*CACHELINESIZE], CACHELINESIZE);
+					WriteBufferTags[i] = 0;
+					WriteBufferWBIndex = (i+1)&(WRITEBUFFERDEPTH-1);
+					if (WriteBufferSize--)
+						WriteBufferCyclesTilNextWrite = UNCACHEDSTALL;
+				}
 			}
 		}
 
@@ -914,30 +922,32 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 							break;
 
 						case 8: // CACHEI
-							if (rd&1) {
-								// invalidate icache
-								for (int i = 0; i<CACHELINES; i++) {
-									ICacheTags[i] = 0;
+							if (CPUSimulateCaches) {
+								if (rd&1) {
+									// invalidate icache
+									for (int i = 0; i<CACHELINES; i++) {
+										ICacheTags[i] = 0;
+									}
 								}
-							}
 
-							if (rd&4) {
-								// invalidate dcache
-								for (int i = 0; i<CACHELINES; i++) {
-									DCacheTags[i] = 0;
+								if (rd&4) {
+									// invalidate dcache
+									for (int i = 0; i<CACHELINES; i++) {
+										DCacheTags[i] = 0;
+									}
 								}
-							}
 
-							// flush writebuffer
-							for (int i = 0; i<WRITEBUFFERDEPTH; i++) {
-								if (WriteBufferTags[i]) {
-									EBusWrite(WriteBufferTags[i], &WriteBuffer[i*CACHELINESIZE], CACHELINESIZE);
-									WriteBufferTags[i] = 0;
+								// flush writebuffer
+								for (int i = 0; i<WRITEBUFFERDEPTH; i++) {
+									if (WriteBufferTags[i]) {
+										EBusWrite(WriteBufferTags[i], &WriteBuffer[i*CACHELINESIZE], CACHELINESIZE);
+										WriteBufferTags[i] = 0;
+									}
 								}
-							}
 
-							WriteBufferSize = 0;
-							WriteBufferCyclesTilNextWrite = 0;
+								WriteBufferSize = 0;
+								WriteBufferCyclesTilNextWrite = 0;
+							}
 
 							break;
 
