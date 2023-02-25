@@ -22,6 +22,8 @@
 
 #define TRANSMITBUFFERSIZE 16
 
+#define RECEIVEBUFFERSIZE 32
+
 enum SerialCommands {
 	SERIALCMDDOINT = 3,
 	SERIALCMDDONTINT = 4,
@@ -29,15 +31,18 @@ enum SerialCommands {
 
 struct SerialPort {
 	struct TTY *Tty;
-	uint32_t DataValue;
 	uint32_t DoInterrupts;
-	uint32_t LastChar;
-	uint8_t LastArrowKey;
-	uint8_t ArrowKeyState;
+
 	unsigned char TransmitBuffer[TRANSMITBUFFERSIZE];
 	int TransmitBufferIndex;
 	int SendIndex;
 	bool WriteBusy;
+
+	unsigned char ReceiveBuffer[RECEIVEBUFFERSIZE];
+	int ReceiveBufferIndex;
+	int ReceiveIndex;
+	int ReceiveRemaining;
+
 	int Number;
 
 #ifndef EMSCRIPTEN
@@ -231,21 +236,13 @@ int SerialReadData(uint32_t port, uint32_t length, uint32_t *value) {
 	}
 #endif
 
-	if (thisport->LastArrowKey) {
-		if (thisport->ArrowKeyState == 0) {
-			*value = 0x1B;
-		} else if (thisport->ArrowKeyState == 1) {
-			*value = '[';
-		} else if (thisport->ArrowKeyState == 2) {
-			*value = thisport->LastArrowKey;
-			thisport->LastArrowKey = 0;
-		}
-
-		thisport->ArrowKeyState++;
-	} else {
-		*value = thisport->LastChar;
-		thisport->LastChar = 0xFFFF;
+	if (!(thisport->ReceiveBufferIndex - thisport->ReceiveIndex)) {
+		*value = 0xFFFF;
+		return EBUSSUCCESS;
 	}
+
+	*value = thisport->ReceiveBuffer[thisport->ReceiveIndex++ % RECEIVEBUFFERSIZE];
+	thisport->ReceiveRemaining++;
 
 	return EBUSSUCCESS;
 }
@@ -253,13 +250,11 @@ int SerialReadData(uint32_t port, uint32_t length, uint32_t *value) {
 void SerialInput(struct TTY *tty, uint16_t c) {
 	struct SerialPort *port = (struct SerialPort *)(tty->Context);
 
-	if (c&0x8000) {
-		// hacky way to do arrow keys
-		port->LastArrowKey = c&0xFF;
-		port->ArrowKeyState = 0;
-	} else {
-		port->LastChar = c;
-	}
+	if (!port->ReceiveRemaining)
+		return;
+
+	port->ReceiveBuffer[port->ReceiveBufferIndex++ % RECEIVEBUFFERSIZE] = c;
+	port->ReceiveRemaining--;
 
 	if (port->DoInterrupts)
 		LSICInterrupt(0x4+port->Number);
@@ -281,9 +276,8 @@ int SerialInit(int num) {
 	CitronPorts[0x11+citronoffset].WritePort = SerialWriteData;
 	CitronPorts[0x11+citronoffset].ReadPort = SerialReadData;
 
-	SerialPorts[num].LastChar = 0xFFFF;
-	SerialPorts[num].LastArrowKey = 0;
-	SerialPorts[num].ArrowKeyState = 0;
+	SerialPorts[num].ReceiveRemaining = RECEIVEBUFFERSIZE;
+
 	SerialPorts[num].Number = num;
 
 #ifndef EMSCRIPTEN
@@ -300,7 +294,12 @@ int SerialInit(int num) {
 	}
 #endif
 
-	SerialPorts[num].Tty = TTYCreate(80, 24, SerialNames[num], SerialInput);
+	if (TTY132ColumnMode) {
+		SerialPorts[num].Tty = TTYCreate(132, 27, SerialNames[num], SerialInput);
+	} else {
+		SerialPorts[num].Tty = TTYCreate(80, 24, SerialNames[num], SerialInput);
+	}
+
 	SerialPorts[num].Tty->Context = &SerialPorts[num];
 
 	return 0;

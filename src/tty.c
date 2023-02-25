@@ -13,6 +13,8 @@
 #include "screen.h"
 #include "tty.h"
 
+bool TTY132ColumnMode = false;
+
 uint32_t TTYPalette[16] = {
 	0x000000, // black
 	0xFF0000, // red
@@ -135,24 +137,24 @@ void TTYDraw(struct Screen *screen) {
 
 			if ((((tty->DirtyX1+x) == checkcurx) && ((tty->DirtyY1+y) == tty->CursorY))
 				&& !tty->IsCursorHidden) {
-				TextBlitCharacter(cell&0xFF,
-							TextFont8x16,
-							FONTWIDTH,
-							FONTHEIGHT,
-							x*FONTWIDTH,
-							y*FONTHEIGHT,
-							width*FONTWIDTH,
+				TextBlitCharacter(cell&0x7F,
+							tty->FontBMP,
+							tty->FontWidth,
+							tty->FontHeight,
+							x*tty->FontWidth,
+							y*tty->FontHeight,
+							width*tty->FontWidth,
 							TTYPalette[cell>>12],
 							TTYPalette[(cell>>8)&15],
 							PixelBuffer);
 			} else {
-				TextBlitCharacter(cell&0xFF,
-							TextFont8x16,
-							FONTWIDTH,
-							FONTHEIGHT,
-							x*FONTWIDTH,
-							y*FONTHEIGHT,
-							width*FONTWIDTH,
+				TextBlitCharacter(cell&0x7F,
+							tty->FontBMP,
+							tty->FontWidth,
+							tty->FontHeight,
+							x*tty->FontWidth,
+							y*tty->FontHeight,
+							width*tty->FontWidth,
 							TTYPalette[(cell>>8)&15],
 							TTYPalette[cell>>12],
 							PixelBuffer);
@@ -163,10 +165,10 @@ void TTYDraw(struct Screen *screen) {
 	}
 
 	SDL_Rect rect = {
-		.x = tty->DirtyX1*FONTWIDTH,
-		.y = tty->DirtyY1*FONTHEIGHT,
-		.w = width*FONTWIDTH,
-		.h = height*FONTHEIGHT,
+		.x = tty->DirtyX1*tty->FontWidth,
+		.y = tty->DirtyY1*tty->FontHeight,
+		.w = width*tty->FontWidth,
+		.h = height*tty->FontHeight,
 	};
 
 	SDL_UpdateTexture(texture, &rect, PixelBuffer, rect.w * 4);
@@ -177,24 +179,40 @@ void TTYDraw(struct Screen *screen) {
 void TTYKeyPressed(struct Screen *screen, int sdlscancode) {
 	struct TTY *tty = (struct TTY *)(screen->Context1);
 
-	if (sdlscancode == SDL_SCANCODE_LCTRL || sdlscancode == SDL_SCANCODE_RCTRL) {
-		tty->IsCtrl = 1;
-		return;
-	} else if (sdlscancode == SDL_SCANCODE_LSHIFT || sdlscancode == SDL_SCANCODE_RSHIFT) {
-		tty->IsShift = 1;
-		return;
-	} else if (sdlscancode == SDL_SCANCODE_LEFT) {
-		tty->Input(tty, 0x8000 | 'D');
-		return;
-	} else if (sdlscancode == SDL_SCANCODE_RIGHT) {
-		tty->Input(tty, 0x8000 | 'C');
-		return;
-	} else if (sdlscancode == SDL_SCANCODE_UP) {
-		tty->Input(tty, 0x8000 | 'A');
-		return;
-	} else if (sdlscancode == SDL_SCANCODE_DOWN) {
-		tty->Input(tty, 0x8000 | 'B');
-		return;
+	switch (sdlscancode) {
+		case SDL_SCANCODE_LCTRL:
+		case SDL_SCANCODE_RCTRL:
+			tty->IsCtrl = 1;
+			return;
+
+		case SDL_SCANCODE_LSHIFT:
+		case SDL_SCANCODE_RSHIFT:
+			tty->IsShift = 1;
+			return;
+
+		case SDL_SCANCODE_LEFT:
+			tty->Input(tty, 0x1B);
+			tty->Input(tty, '[');
+			tty->Input(tty, 'D');
+			return;
+
+		case SDL_SCANCODE_RIGHT:
+			tty->Input(tty, 0x1B);
+			tty->Input(tty, '[');
+			tty->Input(tty, 'C');
+			return;
+
+		case SDL_SCANCODE_UP:
+			tty->Input(tty, 0x1B);
+			tty->Input(tty, '[');
+			tty->Input(tty, 'A');
+			return;
+
+		case SDL_SCANCODE_DOWN:
+			tty->Input(tty, 0x1B);
+			tty->Input(tty, '[');
+			tty->Input(tty, 'B');
+			return;
 	}
 
 	char c;
@@ -393,6 +411,8 @@ void TTYEscSetScrollMargins(struct TTY *tty) {
 }
 
 void TTYParseEscape(struct TTY *tty, char c) {
+	char querystr[16];
+
 	if (c >= '0' && c <= '9') {
 		tty->EscapeParams[tty->EscapeIndex] *= 10;
 		tty->EscapeParams[tty->EscapeIndex] += c - '0';
@@ -454,6 +474,20 @@ void TTYParseEscape(struct TTY *tty, char c) {
 				// scroll down
 				TTYScrollDown(tty);
 				return;
+
+			case 'n':
+				// query cursor position
+
+				querystr[0] = 0x1B;
+
+				int num = sprintf(&querystr[1], "[%d;%dR", tty->CursorY+1, tty->CursorX+1);
+
+				for (int i = 0; i < num+1; i++) {
+					tty->Input(tty, querystr[i]);
+				}
+
+				break;
+
 		}
 	} else if (tty->IsEscape == 2) {
 		tty->IsEscape = 0;
@@ -561,6 +595,19 @@ struct TTY *TTYCreate(int width, int height, char *title, TTYInputF input) {
 	tty->CursorX = 0;
 	tty->CursorY = 0;
 
+	if (width < 132) {
+		tty->FontWidth = FONTWIDTH_80COL;
+		tty->FontHeight = FONTHEIGHT_80COL;
+		tty->FontBMP = TextFont80COL;
+	} else {
+		tty->FontWidth = FONTWIDTH_132COL;
+		tty->FontHeight = FONTHEIGHT_132COL;
+		tty->FontBMP = TextFont132COL;
+	}
+
+	int FontHeight;
+	int FontWidth;
+
 	tty->DirtyX1 = 0;
 	tty->DirtyY1 = 0;
 	tty->DirtyX2 = width-1;
@@ -579,7 +626,7 @@ struct TTY *TTYCreate(int width, int height, char *title, TTYInputF input) {
 
 	tty->CurrentAttributes = 0x0F;
 
-	tty->Screen = ScreenCreate(width*FONTWIDTH, height*FONTHEIGHT, title,
+	tty->Screen = ScreenCreate(width*tty->FontWidth, height*tty->FontHeight, title,
 							TTYDraw,
 							TTYKeyPressed,
 							TTYKeyReleased,

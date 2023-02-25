@@ -1,3 +1,5 @@
+extern bool TTY132ColumnMode;
+
 struct TTY;
 
 typedef void (*TTYInputF)(struct TTY *tty, uint16_t c);
@@ -21,6 +23,10 @@ struct TTY {
 	int IsCtrl;
 	int IsShift;
 	int IsEscape;
+
+	int FontHeight;
+	int FontWidth;
+	uint8_t *FontBMP;
 
 	int IsCursorHidden;
 
@@ -171,7 +177,7 @@ static uint8_t KeyMapCtrl[SDL_NUM_SCANCODES] = {
 
 	[SDL_SCANCODE_MINUS]        = 31,
 	[SDL_SCANCODE_EQUALS]       = -1,
-	[SDL_SCANCODE_LEFTBRACKET]  = -1,
+	[SDL_SCANCODE_LEFTBRACKET]  = 27,
 	[SDL_SCANCODE_RIGHTBRACKET] = 29,
 	[SDL_SCANCODE_BACKSLASH]    = 28,
 	[SDL_SCANCODE_NONUSHASH]    = 28,  // same key as BACKSLASH

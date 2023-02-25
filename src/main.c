@@ -25,8 +25,8 @@
 #include "mouse.h"
 #include "ram256.h"
 #include "serial.h"
-
 #include "screen.h"
+#include "tty.h"
 
 bool RAMDumpOnExit = false;
 
@@ -125,6 +125,8 @@ int main(int argc, char *argv[]) {
 			CPUPrintCache = true;
 		} else if (strcmp(argv[i], "-diskprint") == 0) {
 			DKSPrint = true;
+		} else if (strcmp(argv[i], "-132column") == 0) {
+			TTY132ColumnMode = true;
 		} else {
 			fprintf(stderr, "don't recognize option %s\n", argv[i]);
 			return 1;
