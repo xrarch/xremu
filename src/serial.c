@@ -295,7 +295,7 @@ int SerialInit(int num) {
 #endif
 
 	if (TTY132ColumnMode) {
-		SerialPorts[num].Tty = TTYCreate(132, 27, SerialNames[num], SerialInput);
+		SerialPorts[num].Tty = TTYCreate(132, 24, SerialNames[num], SerialInput);
 	} else {
 		SerialPorts[num].Tty = TTYCreate(80, 24, SerialNames[num], SerialInput);
 	}

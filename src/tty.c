@@ -36,6 +36,9 @@ uint32_t TTYPalette[16] = {
 
 #define TTYDEFAULTATTR 0x0F
 
+#define TTYMARGINCHARTOP  1
+#define TTYMARGINCHARSIDE 2
+
 void TTYMakeDirty(struct TTY *tty, uint32_t x1, uint32_t y1, uint32_t x2, uint32_t y2) {
 	if (x2 < x1) {
 		int tmp = x2;
@@ -165,10 +168,10 @@ void TTYDraw(struct Screen *screen) {
 	}
 
 	SDL_Rect rect = {
-		.x = tty->DirtyX1*tty->FontWidth,
-		.y = tty->DirtyY1*tty->FontHeight,
-		.w = width*tty->FontWidth,
-		.h = height*tty->FontHeight,
+		.x = (tty->DirtyX1 + TTYMARGINCHARSIDE) * tty->FontWidth,
+		.y = (tty->DirtyY1 + TTYMARGINCHARTOP) * tty->FontHeight,
+		.w = width * tty->FontWidth,
+		.h = height * tty->FontHeight,
 	};
 
 	SDL_UpdateTexture(texture, &rect, PixelBuffer, rect.w * 4);
@@ -626,7 +629,7 @@ struct TTY *TTYCreate(int width, int height, char *title, TTYInputF input) {
 
 	tty->CurrentAttributes = 0x0F;
 
-	tty->Screen = ScreenCreate(width*tty->FontWidth, height*tty->FontHeight, title,
+	tty->Screen = ScreenCreate((width + TTYMARGINCHARSIDE*2) * tty->FontWidth, (height + TTYMARGINCHARTOP*2) * tty->FontHeight, title,
 							TTYDraw,
 							TTYKeyPressed,
 							TTYKeyReleased,
