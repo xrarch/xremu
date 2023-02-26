@@ -52,6 +52,14 @@ void TTYMakeDirty(struct TTY *tty, uint32_t x1, uint32_t y1, uint32_t x2, uint32
 		y1 = tmp;
 	}
 
+	if (x2 >= tty->Width) {
+		x2 = tty->Width-1;
+	}
+
+	if (y2 >= tty->Height) {
+		y2 = tty->Height-1;
+	}
+
 	if (!tty->IsDirty) {
 		tty->DirtyX1 = x1;
 		tty->DirtyY1 = y1;
@@ -71,19 +79,11 @@ void TTYMakeDirty(struct TTY *tty, uint32_t x1, uint32_t y1, uint32_t x2, uint32
 		tty->DirtyY1 = y1;
 
 	if (x2 > tty->DirtyX2) {
-		if (x2 < tty->Width) {
-			tty->DirtyX2 = x2;
-		} else {
-			tty->DirtyX2 = tty->Width-1;
-		}
+		tty->DirtyX2 = x2;
 	}
 
 	if (y2 > tty->DirtyY2) {
-		if (y2 < tty->Height) {
-			tty->DirtyY2 = y2;
-		} else {
-			tty->DirtyY2 = tty->Height-1;
-		}
+		tty->DirtyY2 = y2;
 	}
 }
 
