@@ -9,6 +9,11 @@ void TextBlitCharacter(uint8_t c,
 						uint32_t bgcolor,
 						uint32_t *pixelbuffer);
 
+// the bitmap fonts in the arrays below are actually 10x10 and 6x10
+// respectively. they are stretched to double height. for the 80-col font, it
+// is stretched by adding scanlines. for the 132-col font, it is stretched by
+// doubling each line.
+
 #define FONTWIDTH_80COL  10
 #define FONTHEIGHT_80COL 20
 
