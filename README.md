@@ -60,6 +60,9 @@ be simulated using the switches `-asyncdisk`, `-asyncserial`, and `-cachesim` re
     -headless
         Don't attach framebuffer, keyboard, or mouse.
 
+    -132column
+        Use 132-column mode in the serial TTYs.
+
     -serialrx [file]
         Specify a file (i.e. a FIFO) as the RX line for serial port B.
 
