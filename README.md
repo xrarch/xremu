@@ -68,3 +68,6 @@ be simulated using the switches `-asyncdisk`, `-asyncserial`, and `-cachesim` re
 
     -serialtx [file]
         Specify a file (i.e. a FIFO) as the TX line for serial port B.
+
+    -cpuhz [frequency]
+        Specify the frequency that the CPU simulation should be run at. Default is 25000000.

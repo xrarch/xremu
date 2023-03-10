@@ -28,6 +28,8 @@
 #include "screen.h"
 #include "tty.h"
 
+uint32_t SimulatorHz = CPUHZDEFAULT;
+
 bool RAMDumpOnExit = false;
 
 uint32_t tick_start;
@@ -97,6 +99,14 @@ int main(int argc, char *argv[]) {
 				i++;
 			} else {
 				fprintf(stderr, "no ram size specified\n");
+				return 1;
+			}
+		} else if (strcmp(argv[i], "-cpuhz") == 0) {
+			if (i+1 < argc) {
+				SimulatorHz = atoi(argv[i+1]);
+				i++;
+			} else {
+				fprintf(stderr, "no frequency specified\n");
 				return 1;
 			}
 		} else if (strcmp(argv[i], "-serialrx") == 0) {
@@ -201,8 +211,8 @@ void MainLoop(void) {
 	if (!dt)
 		dt = 1;
 
-	int cyclespertick = CPUHZ/TPS/dt;
-	int extracycles = CPUHZ/TPS - (cyclespertick*dt);
+	int cyclespertick = SimulatorHz/TPS/dt;
+	int extracycles = SimulatorHz/TPS - (cyclespertick*dt);
 
 	CPUProgress = 20;
 
