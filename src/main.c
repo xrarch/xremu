@@ -162,6 +162,9 @@ int main(int argc, char *argv[]) {
 	}
 
 #ifdef EMSCRIPTEN
+	DKSAsynchronous = true;
+	SerialAsynchronous = true;
+
 	ROMLoadFile("bin/boot.bin");
 	DKSAttachImage("bin/mintia.img");
 	DKSAttachImage("bin/aisix.img");
