@@ -19,7 +19,7 @@ void DKSOperation(uint32_t dt);
 #define TRACKPERCYL 4
 #define CYLPERDISK  1000
 
-#define RPM 3600
+#define RPM 5400
 #define RPS (RPM/60)
 #define ROTATIONTIMEMS (1000/RPS)
 
