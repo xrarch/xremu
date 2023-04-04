@@ -241,8 +241,9 @@ int DKSReadPortB(uint32_t port, uint32_t type, uint32_t *value) {
 
 int DKSAttachImage(char *path) {
 	struct DKSDisk *disk = 0;
+	int i = 0;
 
-	for (int i = 0; i < DKSDISKS; i++) {
+	for (; i < DKSDISKS; i++) {
 		if (!DKSDisks[i].Present) {
 			// found a free disk
 			disk = &DKSDisks[i];
@@ -268,7 +269,7 @@ int DKSAttachImage(char *path) {
 	disk->Present = 1;
 	disk->Spinning = true;
 
-	printf("%s as dks%d (%d blocks)\n", path, disk->ID, disk->BlockCount);
+	printf("%s as dks%d (%d blocks)\n", path, i, disk->BlockCount);
 
 	return true;
 }
