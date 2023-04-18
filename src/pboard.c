@@ -14,11 +14,7 @@
 
 uint32_t PBoardRegisters[PBOARDREGISTERS];
 
-#define NVRAMSIZE (64 * 1024)
-
 uint8_t NVRAM[NVRAMSIZE];
-
-#define ROMSIZE (128 * 1024)
 
 uint8_t BootROM[ROMSIZE];
 
@@ -41,7 +37,7 @@ int PBoardWrite(uint32_t address, void *src, uint32_t length) {
 		// bootrom
 
 		return EBUSSUCCESS;
-	} else if ((address >= 0x1000) && (address < 0x11000)) {
+	} else if ((address >= 0x1000) && (address < 0x2000)) {
 		// nvram
 
 		address -= 0x1000;

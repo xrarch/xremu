@@ -20,8 +20,6 @@ uint32_t RTCIntervalCounter = 0;
 
 uint32_t RTCPortA;
 
-uint32_t RTCOffset = 0;
-
 void RTCInterval(uint32_t dt) {
 	gettimeofday(&RTCCurrentTime, 0);
 
@@ -45,7 +43,7 @@ int RTCWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 		case 2:
 			// get epoch time
-			RTCPortA = RTCCurrentTime.tv_sec + RTCOffset;
+			RTCPortA = RTCCurrentTime.tv_sec + NVRAM_GET_RTCOFFSET();
 
 			return EBUSSUCCESS;
 
@@ -59,7 +57,7 @@ int RTCWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 		case 4:
 			// set epoch time
-			RTCOffset = RTCPortA - RTCCurrentTime.tv_sec;
+			NVRAM_SET_RTCOFFSET((RTCPortA - RTCCurrentTime.tv_sec));
 
 			return EBUSSUCCESS;
 
