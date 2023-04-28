@@ -148,15 +148,14 @@ static inline uint32_t RoR(uint32_t x, uint32_t n) {
 }
 
 static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, int *cachetype, bool writing) {
-	uint32_t vpn = virt>>12;
-	uint32_t off = virt&4095;
-
-	uint32_t tbhi = (ControlReg[TBHI]&0xFFF00000) | vpn;
+	uint32_t vpn = virt >> 12;
+	uint32_t off = virt & 4095;
+	uint32_t tbhi = (ControlReg[TBHI] & 0xFFF00000) | vpn;
 
 	// the set function is designed to split the TLB into a userspace and
 	// kernel space half.
 
-	uint32_t set = (vpn&((1<<(TLBSETLOG-1))-1))|(vpn>>19<<(TLBSETLOG-1));
+	uint32_t set = (vpn & ((1 << (TLBSETLOG - 1)) - 1)) | (vpn >> 19 << (TLBSETLOG - 1));
 
 	bool found;
 
@@ -168,55 +167,66 @@ static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, int *cachetype, b
 	uint32_t rememberindex = -1;
 
 	for (int i = 0; i < TLBWAYS; i++) {
-		tlbe = TLB[set*TLBWAYS+i];
-		mask = (tlbe&16) ? 0xFFFFF : 0xFFFFFFFF;
-		found = (tlbe>>32) == (tbhi&mask);
+		tlbe = TLB[set * TLBWAYS + i];
+
+		mask = (tlbe & 16) ? 0xFFFFF : 0xFFFFFFFF;
+
+		found = (tlbe >> 32) == (tbhi & mask);
 
 		if (found) {
 			break;
 		}
 
-		if (!(tlbe&1))
+		if (!(tlbe & 1))
 			rememberindex = i;
 	}
 
 	if (!found) {
-		// didn't find it. TLB miss
+		// didn't find the mapping. a TLB miss exception is in order.
+
 		ControlReg[TBHI] = tbhi;
-		ControlReg[PGTB] = (ControlReg[PGTB]&0xFFFFF000)|((vpn>>10)<<2);
+		ControlReg[PGTB] = (ControlReg[PGTB] & 0xFFFFF000) | ((vpn >> 10) << 2);
 
 		if (rememberindex == -1)
-			ControlReg[TBINDEX] = set*TLBWAYS+(TLBWriteCount&(TLBWAYS-1));
+			ControlReg[TBINDEX] = set * TLBWAYS + (TLBWriteCount & (TLBWAYS - 1));
 		else
-			ControlReg[TBINDEX] = set*TLBWAYS+rememberindex;
+			ControlReg[TBINDEX] = set * TLBWAYS + rememberindex;
 
 		Xr17032Exception(EXCTLBMISS);
+
 		return false;
 	}
 
 	if (!(tlbe&1)) {
 		// invalid.
+
 		ControlReg[EBADADDR] = virt;
+
 		Xr17032Exception(writing ? EXCPAGEWRITE : EXCPAGEFAULT);
+
 		return false;
 	}
 
-	uint32_t ppn = ((tlbe>>5)&0xFFFFF)<<12;
+	uint32_t ppn = ((tlbe >> 5) & 0xFFFFF) << 12;
 
-	if (((tlbe&4) == 4) && (ControlReg[RS]&RS_USER)) { // kernel (K) bit
+	if (((tlbe & 4) == 4) && (ControlReg[RS] & RS_USER)) { // kernel (K) bit
 		ControlReg[EBADADDR] = virt;
+
 		Xr17032Exception(writing ? EXCPAGEWRITE : EXCPAGEFAULT);
+
 		return false;
 	}
 
-	if (writing && ((tlbe&2)==0)) { // writable (W) bit not set
+	if (writing && ((tlbe & 2) == 0)) { // writable (W) bit not set
 		ControlReg[EBADADDR] = virt;
+
 		Xr17032Exception(EXCPAGEWRITE);
+
 		return false;
 	}
 
-	*cachetype = ((tlbe>>3)&1);
-	*phys = ppn+off;
+	*cachetype = ((tlbe >> 3) & 1);
+	*phys = ppn + off;
 
 	return true;
 }
@@ -238,17 +248,20 @@ uint32_t AccessMasks[5] = {
 };
 
 static bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, bool writing) {
-	if (address & (length-1)) {
+	if (address & (length - 1)) {
 		Xr17032Exception(EXCUNALIGNED);
+
 		ControlReg[EBADADDR] = address;
+
 		return false;
 	}
 
 	int cachetype = CACHE;
 
-	if (ControlReg[RS]&RS_MMU) {
+	if (ControlReg[RS] & RS_MMU) {
 		if (!CPUTranslate(address, &address, &cachetype, writing))
 			return false;
+
 	} else if (address >= NOCACHEAREA) {
 		cachetype = NOCACHE;
 	}
@@ -268,7 +281,9 @@ static bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue, uint3
 
 		if (result == EBUSERROR) {
 			ControlReg[EBADADDR] = address;
+
 			Xr17032Exception(EXCBUSERROR);
+
 			return false;
 		}
 
@@ -281,12 +296,12 @@ static bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue, uint3
 		// simulate a writethrough icache and dcache,
 		// along with a 4-entry writebuffer.
 
-		uint32_t lineaddr = address & ~(CACHELINESIZE-1);
-		uint32_t lineoff = address & (CACHELINESIZE-1);
+		uint32_t lineaddr = address & ~(CACHELINESIZE - 1);
+		uint32_t lineoff = address & (CACHELINESIZE - 1);
 
-		uint32_t lineno = address>>CACHELINELOG;
+		uint32_t lineno = address >> CACHELINELOG;
 
-		uint32_t set = lineno&(CACHESETS-1);
+		uint32_t set = lineno & (CACHESETS - 1);
 
 		uint32_t insertindex = -1;
 
@@ -296,15 +311,22 @@ static bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue, uint3
 		uint8_t *cacheline;
 		uint32_t line = -1;
 
+		// try to find the matching cache line.
+
 		for (int i = 0; i < CACHEWAYS; i++) {
-			if (Tags[set*CACHEWAYS+i] == lineaddr) {
-				line = set*CACHEWAYS+i;
-				cacheline = &Cache[line*CACHELINESIZE];
+			if (Tags[set * CACHEWAYS + i] == lineaddr) {
+				// found the cache line.
+
+				line = set * CACHEWAYS + i;
+
+				cacheline = &Cache[line * CACHELINESIZE];
 
 				break;
 			}
 
-			if (!Tags[set*CACHEWAYS+i])
+			// remember the index if this line is free.
+
+			if (!Tags[set * CACHEWAYS + i])
 				insertindex = i;
 		}
 
@@ -313,50 +335,75 @@ static bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue, uint3
 		uint8_t *wbaddr;
 
 		if (line == -1) {
+			// we didn't find the cache line, so we have to read it into the
+			// cache. incur an appropriate stall.
+
 			CPUStall += CACHEMISSSTALL;
 
 			if (insertindex == -1) {
-				line = set*CACHEWAYS+((IFetch ? ICacheFillCount : CacheFillCount)&(CACHEWAYS-1));
+				line = set * CACHEWAYS + ((IFetch ? ICacheFillCount : CacheFillCount) & (CACHEWAYS - 1));
 			} else {
-				line = set*CACHEWAYS+insertindex;
+				line = set * CACHEWAYS + insertindex;
 			}
 
-			cacheline = &Cache[line*CACHELINESIZE];
+			cacheline = &Cache[line * CACHELINESIZE];
 			insertindex = -1;
 
 			if (!IFetch) {
+				// this isn't an instruction fetch, so search the writebuffer
+				// for a matching cache line.
+
 				searched = true;
 
 				for (int i = 0; i < WRITEBUFFERDEPTH; i++) {
 					if (WriteBufferTags[i] == lineaddr) {
-						// found it
+						// found the cache line in the writebuffer.
+
 						insertindex = i;
-						wbaddr = &WriteBuffer[i*CACHELINESIZE];
+
+						wbaddr = &WriteBuffer[i * CACHELINESIZE];
+
 						found = true;
+
 						break;
 					} else if (WriteBufferTags[i] == 0) {
+						// found a free write buffer index. remember this just
+						// in case we need it later.
+
 						insertindex = i;
 					}
 				}
 			}
 
 			if (found) {
+				// found the cache line in the writebuffer, so copy it from
+				// there into the cache.
+
 				CopyWithLength(cacheline, wbaddr, CACHELINESIZE);
 			} else {
+				// did not find the cache line, so have to read it directly
+				// over the bus.
+
 				if (EBusRead(lineaddr, cacheline, CACHELINESIZE) == EBUSERROR) {
 					ControlReg[EBADADDR] = address;
+
 					Xr17032Exception(EXCBUSERROR);
+
 					return false;
 				}
 			}
 
 			Tags[line] = lineaddr;
 
+			// do miss count accounting for cacheprint.
+
 			if (IFetch)
 				ICacheFillCount++;
 			else
 				CacheFillCount++;
 		} else {
+			// do hit count accounting for cacheprint.
+
 			if (IFetch)
 				ICacheHitCount++;
 			else
@@ -368,36 +415,57 @@ static bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue, uint3
 		uint8_t *addr = &cacheline[lineoff];
 
 		if (writing) {
+			// this is a write operation. if we haven't already searched the
+			// writebuffer for this cacheline, do it now since we will need to
+			// overwrite the existing entry if one exists.
+
 			if (!searched) {
 				for (int i = 0; i < WRITEBUFFERDEPTH; i++) {
 					if (WriteBufferTags[i] == lineaddr) {
-						// found it
+						// found the cache line in the writebuffer.
+
 						insertindex = i;
-						wbaddr = &WriteBuffer[i*CACHELINESIZE];
+
+						wbaddr = &WriteBuffer[i * CACHELINESIZE];
+
 						found = true;
+
 						break;
 					} else if (WriteBufferTags[i] == 0) {
+						// found a free write buffer index. remember this just
+						// in case we need it later.
+
 						insertindex = i;
 					}
 				}
 			}
 
 			if (!found) {
-				// didn't find one, select a write buffer entry to write out
-				// immediately and then replace it with ours & incur an
-				// appropriate stall.
+				// didn't find our cacheline in the writebuffer, select a write
+				// buffer entry to write out immediately and incur an
+				// appropriate stall so that we can replace it with our
+				// cacheline. if we have a saved insertindex, we can use that,
+				// otherwise we select the entry based on the cacheline number.
 
 				if (insertindex == -1) {
+					// no saved insert index.
+
 					insertindex = lineno&(WRITEBUFFERDEPTH-1);
+
 					EBusWrite(WriteBufferTags[insertindex], &WriteBuffer[insertindex*CACHELINESIZE], CACHELINESIZE);
+
 					CPUStall += UNCACHEDSTALL;
 				} else {
+					// there was a saved insert index, so increment the write
+					// buffer size since we are replacing a free entry.
+
 					WriteBufferSize++;
 				}
 
-				wbaddr = &WriteBuffer[insertindex*CACHELINESIZE];
+				wbaddr = &WriteBuffer[insertindex * CACHELINESIZE];
 
 				WriteBufferTags[insertindex] = lineaddr;
+
 				CopyWithLength(wbaddr, cacheline, CACHELINESIZE);
 			}
 
@@ -420,9 +488,13 @@ static bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue, uint3
 					break;
 			}
 
+			// if a writebuffer write isn't pending, set the timer.
+
 			if (!WriteBufferCyclesTilNextWrite)
 				WriteBufferCyclesTilNextWrite = UNCACHEDSTALL;
 		} else {
+			// this is a read operation, just copy the value.
+
 			switch (length) {
 				case 1:
 					*dest = *addr;
@@ -464,7 +536,10 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 		return cycles;
 
 	if (UserBreak && !CurrentException) {
+		// there's a pending user-initiated NMI, so do that.
+
 		Xr17032Exception(EXCNMI);
+
 		UserBreak = false;
 	}
 
@@ -472,6 +547,8 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 		TimeToNextPrint -= dt;
 
 		if (TimeToNextPrint <= 0) {
+			// it's time to print some cache statistics.
+
 			int itotal = ICacheFillCount+ICacheHitCount;
 			int dtotal = CacheFillCount+CacheHitCount;
 
@@ -489,6 +566,10 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 	}
 
 	if (Halted) {
+		// if there's an exception (such as an NMI), or interrupts are enabled
+		// and there is an interrupt pending, then unhalt the processor and
+		// continue execution.
+
 		if (CurrentException || ((ControlReg[RS] & RS_INT) && LSICInterruptPending)) {
 			Halted = false;
 		} else {
@@ -518,12 +599,18 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 	for (; cyclesdone < cycles; cyclesdone++) {
 		if (CPUProgress <= 0) {
 			// the CPU did a poll-y looking thing too many times this tick.
-			// skip the rest of the tick so as not to eat up too much of the host's CPU.
+			// skip the rest of the tick so as not to eat up too much of the
+			// host's CPU.
+
 			return cycles;
 		}
 
 		if (CPUSimulateCacheStalls && CPUStall) {
+			// there's a simulated cache stall of some number of cycles, so
+			// decrement the remaining stall and return.
+
 			CPUStall--;
+
 			continue;
 		}
 
@@ -532,7 +619,7 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 				bool found = false;
 				uint32_t i;
 
-				// time to write an entry out of the write buffer.
+				// it's time to write an entry out of the write buffer.
 				// first search from the next index to the end.
 
 				for (i = WriteBufferWBIndex; i<WRITEBUFFERDEPTH; i++) {
@@ -559,9 +646,12 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 				// indicate when to write the next entry.
 
 				if (found) {
-					EBusWrite(WriteBufferTags[i], &WriteBuffer[i*CACHELINESIZE], CACHELINESIZE);
+					EBusWrite(WriteBufferTags[i], &WriteBuffer[i * CACHELINESIZE], CACHELINESIZE);
+
 					WriteBufferTags[i] = 0;
-					WriteBufferWBIndex = (i+1)&(WRITEBUFFERDEPTH-1);
+
+					WriteBufferWBIndex = (i + 1) & (WRITEBUFFERDEPTH - 1);
+
 					if (WriteBufferSize--)
 						WriteBufferCyclesTilNextWrite = UNCACHEDSTALL;
 				}
@@ -569,32 +659,56 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 		}
 
 		if (CurrentException || ((ControlReg[RS] & RS_INT) && LSICInterruptPending)) {
-			newstate = ControlReg[RS] & 0xFC; // enter kernel mode, disable interrupts
+			// there's a pending exception, or interrupts are enabled and
+			// there is a pending interrupt. figure out where to send the
+			// program counter off to, and what to set the status register bits
+			// to.
+
+			// enter kernel mode, disable interrupts.
+
+			newstate = ControlReg[RS] & 0xFC;
 
 			if (CurrentException == EXCFWCALL) {
+				// firmware calls disable virtual addressing and are vectored
+				// through FWVEC.
+
 				evec = ControlReg[FWVEC];
-				newstate &= 0xF8; // disable virtual addressing
+				newstate &= 0xF8;
+
 			} else if (CurrentException == EXCTLBMISS) {
+				// TLB misses disable virtual addressing and are vectored
+				// through TBVEC.
+
 				evec = ControlReg[TBVEC];
-				newstate &= 0xF8; // disable virtual addressing
+				newstate &= 0xF8;
+
 			} else {
 				if (newstate&128) {
-					// legacy exceptions are enabled, disable virtual
+					// legacy exceptions are enabled, so disable virtual
 					// addressing. this is NOT part of the "official" xr17032
 					// architecture and is a hack to continue running AISIX in
 					// emulation.
 
 					newstate &= 0xF8;
 				}
+
+				// this is a general exception, such as a page fault, hardware
+				// interrupt, or syscall, so keep virtual addressing enabled
+				// and vector through EVEC.
 				
 				evec = ControlReg[EVEC];
 			}
 
 			if (evec == 0) {
-				// fprintf(stderr, "exception but no exception vector, resetting");
+				// the corresponding vector is zero, so reset the CPU.
+
 				CPUReset();
+
 			} else {
-				if (!CurrentException) // must have been an interrupt that got us here
+				// if CurrentException is null, then we must have come here
+				// because of an interrupt.
+
+				if (!CurrentException)
 					CurrentException = EXCINTERRUPT;
 
 				switch(CurrentException) {
@@ -603,20 +717,27 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 					case EXCFWCALL:
 						ControlReg[EPC] = PC;
 						break;
+
 					case EXCTLBMISS:
-						CurrentException = ControlReg[RS]>>RS_ECAUSE_SHIFT;
+						CurrentException = ControlReg[RS] >> RS_ECAUSE_SHIFT;
 						TLBPC = PC-4;
 						TLBMiss = true;
 						break;
+
 					default:
 						ControlReg[EPC] = PC-4;
 						break;
 				}
 
+				// set the program counter to the selected vector, and set the
+				// new status register bits.
+
 				PC = evec;
 
-				ControlReg[RS] = (CurrentException<<RS_ECAUSE_SHIFT) | ((ControlReg[RS]&0xFFFF)<<8) | newstate;
+				ControlReg[RS] = (CurrentException << RS_ECAUSE_SHIFT) | ((ControlReg[RS] & 0xFFFF)<<8) | newstate;
 			}
+
+			// clear CurrentException.
 
 			CurrentException = 0;
 		}
@@ -632,25 +753,26 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 		IFetch = false;
 
 		if (status) {
-			// decode
+			// fetch was successful, decode the instruction word and execute
+			// the instruction.
 
 			maj = ir & 7;
 			majoropcode = ir & 63;
 
 			if (maj == 7) { // JAL
 				Reg[LR] = PC;
-				PC = (currentpc&0x80000000)|((ir>>3)<<2);
+				PC = (currentpc & 0x80000000) | ((ir >> 3) << 2);
 			} else if (maj == 6) { // J
-				PC = (currentpc&0x80000000)|((ir>>3)<<2);
+				PC = (currentpc & 0x80000000) | ((ir >> 3) << 2);
 			} else if (majoropcode == 57) { // reg instructions 111001
-				funct = ir>>28;
+				funct = ir >> 28;
 
-				shifttype = (ir>>26)&3;
-				shift = (ir>>21)&31;
+				shifttype = (ir >> 26) & 3;
+				shift = (ir >> 21) & 31;
 
-				rd = (ir>>6)&31;
-				ra = (ir>>11)&31;
-				rb = (ir>>16)&31;
+				rd = (ir >> 6) & 31;
+				ra = (ir >> 11) & 31;
+				rb = (ir >> 16) & 31;
 
 				if (shift) {
 					switch(shifttype) {
@@ -677,19 +799,19 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 				if (rd || ((funct >= 9) && (funct <= 11))) {
 					switch(funct) {
 						case 0: // NOR
-							Reg[rd] = ~(Reg[ra]|val);
+							Reg[rd] = ~(Reg[ra] | val);
 							break;
 
 						case 1: // OR
-							Reg[rd] = Reg[ra]|val;
+							Reg[rd] = Reg[ra] | val;
 							break;
 
 						case 2: // XOR
-							Reg[rd] = Reg[ra]^val;
+							Reg[rd] = Reg[ra] ^ val;
 							break;
 
 						case 3: // AND
-							Reg[rd] = Reg[ra]&val;
+							Reg[rd] = Reg[ra] & val;
 							break;
 
 						case 4: // SLT SIGNED
@@ -707,11 +829,11 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 							break;
 
 						case 6: // SUB
-							Reg[rd] = Reg[ra]-val;
+							Reg[rd] = Reg[ra] - val;
 							break;
 
 						case 7: // ADD
-							Reg[rd] = Reg[ra]+val;
+							Reg[rd] = Reg[ra] + val;
 							break;
 
 						case 8: // *SH
@@ -735,15 +857,15 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 							break;
 
 						case 9: // MOV LONG, RD
-							CPUWriteLong(Reg[ra]+val, Reg[rd]);
+							CPUWriteLong(Reg[ra] + val, Reg[rd]);
 							break;
 
 						case 10: // MOV INT, RD
-							CPUWriteInt(Reg[ra]+val, Reg[rd]);
+							CPUWriteInt(Reg[ra] + val, Reg[rd]);
 							break;
 
 						case 11: // MOV BYTE, RD
-							CPUWriteByte(Reg[ra]+val, Reg[rd]);
+							CPUWriteByte(Reg[ra] + val, Reg[rd]);
 							break;
 
 						case 12: // invalid
@@ -751,15 +873,15 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 							break;
 
 						case 13: // MOV RD, LONG
-							CPUReadLong(Reg[ra]+val, &Reg[rd]);
+							CPUReadLong(Reg[ra] + val, &Reg[rd]);
 							break;
 
 						case 14: // MOV RD, INT
-							CPUReadInt(Reg[ra]+val, &Reg[rd]);
+							CPUReadInt(Reg[ra] + val, &Reg[rd]);
 							break;
 
 						case 15: // MOV RD, BYTE
-							CPUReadByte(Reg[ra]+val, &Reg[rd]);
+							CPUReadByte(Reg[ra] + val, &Reg[rd]);
 							break;
 
 						default: // unreachable
@@ -767,11 +889,11 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 					}
 				}
 			} else if (majoropcode == 49) { // reg instructions 110001
-				funct = ir>>28;
+				funct = ir >> 28;
 
-				rd = (ir>>6)&31;
-				ra = (ir>>11)&31;
-				rb = (ir>>16)&31;
+				rd = (ir >> 6) & 31;
+				ra = (ir >> 11) & 31;
+				rb = (ir >> 16) & 31;
 
 				switch(funct) {
 					case 0: // SYS
@@ -851,14 +973,17 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 						break;
 				}
 			} else if (majoropcode == 41) { // privileged instructions 101001
-				if (ControlReg[RS]&RS_USER) {
+				if (ControlReg[RS] & RS_USER) {
+					// current mode is usermode, cause a privilege violation
+					// exception.
+
 					Xr17032Exception(EXCINVPRVG);
 				} else {
-					funct = ir>>28;
+					funct = ir >> 28;
 
-					rd = (ir>>6)&31;
-					ra = (ir>>11)&31;
-					rb = (ir>>16)&15;
+					rd = (ir >> 6) & 31;
+					ra = (ir >> 11) & 31;
+					rb = (ir >> 16) & 15;
 
 					uint32_t asid;
 					uint32_t vpn;
@@ -869,13 +994,13 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 
 					switch(funct) {
 						case 0: // TBWR
-							index = ControlReg[TBINDEX]&(TLBSIZE-1);
+							index = ControlReg[TBINDEX] & (TLBSIZE - 1);
 							tbhi = ControlReg[TBHI];
 
-							if (ControlReg[TBLO]&16)
+							if (ControlReg[TBLO] & 16)
 								tbhi &= 0x000FFFFF;
 
-							TLB[index] = ((uint64_t)tbhi<<32)|ControlReg[TBLO];
+							TLB[index] = ((uint64_t)tbhi << 32) | ControlReg[TBLO];
 							TLBWriteCount++;
 
 							break;
@@ -883,13 +1008,13 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 						case 1: // TBFN
 							ControlReg[TBINDEX] = 0x80000000;
 
-							vpn = ControlReg[TBHI]&0xFFFFF;
+							vpn = ControlReg[TBHI] & 0xFFFFF;
 
-							index = (vpn&((1<<(TLBSETLOG-1))-1))|(vpn>>19<<(TLBSETLOG-1));
+							index = (vpn & ((1 << (TLBSETLOG - 1)) - 1)) | (vpn >> 19 << (TLBSETLOG - 1));
 
 							for (int i = 0; i < TLBWAYS; i++) {
-								if ((TLB[index*TLBWAYS+i]>>32) == ControlReg[TBHI]) {
-									ControlReg[TBINDEX] = index*TLBWAYS+i;
+								if ((TLB[index * TLBWAYS + i] >> 32) == ControlReg[TBHI]) {
+									ControlReg[TBINDEX] = index * TLBWAYS + i;
 									break;
 								}
 							}
@@ -897,45 +1022,45 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 							break;
 
 						case 2: // TBRD
-							tlbe = TLB[ControlReg[TBINDEX]&(TLBSIZE-1)];
+							tlbe = TLB[ControlReg[TBINDEX] & (TLBSIZE - 1)];
 
 							ControlReg[TBLO] = tlbe;
-							ControlReg[TBHI] = tlbe>>32;
+							ControlReg[TBHI] = tlbe >> 32;
 
 							break;
 
 						case 3: // TBLD
 							pde = Reg[ra];
 
-							if (!(pde&1)) {
+							if (!(pde & 1)) {
 								Reg[rd] = 0;
 								break;
 							}
 
-							CPUReadLong(((pde>>5)<<12)|((ControlReg[TBHI]&1023)<<2), &Reg[rd]);
+							CPUReadLong(((pde >> 5) << 12) | ((ControlReg[TBHI] & 1023) << 2), &Reg[rd]);
 
 							break;
 
 						case 8: // CACHEI
 							if (CPUSimulateCaches) {
-								if (rd&1) {
+								if (rd & 1) {
 									// invalidate icache
-									for (int i = 0; i<CACHELINES; i++) {
+									for (int i = 0; i < CACHELINES; i++) {
 										ICacheTags[i] = 0;
 									}
 								}
 
-								if (rd&4) {
+								if (rd & 4) {
 									// invalidate dcache
-									for (int i = 0; i<CACHELINES; i++) {
+									for (int i = 0; i < CACHELINES; i++) {
 										DCacheTags[i] = 0;
 									}
 								}
 
 								// flush writebuffer
-								for (int i = 0; i<WRITEBUFFERDEPTH; i++) {
+								for (int i = 0; i < WRITEBUFFERDEPTH; i++) {
 									if (WriteBufferTags[i]) {
-										EBusWrite(WriteBufferTags[i], &WriteBuffer[i*CACHELINESIZE], CACHELINESIZE);
+										EBusWrite(WriteBufferTags[i], &WriteBuffer[i * CACHELINESIZE], CACHELINESIZE);
 										WriteBufferTags[i] = 0;
 									}
 								}
@@ -960,7 +1085,7 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 								PC = ControlReg[EPC];
 							}
 
-							ControlReg[RS] = (ControlReg[RS]&0xF0000000)|(ControlReg[RS]>>8)&0xFFFF;
+							ControlReg[RS] = (ControlReg[RS] & 0xF0000000) | (ControlReg[RS] >> 8) & 0xFFFF;
 
 							break;
 
@@ -985,51 +1110,59 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 					}
 				}
 			} else { // major opcodes
-				rd = (ir>>6)&31;
-				ra = (ir>>11)&31;
-				imm = ir>>16;
+				rd = (ir >> 6) & 31;
+				ra = (ir >> 11) & 31;
+				imm = ir >> 16;
 
 				switch(majoropcode) {
 					// branches
 					
 					case 61: // BEQ
 						if (Reg[rd] == 0)
-							PC = currentpc + signext23((ir>>11)<<2);
+							PC = currentpc + signext23((ir >> 11) << 2);
+
 						break;
 
 					case 53: // BNE
 						if (Reg[rd] != 0)
-							PC = currentpc + signext23((ir>>11)<<2);
+							PC = currentpc + signext23((ir >> 11) << 2);
+
 						break;
 
 					case 45: // BLT
 						if ((int32_t) Reg[rd] < 0)
-							PC = currentpc + signext23((ir>>11)<<2);
+							PC = currentpc + signext23((ir >> 11) << 2);
+
 						break;
 
 					case 37: // BGT
 						if ((int32_t) Reg[rd] > 0)
-							PC = currentpc + signext23((ir>>11)<<2);
+							PC = currentpc + signext23((ir >> 11) << 2);
+
 						break;
 
 					case 29: // BGE
 						if ((int32_t) Reg[rd] >= 0)
-							PC = currentpc + signext23((ir>>11)<<2);
+							PC = currentpc + signext23((ir >> 11) << 2);
+
 						break;
 
 					case 21: // BLE
 						if ((int32_t) Reg[rd] <= 0)
-							PC = currentpc + signext23((ir>>11)<<2);
+							PC = currentpc + signext23((ir >> 11) << 2);
+
 						break;
 
 					case 13: // BPE
 						if ((Reg[rd]&1) == 0)
-							PC = currentpc + signext23((ir>>11)<<2);
+							PC = currentpc + signext23((ir >> 11) << 2);
+
 						break;
 
 					case 5: // BPO
 						if (Reg[rd]&1)
-							PC = currentpc + signext23((ir>>11)<<2);
+							PC = currentpc + signext23((ir >> 11) << 2);
+
 						break;
 
 					// ALU
@@ -1075,25 +1208,33 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 					case 28: // ANDI
 						if (rd == 0)
 							break;
+
 						Reg[rd] = Reg[ra] & imm;
+
 						break;
 
 					case 20: // XORI
 						if (rd == 0)
 							break;
+
 						Reg[rd] = Reg[ra] ^ imm;
+
 						break;
 
 					case 12: // ORI
 						if (rd == 0)
 							break;
+
 						Reg[rd] = Reg[ra] | imm;
+
 						break;
 
 					case 4: // LUI
 						if (rd == 0)
 							break;
-						Reg[rd] = Reg[ra] | (imm<<16);
+
+						Reg[rd] = Reg[ra] | (imm << 16);
+
 						break;
 
 					// LOAD with immediate offset
@@ -1101,19 +1242,25 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 					case 59: // MOV RD, BYTE
 						if (rd == 0)
 							break;
+
 						CPUReadByte(Reg[ra] + imm, &Reg[rd]);
+
 						break;
 
 					case 51: // MOV RD, INT
 						if (rd == 0)
 							break;
-						CPUReadInt(Reg[ra] + (imm<<1), &Reg[rd]);
+
+						CPUReadInt(Reg[ra] + (imm << 1), &Reg[rd]);
+
 						break;
 
 					case 43: // MOV RD, LONG
 						if (rd == 0)
 							break;
-						CPUReadLong(Reg[ra] + (imm<<2), &Reg[rd]);
+
+						CPUReadLong(Reg[ra] + (imm << 2), &Reg[rd]);
+
 						break;
 
 					// STORE with immediate offset
@@ -1123,11 +1270,11 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 						break;
 
 					case 50: // MOV INT RD+IMM, RA
-						CPUWriteInt(Reg[rd] + (imm<<1), Reg[ra]);
+						CPUWriteInt(Reg[rd] + (imm << 1), Reg[ra]);
 						break;
 
 					case 42: // MOV LONG RD+IMM, RA
-						CPUWriteLong(Reg[rd] + (imm<<2), Reg[ra]);
+						CPUWriteLong(Reg[rd] + (imm << 2), Reg[ra]);
 						break;
 
 					case 26: // MOV BYTE RD+IMM, IMM5
@@ -1135,17 +1282,19 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 						break;
 
 					case 18: // MOV INT RD+IMM, IMM5
-						CPUWriteInt(Reg[rd] + (imm<<1), signext5(ra));
+						CPUWriteInt(Reg[rd] + (imm << 1), signext5(ra));
 						break;
 
 					case 10: // MOV LONG RD+IMM, IMM5
-						CPUWriteLong(Reg[rd] + (imm<<2), signext5(ra));
+						CPUWriteLong(Reg[rd] + (imm << 2), signext5(ra));
 						break;
 
 					case 56: // JALR
 						if (rd != 0)
 							Reg[rd] = PC;
-						PC = Reg[ra] + signext18(imm<<2);
+
+						PC = Reg[ra] + signext18(imm << 2);
+
 						break;
 
 					default:
