@@ -197,7 +197,7 @@ static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, int *cachetype, b
 		return false;
 	}
 
-	if (!(tlbe&1)) {
+	if (!(tlbe & 1)) {
 		// invalid.
 
 		ControlReg[EBADADDR] = virt;
@@ -209,7 +209,7 @@ static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, int *cachetype, b
 
 	uint32_t ppn = ((tlbe >> 5) & 0xFFFFF) << 12;
 
-	if (((tlbe & 4) == 4) && (ControlReg[RS] & RS_USER)) { // kernel (K) bit
+	if ((tlbe & 4) && (ControlReg[RS] & RS_USER)) { // kernel (K) bit
 		ControlReg[EBADADDR] = virt;
 
 		Xr17032Exception(writing ? EXCPAGEWRITE : EXCPAGEFAULT);
@@ -217,7 +217,7 @@ static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, int *cachetype, b
 		return false;
 	}
 
-	if (writing && ((tlbe & 2) == 0)) { // writable (W) bit not set
+	if (writing && !(tlbe & 2)) { // writable (W) bit not set
 		ControlReg[EBADADDR] = virt;
 
 		Xr17032Exception(EXCPAGEWRITE);
@@ -450,7 +450,7 @@ static bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue, uint3
 				if (insertindex == -1) {
 					// no saved insert index.
 
-					insertindex = lineno&(WRITEBUFFERDEPTH-1);
+					insertindex = lineno & (WRITEBUFFERDEPTH-1);
 
 					EBusWrite(WriteBufferTags[insertindex], &WriteBuffer[insertindex*CACHELINESIZE], CACHELINESIZE);
 
@@ -622,7 +622,7 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 				// it's time to write an entry out of the write buffer.
 				// first search from the next index to the end.
 
-				for (i = WriteBufferWBIndex; i<WRITEBUFFERDEPTH; i++) {
+				for (i = WriteBufferWBIndex; i < WRITEBUFFERDEPTH; i++) {
 					if (WriteBufferTags[i]) {
 						found = true;
 						break;
@@ -633,7 +633,7 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 				// to the next index.
 
 				if (!found) {
-					for (i = 0; i<WriteBufferWBIndex; i++) {
+					for (i = 0; i < WriteBufferWBIndex; i++) {
 						if (WriteBufferTags[i]) {
 							found = true;
 							break;
