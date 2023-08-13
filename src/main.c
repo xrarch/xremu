@@ -12,8 +12,6 @@
 #include <string.h>
 
 #define FPS 60
-#define TPF 1
-#define TPS (FPS * TPF)
 
 #include "ebus.h"
 #include "cpu.h"
@@ -187,7 +185,7 @@ int main(int argc, char *argv[]) {
 		MainLoop();
 
 		tick_end = SDL_GetTicks();
-		int delay = 1000/TPS - (tick_end - tick_start);
+		int delay = 1000/FPS - (tick_end - tick_start);
 		if (delay > 0) {
 			SDL_Delay(delay);
 		} else {
@@ -214,8 +212,8 @@ void MainLoop(void) {
 	if (!dt)
 		dt = 1;
 
-	int cyclespertick = SimulatorHz/TPS/dt;
-	int extracycles = SimulatorHz/TPS - (cyclespertick*dt);
+	int cyclespertick = SimulatorHz/1000;
+	int extracycles = SimulatorHz%1000; // squeeze in the sub-millisecond cycles
 
 	CPUProgress = 20;
 
@@ -225,18 +223,16 @@ void MainLoop(void) {
 		if (i == dt-1)
 			cyclesleft += extracycles;
 
-		RTCInterval(1);
-		DKSOperation(1);
-		SerialInterval(1);
-
 		while (cyclesleft > 0) {
 			cyclesleft -= CPUDoCycles(cyclesleft, 1);
 		}
+
+		RTCInterval(1);
+		DKSOperation(1);
+		SerialInterval(1);
 	}
 
-	if ((ticks%TPF) == 0) {
-		ScreenDraw();
-	}
+	ScreenDraw();
 
 	done = ScreenProcessEvents();
 
