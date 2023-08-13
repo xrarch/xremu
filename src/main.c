@@ -209,7 +209,7 @@ void MainLoop(void) {
 
 	tick_start = SDL_GetTicks();
 
-	if (!dt)
+	if (dt < 1)
 		dt = 1;
 
 	int cyclespertick = SimulatorHz/1000;
