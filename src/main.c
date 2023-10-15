@@ -186,6 +186,7 @@ int main(int argc, char *argv[]) {
 
 		tick_end = SDL_GetTicks();
 		int delay = 1000/FPS - (tick_end - tick_start);
+
 		if (delay > 0) {
 			SDL_Delay(delay);
 		} else {
@@ -211,6 +212,9 @@ void MainLoop(void) {
 
 	if (dt < 1)
 		dt = 1;
+
+	if (dt > 20)
+		dt = 20;
 
 	int cyclespertick = SimulatorHz/1000;
 	int extracycles = SimulatorHz%1000; // squeeze in the sub-millisecond cycles
