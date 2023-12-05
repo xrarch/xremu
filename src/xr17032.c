@@ -48,7 +48,6 @@ enum Xr17032ControlRegisters {
 	TBINDEX  = 6,
 	EBADADDR = 7,
 	TBVEC    = 8,
-	FWVEC    = 9,
 	TBSCRATCH = 10,
 	TBHI     = 11,
 };
@@ -61,7 +60,6 @@ enum Xr17032CacheTypes {
 enum Xr17032Exceptions {
 	EXCINTERRUPT = 1,
 	EXCSYSCALL   = 2,
-	EXCFWCALL    = 3,
 	EXCBUSERROR  = 4,
 	
 	EXCNMI       = 5,
@@ -69,7 +67,6 @@ enum Xr17032Exceptions {
 	EXCINVINST   = 7,
 	EXCINVPRVG   = 8,
 	EXCUNALIGNED = 9,
-
 
 	EXCPAGEFAULT = 12,
 	EXCPAGEWRITE = 13,
@@ -668,14 +665,7 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 
 			newstate = ControlReg[RS] & 0xFC;
 
-			if (CurrentException == EXCFWCALL) {
-				// firmware calls disable virtual addressing and are vectored
-				// through FWVEC.
-
-				evec = ControlReg[FWVEC];
-				newstate &= 0xF8;
-
-			} else if (CurrentException == EXCTLBMISS) {
+			if (CurrentException == EXCTLBMISS) {
 				// TLB misses disable virtual addressing and are vectored
 				// through TBVEC.
 
@@ -714,7 +704,6 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 				switch(CurrentException) {
 					case EXCINTERRUPT:
 					case EXCSYSCALL:
-					case EXCFWCALL:
 						ControlReg[EPC] = PC;
 						break;
 
@@ -1069,10 +1058,6 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 								WriteBufferCyclesTilNextWrite = 0;
 							}
 
-							break;
-
-						case 10: // FWC
-							Xr17032Exception(EXCFWCALL);
 							break;
 
 						case 11: // RFE
