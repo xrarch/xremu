@@ -41,15 +41,14 @@ uint32_t ControlReg[16];
 
 enum Xr17032ControlRegisters {
 	RS       = 0,
-	TBLO     = 2,
-	EPC      = 3,
-	EVEC     = 4,
-	PGTB     = 5,
-	TBINDEX  = 6,
+	TBLO     = 1,
+	TBHI     = 2,
+	TBINDEX  = 3,
+	TBPDE    = 4,
+	EVEC     = 5,
+	EPC      = 6,
 	EBADADDR = 7,
 	TBVEC    = 8,
-	TBSCRATCH = 10,
-	TBHI     = 11,
 };
 
 enum Xr17032CacheTypes {
@@ -182,7 +181,7 @@ static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, int *cachetype, b
 		// didn't find the mapping. a TLB miss exception is in order.
 
 		ControlReg[TBHI] = tbhi;
-		ControlReg[PGTB] = (ControlReg[PGTB] & 0xFFFFF000) | ((vpn >> 10) << 2);
+		ControlReg[TBPDE] = (ControlReg[TBPDE] & 0xFFFFF000) | ((vpn >> 10) << 2);
 
 		if (rememberindex == -1)
 			ControlReg[TBINDEX] = set * TLBWAYS + (TLBWriteCount & (TLBWAYS - 1));
