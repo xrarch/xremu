@@ -45,10 +45,9 @@ enum Xr17032ControlRegisters {
 	TBHI     = 2,
 	TBINDEX  = 3,
 	TBPDE    = 4,
-	EVEC     = 5,
+	EB       = 5,
 	EPC      = 6,
 	EBADADDR = 7,
-	TBVEC    = 8,
 };
 
 enum Xr17032CacheTypes {
@@ -519,9 +518,9 @@ static bool CPUAccess(uint32_t address, uint32_t *dest, uint32_t srcvalue, uint3
 #define CPUWriteLong(address, value) CPUAccess(address, 0, value, 4, true);
 
 void CPUReset() {
-	PC = 0xFFFE0000;
+	PC = 0xFFFE1000;
 	ControlReg[RS] = 0;
-	ControlReg[EVEC] = 0;
+	ControlReg[EB] = 0;
 	CurrentException = 0;
 }
 
@@ -664,11 +663,28 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 
 			newstate = ControlReg[RS] & 0xFC;
 
+			if (ControlReg[EB] == 0) {
+				// there is no exception block. reset the CPU.
+
+				CurrentException = 0;
+				CPUReset();
+
+				continue;
+			}
+
+			// if CurrentException is null, then we must have come here
+			// because of an interrupt.
+
+			if (!CurrentException)
+				CurrentException = EXCINTERRUPT;
+
 			if (CurrentException == EXCTLBMISS) {
 				// TLB misses disable virtual addressing and are vectored
-				// through TBVEC.
+				// through physical address 0x1F00. if the exception block
+				// occupies the same page frame, this corresponds to exception
+				// handler 15.
 
-				evec = ControlReg[TBVEC];
+				evec = 0x00001F00;
 				newstate &= 0xF8;
 
 			} else {
@@ -683,50 +699,33 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 
 				// this is a general exception, such as a page fault, hardware
 				// interrupt, or syscall, so keep virtual addressing enabled
-				// and vector through EVEC.
-				
-				evec = ControlReg[EVEC];
+				// and vector through EB.
+
+				evec = ControlReg[EB] | (CurrentException << 8);
 			}
 
-			if (evec == 0) {
-				// the corresponding vector is zero, so reset the CPU.
+			switch(CurrentException) {
+				case EXCINTERRUPT:
+				case EXCSYSCALL:
+					ControlReg[EPC] = PC;
+					break;
 
-				CPUReset();
+				case EXCTLBMISS:
+					CurrentException = ControlReg[RS] >> RS_ECAUSE_SHIFT;
+					TLBPC = PC-4;
+					TLBMiss = true;
+					break;
 
-			} else {
-				// if CurrentException is null, then we must have come here
-				// because of an interrupt.
-
-				if (!CurrentException)
-					CurrentException = EXCINTERRUPT;
-
-				switch(CurrentException) {
-					case EXCINTERRUPT:
-					case EXCSYSCALL:
-						ControlReg[EPC] = PC;
-						break;
-
-					case EXCTLBMISS:
-						CurrentException = ControlReg[RS] >> RS_ECAUSE_SHIFT;
-						TLBPC = PC-4;
-						TLBMiss = true;
-						break;
-
-					default:
-						ControlReg[EPC] = PC-4;
-						break;
-				}
-
-				// set the program counter to the selected vector, and set the
-				// new status register bits.
-
-				PC = evec;
-
-				ControlReg[RS] = (CurrentException << RS_ECAUSE_SHIFT) | ((ControlReg[RS] & 0xFFFF)<<8) | newstate;
+				default:
+					ControlReg[EPC] = PC-4;
+					break;
 			}
 
-			// clear CurrentException.
+			// set the program counter to the selected vector, and set the
+			// new status register bits.
 
+			PC = evec;
+			ControlReg[RS] = (CurrentException << RS_ECAUSE_SHIFT) | ((ControlReg[RS] & 0xFFFF)<<8) | newstate;
 			CurrentException = 0;
 		}
 
