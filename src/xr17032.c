@@ -592,6 +592,10 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 	int status;
 
 	for (; cyclesdone < cycles; cyclesdone++) {
+		// make sure the zero register is always zero.
+
+		Reg[0] = 0;
+
 		if (CPUProgress <= 0) {
 			// the CPU did a poll-y looking thing too many times this tick.
 			// skip the rest of the tick so as not to eat up too much of the
@@ -739,551 +743,498 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 
 		IFetch = false;
 
-		if (status) {
-			// fetch was successful, decode the instruction word and execute
-			// the instruction.
+		if (!status) {
+			continue;
+		}
 
-			maj = ir & 7;
-			majoropcode = ir & 63;
+		// fetch was successful, decode the instruction word and execute
+		// the instruction.
 
-			if (maj == 7) { // JAL
-				Reg[LR] = PC;
-				PC = (currentpc & 0x80000000) | ((ir >> 3) << 2);
-			} else if (maj == 6) { // J
-				PC = (currentpc & 0x80000000) | ((ir >> 3) << 2);
-			} else if (majoropcode == 57) { // reg instructions 111001
+		maj = ir & 7;
+		majoropcode = ir & 63;
+
+		if (maj == 7) { // JAL
+			Reg[LR] = PC;
+			PC = (currentpc & 0x80000000) | ((ir >> 3) << 2);
+		} else if (maj == 6) { // J
+			PC = (currentpc & 0x80000000) | ((ir >> 3) << 2);
+		} else if (majoropcode == 57) { // reg instructions 111001
+			funct = ir >> 28;
+
+			shifttype = (ir >> 26) & 3;
+			shift = (ir >> 21) & 31;
+
+			rd = (ir >> 6) & 31;
+			ra = (ir >> 11) & 31;
+			rb = (ir >> 16) & 31;
+
+			if (shift) {
+				switch(shifttype) {
+					case 0: // LSH
+						val = Reg[rb] << shift;
+						break;
+
+					case 1: // RSH
+						val = Reg[rb] >> shift;
+						break;
+
+					case 2: // ASH
+						val = (int32_t) Reg[rb] >> shift;
+						break;
+
+					case 3: // ROR
+						val = RoR(Reg[rb], shift);
+						break;
+				}
+			} else {
+				val = Reg[rb];
+			}
+
+			if (rd || ((funct >= 9) && (funct <= 11))) {
+				switch(funct) {
+					case 0: // NOR
+						Reg[rd] = ~(Reg[ra] | val);
+						break;
+
+					case 1: // OR
+						Reg[rd] = Reg[ra] | val;
+						break;
+
+					case 2: // XOR
+						Reg[rd] = Reg[ra] ^ val;
+						break;
+
+					case 3: // AND
+						Reg[rd] = Reg[ra] & val;
+						break;
+
+					case 4: // SLT SIGNED
+						if ((int32_t) Reg[ra] < (int32_t) val)
+							Reg[rd] = 1;
+						else
+							Reg[rd] = 0;
+						break;
+
+					case 5: // SLT
+						if (Reg[ra] < val)
+							Reg[rd] = 1;
+						else
+							Reg[rd] = 0;
+						break;
+
+					case 6: // SUB
+						Reg[rd] = Reg[ra] - val;
+						break;
+
+					case 7: // ADD
+						Reg[rd] = Reg[ra] + val;
+						break;
+
+					case 8: // *SH
+						switch(shifttype) {
+							case 0: // LSH
+								Reg[rd] = Reg[rb] << Reg[ra];
+								break;
+
+							case 1: // RSH
+								Reg[rd] = Reg[rb] >> Reg[ra];
+								break;
+
+							case 2: // ASH
+								Reg[rd] = (int32_t) Reg[rb] >> Reg[ra];
+								break;
+
+							case 3: // ROR
+								Reg[rd] = RoR(Reg[rb], Reg[ra]);
+								break;
+						}
+						break;
+
+					case 9: // MOV LONG, RD
+						CPUWriteLong(Reg[ra] + val, Reg[rd]);
+						break;
+
+					case 10: // MOV INT, RD
+						CPUWriteInt(Reg[ra] + val, Reg[rd]);
+						break;
+
+					case 11: // MOV BYTE, RD
+						CPUWriteByte(Reg[ra] + val, Reg[rd]);
+						break;
+
+					case 12: // invalid
+						Xr17032Exception(EXCINVINST);
+						break;
+
+					case 13: // MOV RD, LONG
+						CPUReadLong(Reg[ra] + val, &Reg[rd]);
+						break;
+
+					case 14: // MOV RD, INT
+						CPUReadInt(Reg[ra] + val, &Reg[rd]);
+						break;
+
+					case 15: // MOV RD, BYTE
+						CPUReadByte(Reg[ra] + val, &Reg[rd]);
+						break;
+
+					default: // unreachable
+						abort();
+				}
+			}
+		} else if (majoropcode == 49) { // reg instructions 110001
+			funct = ir >> 28;
+
+			rd = (ir >> 6) & 31;
+			ra = (ir >> 11) & 31;
+			rb = (ir >> 16) & 31;
+
+			switch(funct) {
+				case 0: // SYS
+					Xr17032Exception(EXCSYSCALL);
+					break;
+
+				case 1: // BRK
+					Xr17032Exception(EXCBRKPOINT);
+					break;
+
+				case 8: // SC
+					if (CPULocked)
+						CPUWriteLong(Reg[ra], Reg[rb]);
+
+					Reg[rd] = CPULocked;
+
+					break;
+
+				case 9: // LL
+					CPULocked = 1;
+
+					CPUReadLong(Reg[ra], &Reg[rd]);
+
+					break;
+
+				case 11: // MOD
+					if (Reg[rb] == 0) {
+						Reg[rd] = 0;
+						break;
+					}
+
+					Reg[rd] = Reg[ra] % Reg[rb];
+					break;
+
+				case 12: // DIV SIGNED
+					if (Reg[rb] == 0) {
+						Reg[rd] = 0;
+						break;
+					}
+
+					Reg[rd] = (int32_t) Reg[ra] / (int32_t) Reg[rb];
+					break;
+
+				case 13: // DIV
+					if (Reg[rb] == 0) {
+						Reg[rd] = 0;
+						break;
+					}
+
+					Reg[rd] = Reg[ra] / Reg[rb];
+					break;
+
+				case 15: // MUL
+					Reg[rd] = Reg[ra] * Reg[rb];
+					break;
+
+				default:
+					Xr17032Exception(EXCINVINST);
+					break;
+			}
+		} else if (majoropcode == 41) { // privileged instructions 101001
+			if (ControlReg[RS] & RS_USER) {
+				// current mode is usermode, cause a privilege violation
+				// exception.
+
+				Xr17032Exception(EXCINVPRVG);
+			} else {
 				funct = ir >> 28;
-
-				shifttype = (ir >> 26) & 3;
-				shift = (ir >> 21) & 31;
 
 				rd = (ir >> 6) & 31;
 				ra = (ir >> 11) & 31;
 				rb = (ir >> 16) & 31;
 
-				if (shift) {
-					switch(shifttype) {
-						case 0: // LSH
-							val = Reg[rb] << shift;
-							break;
-
-						case 1: // RSH
-							val = Reg[rb] >> shift;
-							break;
-
-						case 2: // ASH
-							val = (int32_t) Reg[rb] >> shift;
-							break;
-
-						case 3: // ROR
-							val = RoR(Reg[rb], shift);
-							break;
-					}
-				} else {
-					val = Reg[rb];
-				}
-
-				if (rd || ((funct >= 9) && (funct <= 11))) {
-					switch(funct) {
-						case 0: // NOR
-							Reg[rd] = ~(Reg[ra] | val);
-							break;
-
-						case 1: // OR
-							Reg[rd] = Reg[ra] | val;
-							break;
-
-						case 2: // XOR
-							Reg[rd] = Reg[ra] ^ val;
-							break;
-
-						case 3: // AND
-							Reg[rd] = Reg[ra] & val;
-							break;
-
-						case 4: // SLT SIGNED
-							if ((int32_t) Reg[ra] < (int32_t) val)
-								Reg[rd] = 1;
-							else
-								Reg[rd] = 0;
-							break;
-
-						case 5: // SLT
-							if (Reg[ra] < val)
-								Reg[rd] = 1;
-							else
-								Reg[rd] = 0;
-							break;
-
-						case 6: // SUB
-							Reg[rd] = Reg[ra] - val;
-							break;
-
-						case 7: // ADD
-							Reg[rd] = Reg[ra] + val;
-							break;
-
-						case 8: // *SH
-							switch(shifttype) {
-								case 0: // LSH
-									Reg[rd] = Reg[rb] << Reg[ra];
-									break;
-
-								case 1: // RSH
-									Reg[rd] = Reg[rb] >> Reg[ra];
-									break;
-
-								case 2: // ASH
-									Reg[rd] = (int32_t) Reg[rb] >> Reg[ra];
-									break;
-
-								case 3: // ROR
-									Reg[rd] = RoR(Reg[rb], Reg[ra]);
-									break;
-							}
-							break;
-
-						case 9: // MOV LONG, RD
-							CPUWriteLong(Reg[ra] + val, Reg[rd]);
-							break;
-
-						case 10: // MOV INT, RD
-							CPUWriteInt(Reg[ra] + val, Reg[rd]);
-							break;
-
-						case 11: // MOV BYTE, RD
-							CPUWriteByte(Reg[ra] + val, Reg[rd]);
-							break;
-
-						case 12: // invalid
-							Xr17032Exception(EXCINVINST);
-							break;
-
-						case 13: // MOV RD, LONG
-							CPUReadLong(Reg[ra] + val, &Reg[rd]);
-							break;
-
-						case 14: // MOV RD, INT
-							CPUReadInt(Reg[ra] + val, &Reg[rd]);
-							break;
-
-						case 15: // MOV RD, BYTE
-							CPUReadByte(Reg[ra] + val, &Reg[rd]);
-							break;
-
-						default: // unreachable
-							abort();
-					}
-				}
-			} else if (majoropcode == 49) { // reg instructions 110001
-				funct = ir >> 28;
-
-				rd = (ir >> 6) & 31;
-				ra = (ir >> 11) & 31;
-				rb = (ir >> 16) & 31;
+				uint32_t asid;
+				uint32_t vpn;
+				uint32_t index;
+				uint64_t tlbe;
+				uint32_t pde;
+				uint32_t tbhi;
 
 				switch(funct) {
-					case 0: // SYS
-						Xr17032Exception(EXCSYSCALL);
-						break;
+					case 0: // TBWR
+						index = ControlReg[TBINDEX] & (TLBSIZE - 1);
+						tbhi = ControlReg[TBHI];
 
-					case 1: // BRK
-						Xr17032Exception(EXCBRKPOINT);
-						break;
+						if (ControlReg[TBLO] & 16)
+							tbhi &= 0x000FFFFF;
 
-					case 8: // SC
-						if (CPULocked)
-							CPUWriteLong(Reg[ra], Reg[rb]);
-
-						if (rd == 0)
-							break;
-
-						Reg[rd] = CPULocked;
+						TLB[index] = ((uint64_t)tbhi << 32) | ControlReg[TBLO];
+						TLBWriteCount++;
 
 						break;
 
-					case 9: // LL
-						CPULocked = 1;
+					case 1: // TBFN
+						ControlReg[TBINDEX] = 0x80000000;
 
-						if (rd == 0)
-							break;
+						vpn = ControlReg[TBHI] & 0xFFFFF;
 
-						CPUReadLong(Reg[ra], &Reg[rd]);
+						index = (vpn & ((1 << (TLBSETLOG - 1)) - 1)) | (vpn >> 19 << (TLBSETLOG - 1));
+
+						for (int i = 0; i < TLBWAYS; i++) {
+							if ((TLB[index * TLBWAYS + i] >> 32) == ControlReg[TBHI]) {
+								ControlReg[TBINDEX] = index * TLBWAYS + i;
+								break;
+							}
+						}
 
 						break;
 
-					case 11: // MOD
-						if (rd == 0)
-							break;
+					case 2: // TBRD
+						tlbe = TLB[ControlReg[TBINDEX] & (TLBSIZE - 1)];
 
-						if (Reg[rb] == 0) {
+						ControlReg[TBLO] = tlbe;
+						ControlReg[TBHI] = tlbe >> 32;
+
+						break;
+
+					case 3: // TBLD
+						pde = Reg[ra];
+
+						if (!(pde & 1)) {
 							Reg[rd] = 0;
 							break;
 						}
 
-						Reg[rd] = Reg[ra] % Reg[rb];
+						CPUReadLong(((pde >> 5) << 12) | ((ControlReg[TBHI] & 1023) << 2), &Reg[rd]);
+
 						break;
 
-					case 12: // DIV SIGNED
-						if (rd == 0)
-							break;
+					case 8: // CACHEI
+						if (CPUSimulateCaches) {
+							if (rd & 1) {
+								// invalidate icache
+								for (int i = 0; i < CACHELINES; i++) {
+									ICacheTags[i] = 0;
+								}
+							}
 
-						if (Reg[rb] == 0) {
-							Reg[rd] = 0;
-							break;
+							if (rd & 4) {
+								// invalidate dcache
+								for (int i = 0; i < CACHELINES; i++) {
+									DCacheTags[i] = 0;
+								}
+							}
+
+							// flush writebuffer
+							for (int i = 0; i < WRITEBUFFERDEPTH; i++) {
+								if (WriteBufferTags[i]) {
+									EBusWrite(WriteBufferTags[i], &WriteBuffer[i * CACHELINESIZE], CACHELINESIZE);
+									WriteBufferTags[i] = 0;
+								}
+							}
+
+							WriteBufferSize = 0;
+							WriteBufferCyclesTilNextWrite = 0;
 						}
 
-						Reg[rd] = (int32_t) Reg[ra] / (int32_t) Reg[rb];
 						break;
 
-					case 13: // DIV
-						if (rd == 0)
-							break;
+					case 11: // RFE
+						CPULocked = 0;
 
-						if (Reg[rb] == 0) {
-							Reg[rd] = 0;
-							break;
+						if (TLBMiss) {
+							TLBMiss = false;
+							PC = TLBPC;
+						} else {
+							PC = ControlReg[EPC];
 						}
 
-						Reg[rd] = Reg[ra] / Reg[rb];
+						ControlReg[RS] = (ControlReg[RS] & 0xF0000000) | (ControlReg[RS] >> 8) & 0xFFFF;
+
 						break;
 
-					case 15: // MUL
-						if (rd == 0)
-							break;
-						
-						Reg[rd] = Reg[ra] * Reg[rb];
+					case 12: // HLT
+						Halted = true;
+						break;
+
+					case 14: // MTCR
+						ControlReg[rb] = Reg[ra];
+						break;
+
+					case 15: // MFCR
+						Reg[rd] = ControlReg[rb];
 						break;
 
 					default:
 						Xr17032Exception(EXCINVINST);
 						break;
 				}
-			} else if (majoropcode == 41) { // privileged instructions 101001
-				if (ControlReg[RS] & RS_USER) {
-					// current mode is usermode, cause a privilege violation
-					// exception.
+			}
+		} else { // major opcodes
+			rd = (ir >> 6) & 31;
+			ra = (ir >> 11) & 31;
+			imm = ir >> 16;
 
-					Xr17032Exception(EXCINVPRVG);
-				} else {
-					funct = ir >> 28;
-
-					rd = (ir >> 6) & 31;
-					ra = (ir >> 11) & 31;
-					rb = (ir >> 16) & 15;
+			switch(majoropcode) {
+				// branches
+				
+				case 61: // BEQ
+					if (Reg[rd] == 0)
+						PC = currentpc + signext23((ir >> 11) << 2);
 
-					uint32_t asid;
-					uint32_t vpn;
-					uint32_t index;
-					uint64_t tlbe;
-					uint32_t pde;
-					uint32_t tbhi;
+					break;
 
-					switch(funct) {
-						case 0: // TBWR
-							index = ControlReg[TBINDEX] & (TLBSIZE - 1);
-							tbhi = ControlReg[TBHI];
+				case 53: // BNE
+					if (Reg[rd] != 0)
+						PC = currentpc + signext23((ir >> 11) << 2);
 
-							if (ControlReg[TBLO] & 16)
-								tbhi &= 0x000FFFFF;
+					break;
 
-							TLB[index] = ((uint64_t)tbhi << 32) | ControlReg[TBLO];
-							TLBWriteCount++;
+				case 45: // BLT
+					if ((int32_t) Reg[rd] < 0)
+						PC = currentpc + signext23((ir >> 11) << 2);
 
-							break;
+					break;
 
-						case 1: // TBFN
-							ControlReg[TBINDEX] = 0x80000000;
-
-							vpn = ControlReg[TBHI] & 0xFFFFF;
-
-							index = (vpn & ((1 << (TLBSETLOG - 1)) - 1)) | (vpn >> 19 << (TLBSETLOG - 1));
-
-							for (int i = 0; i < TLBWAYS; i++) {
-								if ((TLB[index * TLBWAYS + i] >> 32) == ControlReg[TBHI]) {
-									ControlReg[TBINDEX] = index * TLBWAYS + i;
-									break;
-								}
-							}
-
-							break;
-
-						case 2: // TBRD
-							tlbe = TLB[ControlReg[TBINDEX] & (TLBSIZE - 1)];
-
-							ControlReg[TBLO] = tlbe;
-							ControlReg[TBHI] = tlbe >> 32;
-
-							break;
-
-						case 3: // TBLD
-							pde = Reg[ra];
+				case 37: // BGT
+					if ((int32_t) Reg[rd] > 0)
+						PC = currentpc + signext23((ir >> 11) << 2);
 
-							if (!(pde & 1)) {
-								Reg[rd] = 0;
-								break;
-							}
+					break;
 
-							CPUReadLong(((pde >> 5) << 12) | ((ControlReg[TBHI] & 1023) << 2), &Reg[rd]);
+				case 29: // BGE
+					if ((int32_t) Reg[rd] >= 0)
+						PC = currentpc + signext23((ir >> 11) << 2);
 
-							break;
+					break;
 
-						case 8: // CACHEI
-							if (CPUSimulateCaches) {
-								if (rd & 1) {
-									// invalidate icache
-									for (int i = 0; i < CACHELINES; i++) {
-										ICacheTags[i] = 0;
-									}
-								}
+				case 21: // BLE
+					if ((int32_t) Reg[rd] <= 0)
+						PC = currentpc + signext23((ir >> 11) << 2);
 
-								if (rd & 4) {
-									// invalidate dcache
-									for (int i = 0; i < CACHELINES; i++) {
-										DCacheTags[i] = 0;
-									}
-								}
+					break;
 
-								// flush writebuffer
-								for (int i = 0; i < WRITEBUFFERDEPTH; i++) {
-									if (WriteBufferTags[i]) {
-										EBusWrite(WriteBufferTags[i], &WriteBuffer[i * CACHELINESIZE], CACHELINESIZE);
-										WriteBufferTags[i] = 0;
-									}
-								}
+				case 13: // BPE
+					if ((Reg[rd]&1) == 0)
+						PC = currentpc + signext23((ir >> 11) << 2);
 
-								WriteBufferSize = 0;
-								WriteBufferCyclesTilNextWrite = 0;
-							}
+					break;
 
-							break;
+				case 5: // BPO
+					if (Reg[rd]&1)
+						PC = currentpc + signext23((ir >> 11) << 2);
 
-						case 11: // RFE
-							CPULocked = 0;
+					break;
 
-							if (TLBMiss) {
-								TLBMiss = false;
-								PC = TLBPC;
-							} else {
-								PC = ControlReg[EPC];
-							}
+				// ALU
 
-							ControlReg[RS] = (ControlReg[RS] & 0xF0000000) | (ControlReg[RS] >> 8) & 0xFFFF;
+				case 60: // ADDI
+					Reg[rd] = Reg[ra] + imm;
 
-							break;
+					break;
 
-						case 12: // HLT
-							Halted = true;
-							break;
+				case 52: // SUBI
+					Reg[rd] = Reg[ra] - imm;
 
-						case 14: // MTCR
-							ControlReg[rb] = Reg[ra];
-							break;
+					break;
 
-						case 15: // MFCR
-							if (rd == 0)
-								break;
+				case 44: // SLTI
+					if (Reg[ra] < imm)
+						Reg[rd] = 1;
+					else
+						Reg[rd] = 0;
 
-							Reg[rd] = ControlReg[rb];
-							break;
+					break;
 
-						default:
-							Xr17032Exception(EXCINVINST);
-							break;
-					}
-				}
-			} else { // major opcodes
-				rd = (ir >> 6) & 31;
-				ra = (ir >> 11) & 31;
-				imm = ir >> 16;
+				case 36: // SLTI signed
+					if ((int32_t) Reg[ra] < (int32_t) signext16(imm))
+						Reg[rd] = 1;
+					else
+						Reg[rd] = 0;
 
-				switch(majoropcode) {
-					// branches
-					
-					case 61: // BEQ
-						if (Reg[rd] == 0)
-							PC = currentpc + signext23((ir >> 11) << 2);
+					break;
 
-						break;
+				case 28: // ANDI
+					Reg[rd] = Reg[ra] & imm;
 
-					case 53: // BNE
-						if (Reg[rd] != 0)
-							PC = currentpc + signext23((ir >> 11) << 2);
+					break;
 
-						break;
+				case 20: // XORI
+					Reg[rd] = Reg[ra] ^ imm;
 
-					case 45: // BLT
-						if ((int32_t) Reg[rd] < 0)
-							PC = currentpc + signext23((ir >> 11) << 2);
+					break;
 
-						break;
+				case 12: // ORI
+					Reg[rd] = Reg[ra] | imm;
 
-					case 37: // BGT
-						if ((int32_t) Reg[rd] > 0)
-							PC = currentpc + signext23((ir >> 11) << 2);
+					break;
 
-						break;
+				case 4: // LUI
+					Reg[rd] = Reg[ra] | (imm << 16);
 
-					case 29: // BGE
-						if ((int32_t) Reg[rd] >= 0)
-							PC = currentpc + signext23((ir >> 11) << 2);
+					break;
 
-						break;
+				// LOAD with immediate offset
 
-					case 21: // BLE
-						if ((int32_t) Reg[rd] <= 0)
-							PC = currentpc + signext23((ir >> 11) << 2);
+				case 59: // MOV RD, BYTE
+					CPUReadByte(Reg[ra] + imm, &Reg[rd]);
 
-						break;
+					break;
 
-					case 13: // BPE
-						if ((Reg[rd]&1) == 0)
-							PC = currentpc + signext23((ir >> 11) << 2);
+				case 51: // MOV RD, INT
+					CPUReadInt(Reg[ra] + (imm << 1), &Reg[rd]);
 
-						break;
+					break;
 
-					case 5: // BPO
-						if (Reg[rd]&1)
-							PC = currentpc + signext23((ir >> 11) << 2);
+				case 43: // MOV RD, LONG
+					CPUReadLong(Reg[ra] + (imm << 2), &Reg[rd]);
 
-						break;
+					break;
 
-					// ALU
+				// STORE with immediate offset
 
-					case 60: // ADDI
-						if (rd == 0)
-							break;
+				case 58: // MOV BYTE RD+IMM, RA
+					CPUWriteByte(Reg[rd] + imm, Reg[ra]);
+					break;
 
-						Reg[rd] = Reg[ra] + imm;
+				case 50: // MOV INT RD+IMM, RA
+					CPUWriteInt(Reg[rd] + (imm << 1), Reg[ra]);
+					break;
 
-						break;
+				case 42: // MOV LONG RD+IMM, RA
+					CPUWriteLong(Reg[rd] + (imm << 2), Reg[ra]);
+					break;
 
-					case 52: // SUBI
-						if (rd == 0)
-							break;
+				case 26: // MOV BYTE RD+IMM, IMM5
+					CPUWriteByte(Reg[rd] + imm, signext5(ra));
+					break;
 
-						Reg[rd] = Reg[ra] - imm;
+				case 18: // MOV INT RD+IMM, IMM5
+					CPUWriteInt(Reg[rd] + (imm << 1), signext5(ra));
+					break;
 
-						break;
+				case 10: // MOV LONG RD+IMM, IMM5
+					CPUWriteLong(Reg[rd] + (imm << 2), signext5(ra));
+					break;
 
-					case 44: // SLTI
-						if (rd == 0)
-							break;
+				case 56: // JALR
+					Reg[rd] = PC;
 
-						if (Reg[ra] < imm)
-							Reg[rd] = 1;
-						else
-							Reg[rd] = 0;
+					PC = Reg[ra] + signext18(imm << 2);
 
-						break;
+					break;
 
-					case 36: // SLTI signed
-						if (rd == 0)
-							break;
-
-						if ((int32_t) Reg[ra] < (int32_t) signext16(imm))
-							Reg[rd] = 1;
-						else
-							Reg[rd] = 0;
-
-						break;
-
-					case 28: // ANDI
-						if (rd == 0)
-							break;
-
-						Reg[rd] = Reg[ra] & imm;
-
-						break;
-
-					case 20: // XORI
-						if (rd == 0)
-							break;
-
-						Reg[rd] = Reg[ra] ^ imm;
-
-						break;
-
-					case 12: // ORI
-						if (rd == 0)
-							break;
-
-						Reg[rd] = Reg[ra] | imm;
-
-						break;
-
-					case 4: // LUI
-						if (rd == 0)
-							break;
-
-						Reg[rd] = Reg[ra] | (imm << 16);
-
-						break;
-
-					// LOAD with immediate offset
-
-					case 59: // MOV RD, BYTE
-						if (rd == 0)
-							break;
-
-						CPUReadByte(Reg[ra] + imm, &Reg[rd]);
-
-						break;
-
-					case 51: // MOV RD, INT
-						if (rd == 0)
-							break;
-
-						CPUReadInt(Reg[ra] + (imm << 1), &Reg[rd]);
-
-						break;
-
-					case 43: // MOV RD, LONG
-						if (rd == 0)
-							break;
-
-						CPUReadLong(Reg[ra] + (imm << 2), &Reg[rd]);
-
-						break;
-
-					// STORE with immediate offset
-
-					case 58: // MOV BYTE RD+IMM, RA
-						CPUWriteByte(Reg[rd] + imm, Reg[ra]);
-						break;
-
-					case 50: // MOV INT RD+IMM, RA
-						CPUWriteInt(Reg[rd] + (imm << 1), Reg[ra]);
-						break;
-
-					case 42: // MOV LONG RD+IMM, RA
-						CPUWriteLong(Reg[rd] + (imm << 2), Reg[ra]);
-						break;
-
-					case 26: // MOV BYTE RD+IMM, IMM5
-						CPUWriteByte(Reg[rd] + imm, signext5(ra));
-						break;
-
-					case 18: // MOV INT RD+IMM, IMM5
-						CPUWriteInt(Reg[rd] + (imm << 1), signext5(ra));
-						break;
-
-					case 10: // MOV LONG RD+IMM, IMM5
-						CPUWriteLong(Reg[rd] + (imm << 2), signext5(ra));
-						break;
-
-					case 56: // JALR
-						if (rd != 0)
-							Reg[rd] = PC;
-
-						PC = Reg[ra] + signext18(imm << 2);
-
-						break;
-
-					default:
-						Xr17032Exception(EXCINVINST);
-						break;
-				}
+				default:
+					Xr17032Exception(EXCINVINST);
+					break;
 			}
 		}
 
