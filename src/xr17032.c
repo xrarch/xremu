@@ -8,12 +8,20 @@
 #include "lsic.h"
 #include "ebus.h"
 
-#define RS_USER 1
-#define RS_INT  2
-#define RS_MMU  4
+#define RS_USER   1
+#define RS_INT    2
+#define RS_MMU    4
+#define RS_TBMISS 8
+#define RS_LEGACY 128
 
 #define RS_ECAUSE_SHIFT 28
 #define RS_ECAUSE_MASK  15
+
+#define PTE_VALID     1
+#define PTE_WRITABLE  2
+#define PTE_KERNEL    4
+#define PTE_NONCACHED 8
+#define PTE_GLOBAL    16
 
 #define UNCACHEDSTALL  3
 #define CACHEMISSSTALL (UNCACHEDSTALL+1) // per the MIPS R3000 as i read in a paper somewhere
@@ -37,17 +45,30 @@ enum Xr17032Registers {
 	LR = 31,
 };
 
-uint32_t ControlReg[16];
+uint32_t ControlReg[32];
 
 enum Xr17032ControlRegisters {
-	RS       = 0,
-	TBLO     = 1,
-	TBHI     = 2,
-	TBINDEX  = 3,
-	TBPDE    = 4,
-	EB       = 5,
-	EPC      = 6,
-	EBADADDR = 7,
+	RS         = 0,
+	WHAMI      = 1,
+	EB         = 5,
+	EPC        = 6,
+	EBADADDR   = 7,
+	TBMISSADDR = 9,
+	TBPC       = 10,
+
+	ITBPTE     = 16,
+	ITBTAG     = 17,
+	ITBINDEX   = 18,
+	ITBCTRL    = 19,
+	ICACHECTRL = 20,
+	ITBADDR    = 21,
+
+	DTBPTE     = 24,
+	DTBTAG     = 25,
+	DTBINDEX   = 26,
+	DTBCTRL    = 27,
+	DCACHECTRL = 28,
+	DTBADDR    = 29,
 };
 
 enum Xr17032CacheTypes {
@@ -69,7 +90,8 @@ enum Xr17032Exceptions {
 	EXCPAGEFAULT = 12,
 	EXCPAGEWRITE = 13,
 
-	EXCTLBMISS   = 15,
+	EXCITLBMISS  = 14,
+	EXCDTLBMISS  = 15,
 };
 
 bool UserBreak = false;
@@ -78,13 +100,9 @@ bool Running = true;
 
 uint32_t PC = 0;
 
-uint32_t TLBPC = 0;
-
 uint32_t CurrentException;
 
 bool IFetch = false;
-
-bool TLBMiss = false;
 
 #define CACHESIZELOG 14
 #define CACHELINELOG 4 // WARNING: 16 bytes is special cased in CopyWithLength.
@@ -113,21 +131,16 @@ int WriteBufferWBIndex = 0;
 int WriteBufferSize = 0;
 int WriteBufferCyclesTilNextWrite = 0;
 
-#define TLBSIZELOG 6
-#define TLBWAYLOG  2
-#define TLBSETLOG  (TLBSIZELOG-TLBWAYLOG)
+#define DTLBSIZELOG 5
+#define DTLBSIZE (1<<DTLBSIZELOG)
 
-#define TLBSIZE (1<<TLBSIZELOG)
-#define TLBWAYS (1<<TLBWAYLOG)
-#define TLBSETS (1<<TLBSETLOG)
+#define ITLBSIZELOG 4
+#define ITLBSIZE (1<<ITLBSIZELOG)
 
-uint64_t TLB[TLBSIZE];
+uint64_t DTlb[DTLBSIZE];
+uint64_t ITlb[ITLBSIZE];
 
 uint32_t CPULocked = 0;
-
-uint32_t TLBWriteCount = 0;
-
-uint32_t LastInstruction;
 
 static inline void Xr17032Exception(int exception) {
 	if (CurrentException) {
@@ -142,58 +155,139 @@ static inline uint32_t RoR(uint32_t x, uint32_t n) {
     return (x >> n & 31) | (x << (32-n) & 31);
 }
 
-static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, int *cachetype, bool writing) {
+uint32_t ITlbLastLookup = -1;
+uint32_t ITlbLastResultPhysical  = -1;
+uint32_t ITlbLastResultCacheType = -1;
+
+uint32_t DTlbLastLookup = -1;
+uint32_t DTlbLastResultPhysical  = -1;
+uint32_t DTlbLastResultCacheType = -1;
+
+bool TlbMissWrite = false;
+
+static bool ITlbLookup(uint32_t virt, uint64_t *tlbe, bool writing) {
 	uint32_t vpn = virt >> 12;
-	uint32_t off = virt & 4095;
-	uint32_t tbhi = (ControlReg[TBHI] & 0xFFF00000) | vpn;
+	uint32_t matching = (ControlReg[ITBTAG] & 0xFFF00000) | vpn;
 
-	// the set function is designed to split the TLB into a userspace and
-	// kernel space half.
+	for (int i = 0; i < ITLBSIZE; i++) {
+		uint64_t tbe = ITlb[i];
 
-	uint32_t set = (vpn & ((1 << (TLBSETLOG - 1)) - 1)) | (vpn >> 19 << (TLBSETLOG - 1));
+		uint32_t mask = (tbe & PTE_GLOBAL) ? 0xFFFFF : 0xFFFFFFFF;
 
-	bool found;
+		if (((tbe >> 32) & mask) == (matching & mask)) {
+			*tlbe = tbe;
 
+			return true;
+		}
+	}
+
+	// ITLB miss! Set up some stuff to make it easier on the miss handler.
+
+	if (!(ControlReg[RS] & RS_TBMISS)) {
+		ControlReg[TBMISSADDR] = virt;
+		TlbMissWrite = writing;
+	}
+
+	ControlReg[ITBTAG] = matching;
+	ControlReg[ITBADDR] = (ControlReg[ITBADDR] & 0xFFC00000) | (vpn << 2);
+
+	Xr17032Exception(EXCITLBMISS);
+
+	return false;
+}
+
+static bool DTlbLookup(uint32_t virt, uint64_t *tlbe, bool writing) {
+	uint32_t vpn = virt >> 12;
+	uint32_t matching = (ControlReg[DTBTAG] & 0xFFF00000) | vpn;
+
+	for (int i = 0; i < DTLBSIZE; i++) {
+		uint64_t tbe = DTlb[i];
+
+		uint32_t mask = (tbe & PTE_GLOBAL) ? 0xFFFFF : 0xFFFFFFFF;
+
+		if (((tbe >> 32) & mask) == (matching & mask)) {
+			*tlbe = tbe;
+
+			return true;
+		}
+	}
+
+	// DTLB miss! Set up some stuff to make it easier on the miss handler.
+
+	if (!(ControlReg[RS] & RS_TBMISS)) {
+		ControlReg[TBMISSADDR] = virt;
+		TlbMissWrite = writing;
+	}
+
+	ControlReg[DTBTAG] = matching;
+	ControlReg[DTBADDR] = (ControlReg[DTBADDR] & 0xFFC00000) | (vpn << 2);
+
+	Xr17032Exception(EXCDTLBMISS);
+
+	return false;
+}
+
+static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, int *cachetype, bool writing) {
 	uint64_t tlbe;
-	uint32_t mask;
+	uint32_t vpn = virt >> 12;
 
-	// look up in the TLB, if not found there, do a miss
+	if (IFetch) {
+		if (ITlbLastLookup == vpn) {
+			// This matches the last lookup, avoid searching the whole ITLB.
 
-	uint32_t rememberindex = -1;
+			//printf("fast itb virt=%x phys=%x\n", virt, ITlbLastResultPhysical + (virt & 0xFFF));
 
-	for (int i = 0; i < TLBWAYS; i++) {
-		tlbe = TLB[set * TLBWAYS + i];
+			*phys = ITlbLastResultPhysical + (virt & 0xFFF);
+			*cachetype = ITlbLastResultCacheType;
 
-		mask = (tlbe & 16) ? 0xFFFFF : 0xFFFFFFFF;
-
-		found = (tlbe >> 32) == (tbhi & mask);
-
-		if (found) {
-			break;
+			return true;
 		}
 
-		if (!(tlbe & 1))
-			rememberindex = i;
+		if (!ITlbLookup(virt, &tlbe, writing))
+			return false;
+	} else {
+		if (DTlbLastLookup == vpn) {
+			// This matches the last lookup, avoid searching the whole DTLB.
+
+			//printf("fast dtb virt=%x phys=%x\n", virt, DTlbLastResultPhysical + (virt & 0xFFF));
+
+			*phys = DTlbLastResultPhysical + (virt & 0xFFF);
+			*cachetype = DTlbLastResultCacheType;
+
+			return true;
+		}
+
+		if (!DTlbLookup(virt, &tlbe, writing))
+			return false;
 	}
 
-	if (!found) {
-		// didn't find the mapping. a TLB miss exception is in order.
+	if (!(tlbe & PTE_VALID)) {
+		// Not valid! Page fault time.
 
-		ControlReg[TBHI] = tbhi;
-		ControlReg[TBPDE] = (ControlReg[TBPDE] & 0xFFFFF000) | ((vpn >> 10) << 2);
+		if (ControlReg[RS] & RS_TBMISS) {
+			// This page fault happened while handling a TLB miss, which means
+			// it was a fault on a page table. Clear the TBMISS flag from RS and
+			// report the original missed address as the faulting address. Also,
+			// reset the PC to point to the instruction after the one that
+			// caused the original TLB miss, so that the faulting PC is reported
+			// correctly. (in effect this is just
+			// ControlReg[EPC] = ControlReg[TBPC] but it's done like this due to
+			// the way the emulator receives exceptions).
 
-		if (rememberindex == -1)
-			ControlReg[TBINDEX] = set * TLBWAYS + (TLBWriteCount & (TLBWAYS - 1));
-		else
-			ControlReg[TBINDEX] = set * TLBWAYS + rememberindex;
+			ControlReg[EBADADDR] = ControlReg[TBMISSADDR];
+			PC = ControlReg[TBPC]+4;
+			writing = TlbMissWrite;
+		} else {
+			ControlReg[EBADADDR] = virt;
+		}
 
-		Xr17032Exception(EXCTLBMISS);
+		Xr17032Exception(writing ? EXCPAGEWRITE : EXCPAGEFAULT);
 
 		return false;
 	}
 
-	if (!(tlbe & 1)) {
-		// invalid.
+	if ((tlbe & PTE_KERNEL) && (ControlReg[RS] & RS_USER)) {
+		// Kernel mode page and we're in usermode! 
 
 		ControlReg[EBADADDR] = virt;
 
@@ -202,17 +296,7 @@ static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, int *cachetype, b
 		return false;
 	}
 
-	uint32_t ppn = ((tlbe >> 5) & 0xFFFFF) << 12;
-
-	if ((tlbe & 4) && (ControlReg[RS] & RS_USER)) { // kernel (K) bit
-		ControlReg[EBADADDR] = virt;
-
-		Xr17032Exception(writing ? EXCPAGEWRITE : EXCPAGEFAULT);
-
-		return false;
-	}
-
-	if (writing && !(tlbe & 2)) { // writable (W) bit not set
+	if (writing && !(tlbe & PTE_WRITABLE)) {
 		ControlReg[EBADADDR] = virt;
 
 		Xr17032Exception(EXCPAGEWRITE);
@@ -220,8 +304,23 @@ static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, int *cachetype, b
 		return false;
 	}
 
-	*cachetype = ((tlbe >> 3) & 1);
-	*phys = ppn + off;
+	uint32_t physaddr = (tlbe & 0x1FFFFE0) << 7;
+	int cached = (tlbe & PTE_NONCACHED) ? NOCACHE : CACHE;
+
+	if (IFetch) {
+		ITlbLastLookup = vpn;
+		ITlbLastResultPhysical = physaddr;
+		ITlbLastResultCacheType = cached;
+	} else {
+		DTlbLastLookup = vpn;
+		DTlbLastResultPhysical = physaddr;
+		DTlbLastResultCacheType = cached;
+	}
+
+	*cachetype = cached;
+	*phys = physaddr + (virt & 0xFFF);
+
+	//printf("virt=%x phys=%x\n", virt, *phys);
 
 	return true;
 }
@@ -521,6 +620,11 @@ void CPUReset() {
 	PC = 0xFFFE1000;
 	ControlReg[RS] = 0;
 	ControlReg[EB] = 0;
+	ControlReg[ICACHECTRL] = (CACHELINELOG << 16) | (CACHEWAYLOG << 8) | (CACHESIZELOG - CACHELINELOG);
+	ControlReg[DCACHECTRL] = (CACHELINELOG << 16) | (CACHEWAYLOG << 8) | (CACHESIZELOG - CACHELINELOG);
+	ControlReg[ITBCTRL] = ITLBSIZELOG;
+	ControlReg[DTBCTRL] = DTLBSIZELOG;
+	ControlReg[WHAMI] = 0;
 	CurrentException = 0;
 }
 
@@ -592,9 +696,11 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 	int status;
 
 	for (; cyclesdone < cycles; cyclesdone++) {
-		// make sure the zero register is always zero.
+		// make sure the zero register is always zero, except during TLB misses,
+		// where it may be used as a scratch register.
 
-		Reg[0] = 0;
+		if (!(ControlReg[RS] & RS_TBMISS))
+			Reg[0] = 0;
 
 		if (CPUProgress <= 0) {
 			// the CPU did a poll-y looking thing too many times this tick.
@@ -663,16 +769,11 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 			// program counter off to, and what to set the status register bits
 			// to.
 
-			// enter kernel mode, disable interrupts.
-
-			newstate = ControlReg[RS] & 0xFC;
-
 			if (ControlReg[EB] == 0) {
 				// there is no exception block. reset the CPU.
 
 				CurrentException = 0;
 				CPUReset();
-
 				continue;
 			}
 
@@ -682,42 +783,47 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 			if (!CurrentException)
 				CurrentException = EXCINTERRUPT;
 
-			if (CurrentException == EXCTLBMISS) {
-				// TLB misses disable virtual addressing and are vectored
-				// through physical address 0x1F00. if the exception block
-				// occupies the same page frame, this corresponds to exception
-				// handler 15.
+			// enter kernel mode, disable interrupts.
+			newstate = ControlReg[RS] & 0xFC;
 
-				evec = 0x00001F00;
-				newstate &= 0xF8;
+			if (newstate & RS_LEGACY) {
+				// legacy exceptions are enabled, so disable virtual
+				// addressing. this is NOT part of the "official" xr17032
+				// architecture and is a hack to continue running AISIX in
+				// emulation.
 
-			} else {
-				if (newstate&128) {
-					// legacy exceptions are enabled, so disable virtual
-					// addressing. this is NOT part of the "official" xr17032
-					// architecture and is a hack to continue running AISIX in
-					// emulation.
-
-					newstate &= 0xF8;
-				}
-
-				// this is a general exception, such as a page fault, hardware
-				// interrupt, or syscall, so keep virtual addressing enabled
-				// and vector through EB.
-
-				evec = ControlReg[EB] | (CurrentException << 8);
+				newstate &= ~RS_MMU;
 			}
 
+			// this is a general exception, such as a page fault, hardware
+			// interrupt, or syscall, so keep virtual addressing enabled
+			// and vector through EB.
+
+			evec = ControlReg[EB] | (CurrentException << 8);
+
 			switch(CurrentException) {
-				case EXCINTERRUPT:
 				case EXCSYSCALL:
+				case EXCINTERRUPT:
 					ControlReg[EPC] = PC;
 					break;
 
-				case EXCTLBMISS:
-					CurrentException = ControlReg[RS] >> RS_ECAUSE_SHIFT;
-					TLBPC = PC-4;
-					TLBMiss = true;
+				case EXCDTLBMISS:
+				case EXCITLBMISS:
+					// don't overwrite any state if this is a nested TLB miss,
+					// since we (by design) should just jump back to the start
+					// of the miss handler to deal with the new problem. then,
+					// we return to the original faulting instruction, which
+					// re-takes its original TLB miss, which completes
+					// successfully that time.
+
+					//printf("miss! %d dtbtag=%x itbtag=%x dtbaddr=%x itbaddr=%x tbmissaddr=%x\n", CurrentException, ControlReg[DTBTAG], ControlReg[ITBTAG], ControlReg[DTBADDR], ControlReg[ITBADDR], ControlReg[TBMISSADDR]);
+
+					if (!(ControlReg[RS] & RS_TBMISS)) {
+						CurrentException = ControlReg[RS] >> RS_ECAUSE_SHIFT;
+						ControlReg[TBPC] = PC-4;
+						newstate |= RS_TBMISS;
+					}
+
 					break;
 
 				default:
@@ -728,8 +834,23 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 			// set the program counter to the selected vector, and set the
 			// new status register bits.
 
+			//printf("evec %x %x %x\n", evec, ControlReg[RS], newstate);
+
 			PC = evec;
-			ControlReg[RS] = (CurrentException << RS_ECAUSE_SHIFT) | ((ControlReg[RS] & 0xFFFF)<<8) | newstate;
+
+			if (ControlReg[RS] & RS_TBMISS) {
+				if (CurrentException == EXCPAGEFAULT || CurrentException == EXCPAGEWRITE) {
+					// this was a page fault within a TLB miss, so just clear
+					// the TBMISS flag.
+
+					ControlReg[RS] &= ~RS_TBMISS;
+					ControlReg[RS] &= 0x0FFFFFFF;
+					ControlReg[RS] |= (CurrentException << RS_ECAUSE_SHIFT);
+				}
+			} else {
+				ControlReg[RS] = (CurrentException << RS_ECAUSE_SHIFT) | ((ControlReg[RS] & 0xFFFF)<<8) | newstate;
+			}
+
 			CurrentException = 0;
 		}
 
@@ -790,97 +911,95 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 				val = Reg[rb];
 			}
 
-			if (rd || ((funct >= 9) && (funct <= 11))) {
-				switch(funct) {
-					case 0: // NOR
-						Reg[rd] = ~(Reg[ra] | val);
-						break;
+			switch(funct) {
+				case 0: // NOR
+					Reg[rd] = ~(Reg[ra] | val);
+					break;
 
-					case 1: // OR
-						Reg[rd] = Reg[ra] | val;
-						break;
+				case 1: // OR
+					Reg[rd] = Reg[ra] | val;
+					break;
 
-					case 2: // XOR
-						Reg[rd] = Reg[ra] ^ val;
-						break;
+				case 2: // XOR
+					Reg[rd] = Reg[ra] ^ val;
+					break;
 
-					case 3: // AND
-						Reg[rd] = Reg[ra] & val;
-						break;
+				case 3: // AND
+					Reg[rd] = Reg[ra] & val;
+					break;
 
-					case 4: // SLT SIGNED
-						if ((int32_t) Reg[ra] < (int32_t) val)
-							Reg[rd] = 1;
-						else
-							Reg[rd] = 0;
-						break;
+				case 4: // SLT SIGNED
+					if ((int32_t) Reg[ra] < (int32_t) val)
+						Reg[rd] = 1;
+					else
+						Reg[rd] = 0;
+					break;
 
-					case 5: // SLT
-						if (Reg[ra] < val)
-							Reg[rd] = 1;
-						else
-							Reg[rd] = 0;
-						break;
+				case 5: // SLT
+					if (Reg[ra] < val)
+						Reg[rd] = 1;
+					else
+						Reg[rd] = 0;
+					break;
 
-					case 6: // SUB
-						Reg[rd] = Reg[ra] - val;
-						break;
+				case 6: // SUB
+					Reg[rd] = Reg[ra] - val;
+					break;
 
-					case 7: // ADD
-						Reg[rd] = Reg[ra] + val;
-						break;
+				case 7: // ADD
+					Reg[rd] = Reg[ra] + val;
+					break;
 
-					case 8: // *SH
-						switch(shifttype) {
-							case 0: // LSH
-								Reg[rd] = Reg[rb] << Reg[ra];
-								break;
+				case 8: // *SH
+					switch(shifttype) {
+						case 0: // LSH
+							Reg[rd] = Reg[rb] << Reg[ra];
+							break;
 
-							case 1: // RSH
-								Reg[rd] = Reg[rb] >> Reg[ra];
-								break;
+						case 1: // RSH
+							Reg[rd] = Reg[rb] >> Reg[ra];
+							break;
 
-							case 2: // ASH
-								Reg[rd] = (int32_t) Reg[rb] >> Reg[ra];
-								break;
+						case 2: // ASH
+							Reg[rd] = (int32_t) Reg[rb] >> Reg[ra];
+							break;
 
-							case 3: // ROR
-								Reg[rd] = RoR(Reg[rb], Reg[ra]);
-								break;
-						}
-						break;
+						case 3: // ROR
+							Reg[rd] = RoR(Reg[rb], Reg[ra]);
+							break;
+					}
+					break;
 
-					case 9: // MOV LONG, RD
-						CPUWriteLong(Reg[ra] + val, Reg[rd]);
-						break;
+				case 9: // MOV LONG, RD
+					CPUWriteLong(Reg[ra] + val, Reg[rd]);
+					break;
 
-					case 10: // MOV INT, RD
-						CPUWriteInt(Reg[ra] + val, Reg[rd]);
-						break;
+				case 10: // MOV INT, RD
+					CPUWriteInt(Reg[ra] + val, Reg[rd]);
+					break;
 
-					case 11: // MOV BYTE, RD
-						CPUWriteByte(Reg[ra] + val, Reg[rd]);
-						break;
+				case 11: // MOV BYTE, RD
+					CPUWriteByte(Reg[ra] + val, Reg[rd]);
+					break;
 
-					case 12: // invalid
-						Xr17032Exception(EXCINVINST);
-						break;
+				case 12: // invalid
+					Xr17032Exception(EXCINVINST);
+					break;
 
-					case 13: // MOV RD, LONG
-						CPUReadLong(Reg[ra] + val, &Reg[rd]);
-						break;
+				case 13: // MOV RD, LONG
+					CPUReadLong(Reg[ra] + val, &Reg[rd]);
+					break;
 
-					case 14: // MOV RD, INT
-						CPUReadInt(Reg[ra] + val, &Reg[rd]);
-						break;
+				case 14: // MOV RD, INT
+					CPUReadInt(Reg[ra] + val, &Reg[rd]);
+					break;
 
-					case 15: // MOV RD, BYTE
-						CPUReadByte(Reg[ra] + val, &Reg[rd]);
-						break;
+				case 15: // MOV RD, BYTE
+					CPUReadByte(Reg[ra] + val, &Reg[rd]);
+					break;
 
-					default: // unreachable
-						abort();
-				}
+				default: // unreachable
+					abort();
 			}
 		} else if (majoropcode == 49) { // reg instructions 110001
 			funct = ir >> 28;
@@ -896,6 +1015,31 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 
 				case 1: // BRK
 					Xr17032Exception(EXCBRKPOINT);
+					break;
+
+				case 2: // WMB
+				case 3: // MB
+					if (CPUSimulateCaches) {
+						// flush writebuffer
+
+						for (int i = 0; i < WRITEBUFFERDEPTH; i++) {
+							if (WriteBufferTags[i] == 0)
+								continue;
+
+							// flush this entry
+
+							WriteBufferTags[i] = 0;
+							EBusWrite(WriteBufferTags[i], &WriteBuffer[i * CACHELINESIZE], CACHELINESIZE);
+
+							// incur a stall
+
+							CPUStall += UNCACHEDSTALL;
+						}
+
+						WriteBufferSize = 0;
+						WriteBufferCyclesTilNextWrite = 0;
+					}
+
 					break;
 
 				case 8: // SC
@@ -969,95 +1113,17 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 				uint32_t tbhi;
 
 				switch(funct) {
-					case 0: // TBWR
-						index = ControlReg[TBINDEX] & (TLBSIZE - 1);
-						tbhi = ControlReg[TBHI];
-
-						if (ControlReg[TBLO] & 16)
-							tbhi &= 0x000FFFFF;
-
-						TLB[index] = ((uint64_t)tbhi << 32) | ControlReg[TBLO];
-						TLBWriteCount++;
-
-						break;
-
-					case 1: // TBFN
-						ControlReg[TBINDEX] = 0x80000000;
-
-						vpn = ControlReg[TBHI] & 0xFFFFF;
-
-						index = (vpn & ((1 << (TLBSETLOG - 1)) - 1)) | (vpn >> 19 << (TLBSETLOG - 1));
-
-						for (int i = 0; i < TLBWAYS; i++) {
-							if ((TLB[index * TLBWAYS + i] >> 32) == ControlReg[TBHI]) {
-								ControlReg[TBINDEX] = index * TLBWAYS + i;
-								break;
-							}
-						}
-
-						break;
-
-					case 2: // TBRD
-						tlbe = TLB[ControlReg[TBINDEX] & (TLBSIZE - 1)];
-
-						ControlReg[TBLO] = tlbe;
-						ControlReg[TBHI] = tlbe >> 32;
-
-						break;
-
-					case 3: // TBLD
-						pde = Reg[ra];
-
-						if (!(pde & 1)) {
-							Reg[rd] = 0;
-							break;
-						}
-
-						CPUReadLong(((pde >> 5) << 12) | ((ControlReg[TBHI] & 1023) << 2), &Reg[rd]);
-
-						break;
-
-					case 8: // CACHEI
-						if (CPUSimulateCaches) {
-							if (rd & 1) {
-								// invalidate icache
-								for (int i = 0; i < CACHELINES; i++) {
-									ICacheTags[i] = 0;
-								}
-							}
-
-							if (rd & 4) {
-								// invalidate dcache
-								for (int i = 0; i < CACHELINES; i++) {
-									DCacheTags[i] = 0;
-								}
-							}
-
-							// flush writebuffer
-							for (int i = 0; i < WRITEBUFFERDEPTH; i++) {
-								if (WriteBufferTags[i]) {
-									EBusWrite(WriteBufferTags[i], &WriteBuffer[i * CACHELINESIZE], CACHELINESIZE);
-									WriteBufferTags[i] = 0;
-								}
-							}
-
-							WriteBufferSize = 0;
-							WriteBufferCyclesTilNextWrite = 0;
-						}
-
-						break;
-
 					case 11: // RFE
 						CPULocked = 0;
 
-						if (TLBMiss) {
-							TLBMiss = false;
-							PC = TLBPC;
+						if (ControlReg[RS] & RS_TBMISS) {
+							PC = ControlReg[TBPC];
 						} else {
 							PC = ControlReg[EPC];
 						}
 
-						ControlReg[RS] = (ControlReg[RS] & 0xF0000000) | (ControlReg[RS] >> 8) & 0xFFFF;
+						ControlReg[RS] = (ControlReg[RS] & 0xF0000000) | ((ControlReg[RS] >> 8) & 0xFFFF);
+						//printf("rfe rs=%x\n", ControlReg[RS]);
 
 						break;
 
@@ -1066,8 +1132,191 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 						break;
 
 					case 14: // MTCR
-						ControlReg[rb] = Reg[ra];
-						break;
+						switch(rb) {
+							case ICACHECTRL:
+								if (!CPUSimulateCaches)
+									break;
+
+								if ((Reg[ra] & 3) == 3) {
+									// invalidate the entire icache.
+
+									for (int i = 0; i < CACHELINES; i++) {
+										ICacheTags[i] = 0;
+									}
+								} else if ((Reg[ra] & 3) == 2) {
+									// invalidate a single page frame of the
+									// icache.
+
+									uint32_t phys = Reg[ra] & 0xFFFFF000;
+
+									for (int i = 0; i < CACHELINES; i++) {
+										if ((ICacheTags[i] & 0xFFFFF000) == phys)
+											ICacheTags[i] = 0;
+									}
+								}
+
+								break;
+
+							case DCACHECTRL:
+								if (!CPUSimulateCaches)
+									break;
+
+								if ((Reg[ra] & 3) == 3) {
+									// invalidate the entire dcache.
+
+									for (int i = 0; i < CACHELINES; i++) {
+										DCacheTags[i] = 0;
+									}
+								} else if ((Reg[ra] & 3) == 2) {
+									// invalidate a single page frame of the
+									// dcache.
+
+									uint32_t phys = Reg[ra] & 0xFFFFF000;
+
+									for (int i = 0; i < CACHELINES; i++) {
+										if ((DCacheTags[i] & 0xFFFFF000) == phys)
+											DCacheTags[i] = 0;
+									}
+								}
+
+								break;
+
+							case ITBCTRL:
+								if ((Reg[ra] & 3) == 3) {
+									// invalidate the entire ITLB.
+
+									for (int i = 0; i < ITLBSIZE; i++) {
+										ITlb[i] = 0;
+									}
+								} else if ((Reg[ra] & 3) == 2) {
+									// invalidate the entire ITLB except for
+									// global entries.
+
+									for (int i = 0; i < ITLBSIZE; i++) {
+										if (!(ITlb[i] & PTE_GLOBAL))
+											ITlb[i] = 0;
+									}
+								} else if ((Reg[ra] & 3) == 0) {
+									// invalidate a single page in the ITLB.
+
+									uint64_t vpn = (uint64_t)(Reg[ra] >> 12) << 32;
+
+									for (int i = 0; i < ITLBSIZE; i++) {
+										if ((ITlb[i] & 0xFFFFF00000000) == vpn)
+											ITlb[i] = 0;
+									}
+
+									//printf("invl %x\n", Reg[ra] >> 12);
+
+									//Running = false;
+								}
+
+								// Reset the lookup hint.
+
+								ITlbLastLookup = -1;
+
+								break;
+
+							case DTBCTRL:
+								if ((Reg[ra] & 3) == 3) {
+									// invalidate the entire DTLB.
+
+									for (int i = 0; i < DTLBSIZE; i++) {
+										DTlb[i] = 0;
+									}
+								} else if ((Reg[ra] & 3) == 2) {
+									// invalidate the entire DTLB except for
+									// global entries.
+
+									for (int i = 0; i < DTLBSIZE; i++) {
+										if (!(DTlb[i] & PTE_GLOBAL))
+											DTlb[i] = 0;
+									}
+								} else if ((Reg[ra] & 3) == 0) {
+									// invalidate a single page in the DTLB.
+
+									uint64_t vpn = (uint64_t)(Reg[ra] >> 12) << 32;
+
+									for (int i = 0; i < DTLBSIZE; i++) {
+										if ((DTlb[i] & 0xFFFFF00000000) == vpn)
+											DTlb[i] = 0;
+									}
+								}
+
+								// Reset the lookup hint.
+
+								DTlbLastLookup = -1;
+
+								break;
+
+							case ITBPTE:
+								// Write an entry to the ITLB at ITBINDEX, and
+								// increment it.
+
+								ITlb[ControlReg[ITBINDEX]] = ((uint64_t)(ControlReg[ITBTAG]) << 32) | Reg[ra];
+
+								//printf("ITB[%d] = %llx\n", ControlReg[ITBINDEX], ITlb[ControlReg[ITBINDEX]]);
+
+								ControlReg[ITBINDEX] += 1;
+
+								if (ControlReg[ITBINDEX] == ITLBSIZE) {
+									// Roll over to index four.
+
+									ControlReg[ITBINDEX] = 4;
+								}
+
+								break;
+
+							case DTBPTE:
+								// Write an entry to the DTLB at DTBINDEX, and
+								// increment it.
+
+								DTlb[ControlReg[DTBINDEX]] = ((uint64_t)(ControlReg[DTBTAG]) << 32) | Reg[ra];
+
+								//printf("DTB[%d] = %llx\n", ControlReg[DTBINDEX], DTlb[ControlReg[DTBINDEX]]);
+
+								ControlReg[DTBINDEX] += 1;
+
+								if (ControlReg[DTBINDEX] == DTLBSIZE) {
+									// Roll over to index four.
+
+									ControlReg[DTBINDEX] = 4;
+								}
+
+								break;
+
+							case ITBINDEX:
+								ControlReg[ITBINDEX] = Reg[ra] & (ITLBSIZE - 1);
+								//printf("ITBX = %x\n", ControlReg[ITBINDEX]);
+								break;
+
+							case DTBINDEX:
+								ControlReg[DTBINDEX] = Reg[ra] & (DTLBSIZE - 1);
+								//printf("DTBX = %x\n", ControlReg[DTBINDEX]);
+								break;
+
+							case DTBTAG:
+								ControlReg[DTBTAG] = Reg[ra];
+
+								// Reset the lookup hint.
+
+								DTlbLastLookup = -1;
+
+								break;
+
+							case ITBTAG:
+								ControlReg[ITBTAG] = Reg[ra];
+
+								// Reset the lookup hint.
+
+								ITlbLastLookup = -1;
+								
+								break;
+
+							default:
+								ControlReg[rb] = Reg[ra];
+								break;
+						}
 
 					case 15: // MFCR
 						Reg[rd] = ControlReg[rb];
@@ -1243,4 +1492,20 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 	}
 
 	return cyclesdone;
+}
+
+void TLBDump(void) {
+	printf("ITLB:\n");
+
+	for (int i = 0; i < ITLBSIZE; i++) {
+		printf("%d: %016llx\n", i, ITlb[i]);
+	}
+
+	printf("\n");
+
+	printf("DTLB:\n");
+
+	for (int i = 0; i < DTLBSIZE; i++) {
+		printf("%d: %016llx\n", i, DTlb[i]);
+	}
 }

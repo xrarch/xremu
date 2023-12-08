@@ -39,6 +39,8 @@ bool Headless = false;
 
 void MainLoop(void);
 
+extern void TLBDump(void);
+
 int main(int argc, char *argv[]) {
 	SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "0", SDL_HINT_OVERRIDE);
 	SDL_SetHintWithPriority(SDL_HINT_VIDEO_HIGHDPI_DISABLED, "1", SDL_HINT_OVERRIDE);
@@ -201,6 +203,8 @@ int main(int argc, char *argv[]) {
 
 	if (RAMDumpOnExit)
 		RAMDump();
+
+	// TLBDump();
 
 	return 0;
 }
