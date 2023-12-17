@@ -156,12 +156,10 @@ static inline uint32_t RoR(uint32_t x, uint32_t n) {
 }
 
 uint32_t ITlbLastLookup = -1;
-uint32_t ITlbLastResultPhysical  = -1;
-uint32_t ITlbLastResultCacheType = -1;
+uint64_t ITlbLastResult = -1;
 
 uint32_t DTlbLastLookup = -1;
-uint32_t DTlbLastResultPhysical  = -1;
-uint32_t DTlbLastResultCacheType = -1;
+uint64_t DTlbLastResult = -1;
 
 bool TlbMissWrite = false;
 
@@ -235,30 +233,20 @@ static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, int *cachetype, b
 		if (ITlbLastLookup == vpn) {
 			// This matches the last lookup, avoid searching the whole ITLB.
 
-			//printf("fast itb virt=%x phys=%x\n", virt, ITlbLastResultPhysical + (virt & 0xFFF));
-
-			*phys = ITlbLastResultPhysical + (virt & 0xFFF);
-			*cachetype = ITlbLastResultCacheType;
-
-			return true;
+			tlbe = ITlbLastResult;
+		} else {
+			if (!ITlbLookup(virt, &tlbe, writing))
+				return false;
 		}
-
-		if (!ITlbLookup(virt, &tlbe, writing))
-			return false;
 	} else {
 		if (DTlbLastLookup == vpn) {
 			// This matches the last lookup, avoid searching the whole DTLB.
 
-			//printf("fast dtb virt=%x phys=%x\n", virt, DTlbLastResultPhysical + (virt & 0xFFF));
-
-			*phys = DTlbLastResultPhysical + (virt & 0xFFF);
-			*cachetype = DTlbLastResultCacheType;
-
-			return true;
+			tlbe = DTlbLastResult;
+		} else {
+			if (!DTlbLookup(virt, &tlbe, writing))
+				return false;
 		}
-
-		if (!DTlbLookup(virt, &tlbe, writing))
-			return false;
 	}
 
 	if (!(tlbe & PTE_VALID)) {
@@ -309,12 +297,10 @@ static inline bool CPUTranslate(uint32_t virt, uint32_t *phys, int *cachetype, b
 
 	if (IFetch) {
 		ITlbLastLookup = vpn;
-		ITlbLastResultPhysical = physaddr;
-		ITlbLastResultCacheType = cached;
+		ITlbLastResult = tlbe;
 	} else {
 		DTlbLastLookup = vpn;
-		DTlbLastResultPhysical = physaddr;
-		DTlbLastResultCacheType = cached;
+		DTlbLastResult = tlbe;
 	}
 
 	*cachetype = cached;
