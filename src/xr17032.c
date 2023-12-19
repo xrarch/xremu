@@ -134,7 +134,7 @@ int WriteBufferCyclesTilNextWrite = 0;
 #define DTLBSIZELOG 5
 #define DTLBSIZE (1<<DTLBSIZELOG)
 
-#define ITLBSIZELOG 4
+#define ITLBSIZELOG 5
 #define ITLBSIZE (1<<ITLBSIZELOG)
 
 uint64_t DTlb[DTLBSIZE];
