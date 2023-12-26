@@ -1345,14 +1345,14 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 
 					break;
 
-				case 29: // BGE
-					if ((int32_t) Reg[rd] >= 0)
+				case 29: // BLE
+					if ((int32_t) Reg[rd] <= 0)
 						PC = currentpc + signext23((ir >> 11) << 2);
 
 					break;
 
-				case 21: // BLE
-					if ((int32_t) Reg[rd] <= 0)
+				case 21: // BGE
+					if ((int32_t) Reg[rd] >= 0)
 						PC = currentpc + signext23((ir >> 11) << 2);
 
 					break;
