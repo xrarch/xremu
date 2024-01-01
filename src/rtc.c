@@ -6,12 +6,11 @@
 #include <stdlib.h>
 #include <sys/time.h>
 
-#include "cpu.h"
-
 #include "ebus.h"
 #include "pboard.h"
 #include "lsic.h"
 #include "rtc.h"
+#include "xr.h"
 
 struct timeval RTCCurrentTime;
 
@@ -51,7 +50,7 @@ int RTCWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 			// get epoch ms
 			RTCPortA = RTCCurrentTime.tv_usec/1000;
 
-			CPUProgress--;
+			XrIoMutexProcessor->Progress--;
 
 			return EBUSSUCCESS;
 

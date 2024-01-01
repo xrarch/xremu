@@ -14,7 +14,6 @@
 #define FPS 60
 
 #include "ebus.h"
-#include "cpu.h"
 #include "xr.h"
 #include "kinnowfb.h"
 #include "keybd.h"
@@ -28,18 +27,38 @@
 #include "tty.h"
 
 XrProcessor *CpuTable[XR_PROC_MAX];
+XrProcessor *XrIoMutexProcessor;
 
 SDL_mutex *IoMutex;
 
 void LockIoMutex() {
 	SDL_LockMutex(IoMutex);
+	XrIoMutexProcessor = 0;
 }
 
 void UnlockIoMutex() {
 	SDL_UnlockMutex(IoMutex);
 }
 
-uint32_t SimulatorHz = CPUHZDEFAULT;
+void XrLockIoMutex(XrProcessor *proc) {
+	SDL_LockMutex(IoMutex);
+	XrIoMutexProcessor = proc;
+}
+
+void XrUnlockIoMutex() {
+	XrIoMutexProcessor = 0;
+	SDL_UnlockMutex(IoMutex);
+}
+
+void XrLockProcessor(XrProcessor *proc) {
+	SDL_LockMutex((SDL_mutex *)proc->Mutex);
+}
+
+void XrUnlockProcessor(XrProcessor *proc) {
+	SDL_UnlockMutex((SDL_mutex *)proc->Mutex);
+}
+
+uint32_t SimulatorHz = 16666666;
 
 bool RAMDumpOnExit = false;
 
@@ -70,7 +89,7 @@ int CpuLoop(void *context) {
 
 		printf("delta time=%d\n", dt);
 
-		CPUProgress = 20;
+		proc->Progress = 20;
 
 		for (int i = 0; i < dt; i++) {
 			int cyclesleft = cyclespertick;
@@ -114,6 +133,13 @@ void CpuCreate(int id) {
 		exit(1);
 	}
 
+	proc->Mutex = SDL_CreateMutex();
+
+	if (!proc->Mutex) {
+		fprintf(stderr, "Unable to allocate processor mutex: %s", SDL_GetError());
+		exit(1);
+	}
+
 	CpuTable[id] = proc;
 
 	proc->Id = id;
@@ -134,7 +160,7 @@ int main(int argc, char *argv[]) {
 
 	IoMutex = SDL_CreateMutex();
 
-	if (IoMutex == NULL) {
+	if (!IoMutex) {
 		fprintf(stderr, "Unable to allocate IoMutex: %s", SDL_GetError());
 		return 1;
 	}
@@ -217,11 +243,11 @@ int main(int argc, char *argv[]) {
 				return 1;
 			}
 		} else if (strcmp(argv[i], "-nocachesim") == 0) {
-			CPUSimulateCaches = false;
+			XrSimulateCaches = false;
 		} else if (strcmp(argv[i], "-cachemiss") == 0) {
-			CPUSimulateCacheStalls = true;
+			XrSimulateCacheStalls = true;
 		} else if (strcmp(argv[i], "-cacheprint") == 0) {
-			CPUPrintCache = true;
+			XrPrintCache = true;
 		} else if (strcmp(argv[i], "-diskprint") == 0) {
 			DKSPrint = true;
 		} else if (strcmp(argv[i], "-132column") == 0) {

@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "screen.h"
+#include "xr.h"
 
 struct Screen Screens[MAXSCREENS];
 
@@ -132,8 +133,6 @@ void ScreenPrev() {
 
 bool IsAltDown = false;
 
-extern bool UserBreak;
-
 int ScreenProcessEvents() {
 	SDL_Event event;
 	while (SDL_PollEvent(&event)) {
@@ -194,7 +193,9 @@ int ScreenProcessEvents() {
 					IsAltDown = true;
 				} else if (event.key.keysym.scancode == SDL_SCANCODE_TAB && IsAltDown) {
 					// alt-tab means NMI
-					UserBreak = true;
+					XrLockProcessor(CpuTable[0]);
+					CpuTable[0]->UserBreak = true;
+					XrUnlockProcessor(CpuTable[0]);
 				}
 
 				if (ScreenCurrent->KeyPressed)

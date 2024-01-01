@@ -28,11 +28,7 @@ static inline int EBusRead(uint32_t address, void *dest, uint32_t length) {
 	int branch = address >> 27;
 
 	if (EBusBranches[branch].Present) {
-		LockIoMutex();
-		int res = EBusBranches[branch].Read(address & 0x7FFFFFF, dest, length);
-		UnlockIoMutex();
-
-		return res;
+		return EBusBranches[branch].Read(address & 0x7FFFFFF, dest, length);
 	} else if (branch >= 24) {
 		*(uint32_t*)dest = 0;
 		return EBUSSUCCESS;
@@ -45,11 +41,7 @@ static inline int EBusWrite(uint32_t address, void *src, uint32_t length) {
 	int branch = address >> 27;
 
 	if (EBusBranches[branch].Present) {
-		LockIoMutex();
-		int res = EBusBranches[branch].Write(address & 0x7FFFFFF, src, length);
-		UnlockIoMutex();
-
-		return res;
+		return EBusBranches[branch].Write(address & 0x7FFFFFF, src, length);
 	} else if (branch >= 24) {
 		return EBUSSUCCESS;
 	}

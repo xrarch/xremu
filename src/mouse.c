@@ -10,8 +10,8 @@
 #include "amtsu.h"
 #include "mouse.h"
 
-#include "cpu.h"
 #include "lsic.h"
+#include "xr.h"
 
 int MousePressedButton = 0;
 int MouseReleasedButton = 0;
@@ -52,7 +52,7 @@ int MouseAction(struct AmtsuDevice *dev, uint32_t value) {
 				return EBUSSUCCESS;
 			}
 
-			CPUProgress--;
+			XrIoMutexProcessor->Progress--;
 			dev->PortAValue = 0;
 			break;
 

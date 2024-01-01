@@ -10,8 +10,8 @@
 #include "amtsu.h"
 #include "keybd.h"
 
-#include "cpu.h"
 #include "lsic.h"
+#include "xr.h"
 
 struct KeyInfo {
 	unsigned char code;
@@ -46,7 +46,7 @@ int KeyboardAction(struct AmtsuDevice *dev, uint32_t value) {
 				}
 			}
 
-			CPUProgress--;
+			XrIoMutexProcessor->Progress--;
 			dev->PortAValue = 0xFFFF;
 			break;
 
@@ -59,7 +59,7 @@ int KeyboardAction(struct AmtsuDevice *dev, uint32_t value) {
 				if (Pressed[dev->PortAValue]){
 					dev->PortAValue = 1;
 				} else {
-					CPUProgress--;
+					XrIoMutexProcessor->Progress--;
 					dev->PortAValue = 0;
 				}
 			} else {

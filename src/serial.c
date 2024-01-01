@@ -10,6 +10,8 @@
 #include <poll.h>
 #include <errno.h>
 
+#include "xr.h"
+
 #include "ebus.h"
 #include "pboard.h"
 #include "lsic.h"
@@ -17,8 +19,6 @@
 
 #include "screen.h"
 #include "tty.h"
-
-#include "cpu.h"
 
 // assumes about 1ms per character transmission
 
@@ -241,7 +241,7 @@ int SerialReadData(uint32_t port, uint32_t length, uint32_t *value) {
 #endif
 
 	if ((thisport->ReceiveBufferIndex - thisport->ReceiveIndex) == 0) {
-		CPUProgress--;
+		XrIoMutexProcessor->Progress--;
 		*value = 0xFFFF;
 
 		return EBUSSUCCESS;

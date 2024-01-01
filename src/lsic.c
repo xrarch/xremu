@@ -45,8 +45,6 @@ uint32_t LsicIplMasks[32] = {
 };
 
 void LsicReset() {
-	Lsic *lsic = &LsicTable[0];
-
 	for (int i = 0; i < XR_PROC_MAX; i++) {
 		Lsic *lsic = &LsicTable[i];
 
@@ -78,11 +76,21 @@ void LsicInterrupt(int intsrc) {
 	for (int i = 0; i < XR_PROC_MAX; i++) {
 		Lsic *lsic = &LsicTable[i];
 
+		if (lsic->Enabled == 0) {
+			continue;
+		}
+
+		XrProcessor *proc = CpuTable[i];
+
+		XrLockProcessor(proc);
+
 		lsic->Registers[LSIC_PENDING_0 + srcbmp] |= (1 << srcbmpoff);
 
 		lsic->InterruptPending =
 			((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
 			((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
+
+		XrUnlockProcessor(proc);
 	}
 }
 
@@ -95,6 +103,10 @@ int LsicWrite(int reg, uint32_t value) {
 	if (lsic->Enabled == 0) {
 		return EBUSERROR;
 	}
+
+	XrProcessor *proc = CpuTable[id];
+
+	XrLockProcessor(proc);
 
 	switch(reg) {
 		case LSIC_MASK_0:
@@ -109,6 +121,8 @@ int LsicWrite(int reg, uint32_t value) {
 			// Complete.
 
 			if (value >= 64) {
+				XrUnlockProcessor(proc);
+
 				return EBUSERROR;
 			}
 
@@ -120,6 +134,8 @@ int LsicWrite(int reg, uint32_t value) {
 			// IPL.
 
 			if (value >= 64) {
+				XrUnlockProcessor(proc);
+
 				return EBUSERROR;
 			}
 
@@ -134,12 +150,16 @@ int LsicWrite(int reg, uint32_t value) {
 			}
 
 		default:
+			XrUnlockProcessor(proc);
+
 			return EBUSERROR;
 	}
 
 	lsic->InterruptPending =
 		((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
 		((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
+
+	XrUnlockProcessor(proc);
 
 	return EBUSSUCCESS;
 }
@@ -154,6 +174,10 @@ int LsicRead(int reg, uint32_t *value) {
 		return EBUSERROR;
 	}
 
+	XrProcessor *proc = CpuTable[id];
+
+	XrLockProcessor(proc);
+
 	switch(reg) {
 		case LSIC_MASK_0:
 		case LSIC_MASK_1:
@@ -161,6 +185,8 @@ int LsicRead(int reg, uint32_t *value) {
 		case LSIC_PENDING_1:
 		case LSIC_IPL:
 			*value = lsic->Registers[reg];
+
+			XrUnlockProcessor(proc);
 
 			return EBUSSUCCESS;
 
@@ -174,17 +200,25 @@ int LsicRead(int reg, uint32_t *value) {
 				if ((((~lsic->Registers[LSIC_MASK_0 + bmp]) & lsic->Registers[LSIC_PENDING_0 + bmp]) >> bmpoff) & 1) {
 					*value = i;
 
+					XrUnlockProcessor(proc);
+
 					return EBUSSUCCESS;
 				}
 			}
 
 			*value = 0;
 
+			XrUnlockProcessor(proc);
+
 			return EBUSSUCCESS;
 
 		default:
+			XrUnlockProcessor(proc);
+
 			return EBUSERROR;
 	}
+
+	XrUnlockProcessor(proc);
 
 	return EBUSERROR;
 }

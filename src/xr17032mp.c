@@ -8,6 +8,10 @@
 #include "lsic.h"
 #include "ebus.h"
 
+uint8_t XrSimulateCaches = 0;
+uint8_t XrSimulateCacheStalls = 0;
+uint8_t XrPrintCache = 0;
+
 #define RS_USER   1
 #define RS_INT    2
 #define RS_MMU    4
@@ -332,11 +336,15 @@ static uint8_t XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uin
 
 	int result;
 
+	XrLockIoMutex(proc);
+
 	if (dest) {
 		result = EBusRead(address, dest, length);
 	} else {
 		result = EBusWrite(address, &srcvalue, length);
 	}
+
+	XrUnlockIoMutex();
 
 	if (result == EBUSERROR) {
 		proc->Cr[EBADADDR] = address;
