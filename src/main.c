@@ -51,7 +51,7 @@ bool Headless = false;
 
 void MainLoop(void);
 
-#define CPUSTEPMS 20
+#define CPUSTEPMS 10
 
 int CPULoop(void *context) {
 	CPUReset();
@@ -72,7 +72,7 @@ int CPULoop(void *context) {
 		for (int i = 0; i < dt; i++) {
 			int cyclesleft = cyclespertick;
 
-			if (i == CPUSTEPMS-1)
+			if (i == dt-1)
 				cyclesleft += extracycles;
 
 			while (cyclesleft > 0) {
