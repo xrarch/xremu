@@ -44,7 +44,6 @@ int ProcessorCount = 1;
 
 uint32_t tick_start;
 uint32_t tick_end;
-int ticks;
 bool done = false;
 
 bool Headless = false;
@@ -77,6 +76,18 @@ int CPULoop(void *context) {
 
 			while (cyclesleft > 0) {
 				cyclesleft -= CPUDoCycles(cyclesleft, 1);
+			}
+
+			if (1) {
+				// CPU 0 doubles as the device thread.
+
+				LockIoMutex();
+
+				RTCInterval(1);
+				DKSOperation(1);
+				SerialInterval(1);
+
+				UnlockIoMutex();
 			}
 		}
 
@@ -261,8 +272,6 @@ int main(int argc, char *argv[]) {
 
 	done = false;
 
-	ticks = 0;
-
 	tick_start = SDL_GetTicks();
 	tick_end = SDL_GetTicks();
 
@@ -294,29 +303,7 @@ int main(int argc, char *argv[]) {
 }
 
 void MainLoop(void) {
-	int dt = SDL_GetTicks() - tick_start;
-
-	tick_start = SDL_GetTicks();
-
-	if (dt < 1)
-		dt = 1;
-
-	if (dt > 20)
-		dt = 20;
-
-	for (int i = 0; i < dt; i++) {
-		LockIoMutex();
-
-		RTCInterval(1);
-		DKSOperation(1);
-		SerialInterval(1);
-
-		UnlockIoMutex();
-	}
-
 	ScreenDraw();
 
 	done = ScreenProcessEvents();
-
-	ticks++;
 }
