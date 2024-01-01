@@ -26,7 +26,7 @@ void RTCInterval(uint32_t dt) {
 	RTCIntervalCounter += dt;
 
 	if (RTCIntervalCounter >= RTCIntervalMS) {
-		LSICInterrupt(0x2);
+		LsicInterrupt(0x2);
 
 		RTCIntervalCounter -= RTCIntervalMS;
 	}

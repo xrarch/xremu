@@ -653,7 +653,7 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 	}
 
 	LockIoMutex();
-	CPUInterruptPending = (volatile bool)(LSICInterruptPending);
+	CPUInterruptPending = (volatile bool)(LsicTable[0].InterruptPending);
 	UnlockIoMutex();
 
 	if (Halted) {
@@ -1108,7 +1108,7 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 				// All the privileged instructions cause the LSIC to be sampled.
 
 				LockIoMutex();
-				CPUInterruptPending = (volatile bool)(LSICInterruptPending);
+				CPUInterruptPending = (volatile bool)(LsicTable[0].InterruptPending);
 				UnlockIoMutex();
 
 				switch(funct) {

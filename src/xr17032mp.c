@@ -55,6 +55,14 @@
 #define NONCACHED 0
 #define CACHED 1
 
+#define XrReadByte(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 1);
+#define XrReadInt(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 2);
+#define XrReadLong(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 4);
+
+#define XrWriteByte(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 1);
+#define XrWriteInt(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 2);
+#define XrWriteLong(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 4);
+
 void XrReset(XrProcessor *proc) {
 	// Set the program counter to point to the reset vector.
 
@@ -129,6 +137,16 @@ static inline void XrVectorException(XrProcessor *proc, uint32_t exc) {
 	// Set the mode bits in RS.
 
 	proc->Cr[RS] = (proc->Cr[RS] & 0xFFFFFF00) | newmode;
+}
+
+static inline void XrBasicException(XrProcessor *proc, uint32_t exc) {
+	// "Basic" exceptions that behave the same way every time.
+
+	proc->Cr[EPC] = proc->Pc - 4;
+
+	XrPushMode(proc);
+	XrSetEcause(proc, exc);
+	XrVectorException(proc, exc);
 }
 
 static inline uint8_t XrLookupItb(XrProcessor *proc, uint32_t virtual, uint64_t *tbe) {
@@ -208,18 +226,16 @@ static inline uint8_t XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t 
 			// This matches the last lookup, avoid searching the whole ITB.
 
 			tbe = proc->ItbLastResult;
-		} else {
-			if (!XrLookupItb(proc, virtual, &tbe))
-				return 0;
+		} else if (!XrLookupItb(proc, virtual, &tbe)) {
+			return 0;
 		}
 	} else {
 		if (proc->DtbLastVpn == vpn) {
 			// This matches the last lookup, avoid searching the whole DTB.
 
 			tbe = proc->DtbLastResult;
-		} else {
-			if (!XrLookupDtb(proc, virtual, &tbe, writing))
-				return 0;
+		} else if (!XrLookupDtb(proc, virtual, &tbe, writing)) {
+			return 0;
 		}
 	}
 
@@ -243,8 +259,8 @@ static inline uint8_t XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t 
 			XrPushMode(proc);
 		}
 
-		XrSetEcause(proc, writing ? XR_EXC_PGF : XR_EXC_PGW);
-		XrVectorException(proc, writing ? XR_EXC_PGF : XR_EXC_PGW);
+		XrSetEcause(proc, writing ? XR_EXC_PGW : XR_EXC_PGF);
+		XrVectorException(proc, writing ? XR_EXC_PGW : XR_EXC_PGF);
 
 		return 0;
 	}
@@ -253,22 +269,14 @@ static inline uint8_t XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t 
 		// Kernel mode page and we're in usermode! 
 
 		proc->Cr[EBADADDR] = virtual;
-		proc->Cr[EPC] = proc->Pc - 4;
-
-		XrPushMode(proc);
-		XrSetEcause(proc, writing ? XR_EXC_PGF : XR_EXC_PGW);
-		XrVectorException(proc, writing ? XR_EXC_PGF : XR_EXC_PGW);
+		XrBasicException(proc, writing ? XR_EXC_PGW : XR_EXC_PGF);
 
 		return 0;
 	}
 
 	if (writing && !(tbe & PTE_WRITABLE)) {
 		proc->Cr[EBADADDR] = virtual;
-		proc->Cr[EPC] = proc->Pc - 4;
-
-		XrPushMode(proc);
-		XrSetEcause(proc, XR_EXC_PGW);
-		XrVectorException(proc, XR_EXC_PGW);
+		XrBasicException(proc, writing ? XR_EXC_PGW : XR_EXC_PGF);
 
 		return 0;
 	}
@@ -290,4 +298,60 @@ static inline uint8_t XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t 
 	//printf("virt=%x phys=%x\n", virt, *phys);
 
 	return 1;
+}
+
+static uint32_t XrAccessMasks[5] = {
+	0x00000000,
+	0x000000FF,
+	0x0000FFFF,
+	0x00FFFFFF,
+	0xFFFFFFFF
+};
+
+static uint8_t XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, bool writing) {
+	if (address & (length - 1)) {
+		// Unaligned access.
+
+		proc->Cr[EBADADDR] = address;
+		XrBasicException(proc, XR_EXC_UNA);
+
+		return 0;
+	}
+
+	int cachetype = CACHED;
+
+	if (proc->Cr[RS] & RS_MMU) {
+		if (!XrTranslate(proc, address, &address, &cachetype, writing)) {
+			return 0;
+		}
+	} else if (address >= XR_NONCACHED_PHYS_BASE) {
+		cachetype = NONCACHED;
+	}
+
+	// TODO cache sim
+
+	int result;
+
+	if (dest) {
+		result = EBusRead(address, dest, length);
+	} else {
+		result = EBusWrite(address, &srcvalue, length);
+	}
+
+	if (result == EBUSERROR) {
+		proc->Cr[EBADADDR] = address;
+		XrBasicException(proc, XR_EXC_BUS);
+
+		return 0;
+	}
+
+	if (dest) {
+		*dest &= XrAccessMasks[length];
+	}
+
+	return 1;
+}
+
+uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
+	return cycles;
 }

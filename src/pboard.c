@@ -78,7 +78,7 @@ int PBoardWrite(uint32_t address, void *src, uint32_t length) {
 		address -= 0x30000;
 
 		if (length == 4) {
-			return LSICWrite(address/4, *(uint32_t*)src);
+			return LsicWrite(address/4, *(uint32_t*)src);
 		}
 	} else if (address == 0x800000) {
 		// reset
@@ -153,7 +153,7 @@ int PBoardRead(uint32_t address, void *dest, uint32_t length) {
 		address -= 0x30000;
 
 		if (length == 4) {
-			return LSICRead(address/4, dest);
+			return LsicRead(address/4, dest);
 		}
 	}
 
@@ -165,7 +165,7 @@ void PBoardReset() {
 	SerialReset();
 	DKSReset();
 	AmtsuReset();
-	LSICReset();
+	LsicReset();
 }
 
 FILE *nvramfile = 0;

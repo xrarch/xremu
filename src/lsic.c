@@ -5,12 +5,66 @@
 
 #include "ebus.h"
 #include "lsic.h"
+#include "xr.h"
 
-bool LSICInterruptPending = false;
+Lsic LsicTable[XR_PROC_MAX];
 
-uint32_t LSICRegisters[5];
+uint32_t LsicIplMasks[32] = {
+	0x00000001, // 0
+	0x00000003, // 1
+	0x00000007, // 2
+	0x0000000F, // 3
+	0x0000001F, // 4
+	0x0000003F, // 5
+	0x0000007F, // 6
+	0x000000FF, // 7
+	0x000001FF, // 8
+	0x000003FF, // 9
+	0x000007FF, // 10
+	0x00000FFF, // 11
+	0x00001FFF, // 12
+	0x00003FFF, // 13
+	0x00007FFF, // 14
+	0x0000FFFF, // 15
+	0x0001FFFF, // 16
+	0x0003FFFF, // 17
+	0x0007FFFF, // 18
+	0x000FFFFF, // 19
+	0x001FFFFF, // 20
+	0x003FFFFF, // 21
+	0x007FFFFF, // 22
+	0x00FFFFFF, // 23
+	0x01FFFFFF, // 24
+	0x03FFFFFF, // 25
+	0x07FFFFFF, // 26
+	0x0FFFFFFF, // 27
+	0x1FFFFFFF, // 28
+	0x3FFFFFFF, // 29
+	0x7FFFFFFF, // 30
+	0xFFFFFFFF  // 31
+};
 
-void LSICInterrupt(int intsrc) {
+void LsicReset() {
+	Lsic *lsic = &LsicTable[0];
+
+	for (int i = 0; i < XR_PROC_MAX; i++) {
+		Lsic *lsic = &LsicTable[i];
+
+		lsic->Registers[LSIC_MASK_0] = 0;
+		lsic->Registers[LSIC_MASK_1] = 0;
+		lsic->Registers[LSIC_PENDING_0] = 0;
+		lsic->Registers[LSIC_PENDING_1] = 0;
+		lsic->Registers[LSIC_CLAIM_COMPLETE] = 0;
+		lsic->Registers[LSIC_IPL] = 63;
+
+		lsic->LowIplMask = 0xFFFFFFFF;
+		lsic->HighIplMask = 0xFFFFFFFF;
+		lsic->InterruptPending = 0;
+		lsic->Enabled = (CpuTable[i] != 0);
+	}
+}
+
+void LsicInterrupt(int intsrc) {
 	if ((intsrc >= 64) || (intsrc == 0)) {
 		fprintf(stderr, "bad interrupt source\n");
 		abort();
@@ -19,59 +73,107 @@ void LSICInterrupt(int intsrc) {
 	int srcbmp = intsrc/32;
 	int srcbmpoff = intsrc&31;
 
-	LSICRegisters[srcbmp+2] |= (1<<srcbmpoff);
+	// Broadcast the interrupt to all LSICs.
 
-	if (((LSICRegisters[srcbmp]>>srcbmpoff)&1) == 0)
-		LSICInterruptPending = true;
+	for (int i = 0; i < XR_PROC_MAX; i++) {
+		Lsic *lsic = &LsicTable[i];
+
+		lsic->Registers[LSIC_PENDING_0 + srcbmp] |= (1 << srcbmpoff);
+
+		lsic->InterruptPending =
+			((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
+			((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
+	}
 }
 
-int LSICWrite(int reg, uint32_t value) {
+int LsicWrite(int reg, uint32_t value) {
+	int id = reg >> 5;
+	reg &= 31;
+
+	Lsic *lsic = &LsicTable[id];
+
+	if (lsic->Enabled == 0) {
+		return EBUSERROR;
+	}
+
 	switch(reg) {
-		case 0:
-		case 1:
-		case 2:
-		case 3:
-			// masks and interrupt sources
-			LSICRegisters[reg] = value;
+		case LSIC_MASK_0:
+		case LSIC_MASK_1:
+		case LSIC_PENDING_0:
+		case LSIC_PENDING_1:
+			lsic->Registers[reg] = value;
 
 			break;
 
-		case 4:
-			// complete
-			if (value >= 64)
+		case LSIC_CLAIM_COMPLETE:
+			// Complete.
+
+			if (value >= 64) {
 				return EBUSERROR;
+			}
 
-			LSICRegisters[(value/32)+2] &= ~(1<<(value&31));
+			lsic->Registers[LSIC_PENDING_0 + (value >> 5)] &= ~(1 << (value & 31));
 
 			break;
+
+		case LSIC_IPL:
+			// IPL.
+
+			if (value >= 64) {
+				return EBUSERROR;
+			}
+
+			lsic->Registers[LSIC_IPL] = value;
+
+			if (value >= 32) {
+				lsic->LowIplMask = 0xFFFFFFFF;
+				lsic->HighIplMask = LsicIplMasks[value - 32];
+			} else {
+				lsic->LowIplMask = LsicIplMasks[value];
+				lsic->HighIplMask = 0;
+			}
 
 		default:
 			return EBUSERROR;
 	}
 
-	LSICInterruptPending = ((~LSICRegisters[0]) & LSICRegisters[2]) || ((~LSICRegisters[1]) & LSICRegisters[3]);
+	lsic->InterruptPending =
+		((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
+		((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
 
 	return EBUSSUCCESS;
 }
 
-int LSICRead(int reg, uint32_t *value) {
+int LsicRead(int reg, uint32_t *value) {
+	int id = reg >> 5;
+	reg &= 31;
+
+	Lsic *lsic = &LsicTable[id];
+
+	if (lsic->Enabled == 0) {
+		return EBUSERROR;
+	}
+
 	switch(reg) {
-		case 0:
-		case 1:
-		case 2:
-		case 3:
-			*value = LSICRegisters[reg];
+		case LSIC_MASK_0:
+		case LSIC_MASK_1:
+		case LSIC_PENDING_0:
+		case LSIC_PENDING_1:
+		case LSIC_IPL:
+			*value = lsic->Registers[reg];
+
 			return EBUSSUCCESS;
 
-		case 4:
+		case LSIC_CLAIM_COMPLETE:
 			// claim
 
-			for (int i = 1; i < 64; i++) {
+			for (int i = 1; i <= lsic->Registers[LSIC_IPL]; i++) {
 				int bmp = i/32;
 				int bmpoff = i&31;
 
-				if ((((~LSICRegisters[bmp])&LSICRegisters[bmp+2])>>bmpoff)&1) {
+				if ((((~lsic->Registers[LSIC_MASK_0 + bmp]) & lsic->Registers[LSIC_PENDING_0 + bmp]) >> bmpoff) & 1) {
 					*value = i;
+
 					return EBUSSUCCESS;
 				}
 			}
@@ -85,14 +187,4 @@ int LSICRead(int reg, uint32_t *value) {
 	}
 
 	return EBUSERROR;
-}
-
-void LSICReset() {
-	LSICRegisters[0] = 0;
-	LSICRegisters[1] = 0;
-	LSICRegisters[2] = 0;
-	LSICRegisters[3] = 0;
-	LSICRegisters[4] = 0;
-
-	LSICInterruptPending = false;
 }

@@ -80,7 +80,7 @@ void KeyboardPressed(struct Screen *screen, int sdlscancode) {
 		OutstandingPressed[code-1] = true;
 		Pressed[code-1] = true;
 		if (AmtsuDevices[1].InterruptNumber)
-			LSICInterrupt(AmtsuDevices[1].InterruptNumber);
+			LsicInterrupt(AmtsuDevices[1].InterruptNumber);
 
 		UnlockIoMutex();
 	}
@@ -95,7 +95,7 @@ void KeyboardReleased(struct Screen *screen, int sdlscancode) {
 		OutstandingReleased[code-1] = true;
 		Pressed[code-1] = false;
 		if (AmtsuDevices[1].InterruptNumber)
-			LSICInterrupt(AmtsuDevices[1].InterruptNumber);
+			LsicInterrupt(AmtsuDevices[1].InterruptNumber);
 
 		UnlockIoMutex();
 	}

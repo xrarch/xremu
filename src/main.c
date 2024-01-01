@@ -15,6 +15,7 @@
 
 #include "ebus.h"
 #include "cpu.h"
+#include "xr.h"
 #include "kinnowfb.h"
 #include "keybd.h"
 #include "dks.h"
@@ -25,6 +26,8 @@
 #include "serial.h"
 #include "screen.h"
 #include "tty.h"
+
+XrProcessor *CpuTable[XR_PROC_MAX];
 
 SDL_mutex *IoMutex;
 
@@ -50,8 +53,10 @@ void MainLoop(void);
 
 #define CPUSTEPMS 10
 
-int CPULoop(void *context) {
-	CPUReset();
+int CpuLoop(void *context) {
+	XrProcessor *proc = (XrProcessor *)context;
+
+	XrReset(proc);
 
 	int last_tick = SDL_GetTicks();
 
@@ -74,10 +79,10 @@ int CPULoop(void *context) {
 				cyclesleft += extracycles;
 
 			while (cyclesleft > 0) {
-				cyclesleft -= CPUDoCycles(cyclesleft, 1);
+				cyclesleft -= XrExecute(proc, cyclesleft, 1);
 			}
 
-			if (1) { // TEMP condition
+			if (proc->Id == 0) {
 				// The thread for CPU 0 doubles as the I/O device thread.
 
 				LockIoMutex();
@@ -101,13 +106,19 @@ int CPULoop(void *context) {
 	}
 }
 
-void CPUCreate(int id) {
-	if (id != 0) {
-		// TEMP
-		return;
+void CpuCreate(int id) {
+	XrProcessor *proc = malloc(sizeof(XrProcessor));
+
+	if (!proc) {
+		fprintf(stderr, "failed to allocate cpu %d", id);
+		exit(1);
 	}
 
-	SDL_CreateThread(&CPULoop, "CPULoop", 0);
+	CpuTable[id] = proc;
+
+	proc->Id = id;
+
+	SDL_CreateThread(&CpuLoop, "CpuLoop", proc);
 }
 
 extern void TLBDump(void);
@@ -247,8 +258,8 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	if (ProcessorCount <= 0 || ProcessorCount > 8) {
-		fprintf(stderr, "Bad processor count %d, should be between 1 and 8\n", ProcessorCount);
+	if (ProcessorCount <= 0 || ProcessorCount > XR_PROC_MAX) {
+		fprintf(stderr, "Bad processor count %d, should be between 1 and %d\n", ProcessorCount, XR_PROC_MAX);
 		return 1;
 	}
 
@@ -262,7 +273,7 @@ int main(int argc, char *argv[]) {
 #endif
 
 	for (int i = 0; i < ProcessorCount; i++) {
-		CPUCreate(i);
+		CpuCreate(i);
 	}
 
 	ScreenInit();

@@ -42,7 +42,7 @@ void DKSInfo(int what) {
 	DKSInfoWhat = what;
 
 	if (DKSDoInterrupt)
-		LSICInterrupt(0x3);
+		LsicInterrupt(0x3);
 }
 
 void DKSReset() {

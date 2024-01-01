@@ -119,7 +119,7 @@ void SerialInterval(uint32_t dt) {
 			rxpoll.events = POLLIN;
 
 			if (poll(&rxpoll, 1, 0) > 0) {
-				LSICInterrupt(0x4+port);
+				LsicInterrupt(0x4+port);
 			}
 		}
 #endif
@@ -128,18 +128,20 @@ void SerialInterval(uint32_t dt) {
 			continue;
 
 		for (int i = 0; i < dt; i++) {
-			if (thisport->SendIndex < thisport->TransmitBufferIndex)
+			if (thisport->SendIndex < thisport->TransmitBufferIndex) {
 				SerialPutCharacter(thisport, thisport->TransmitBuffer[thisport->SendIndex++]);
-			else
+			} else {
 				break;
+			}
 
 			if (thisport->SendIndex == thisport->TransmitBufferIndex) {
 				thisport->SendIndex = 0;
 				thisport->TransmitBufferIndex = 0;
 				thisport->WriteBusy = false;
 
-				if (thisport->DoInterrupts)
-					LSICInterrupt(0x4+port);
+				if (thisport->DoInterrupts) {
+					LsicInterrupt(0x4+port);
+				}
 			}
 		}
 
@@ -238,9 +240,10 @@ int SerialReadData(uint32_t port, uint32_t length, uint32_t *value) {
 	}
 #endif
 
-	if (!(thisport->ReceiveBufferIndex - thisport->ReceiveIndex)) {
+	if ((thisport->ReceiveBufferIndex - thisport->ReceiveIndex) == 0) {
 		CPUProgress--;
 		*value = 0xFFFF;
+
 		return EBUSSUCCESS;
 	}
 
@@ -253,14 +256,16 @@ int SerialReadData(uint32_t port, uint32_t length, uint32_t *value) {
 void SerialInput(struct TTY *tty, uint16_t c) {
 	struct SerialPort *port = (struct SerialPort *)(tty->Context);
 
-	if (!port->ReceiveRemaining)
+	if (!port->ReceiveRemaining) {
 		return;
+	}
 
 	port->ReceiveBuffer[port->ReceiveBufferIndex++ % RECEIVEBUFFERSIZE] = c;
 	port->ReceiveRemaining--;
 
-	if (port->DoInterrupts)
-		LSICInterrupt(0x4+port->Number);
+	if (port->DoInterrupts) {
+		LsicInterrupt(0x4+port->Number);
+	}
 }
 
 char *SerialNames[] = {

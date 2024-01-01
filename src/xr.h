@@ -60,6 +60,10 @@
 #define XR_EXC_ITB 14
 #define XR_EXC_DTB 15
 
+#define XR_NONCACHED_PHYS_BASE 0xC0000000
+
+#define XR_PROC_MAX 8
+
 typedef struct _XrProcessor {
 	uint64_t Itb[XR_ITB_SIZE];
 	uint64_t Dtb[XR_DTB_SIZE];
@@ -95,3 +99,8 @@ typedef struct _XrProcessor {
 	uint8_t Halted;
 	uint8_t Running;
 } XrProcessor;
+
+extern XrProcessor *CpuTable[XR_PROC_MAX];
+
+extern void XrReset(XrProcessor *proc);
+extern uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt);

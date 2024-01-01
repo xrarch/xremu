@@ -75,7 +75,7 @@ void MousePressed(struct Screen *screen, int button) {
 
 		MousePressedButton = button;
 		if (AmtsuDevices[2].InterruptNumber)
-			LSICInterrupt(AmtsuDevices[2].InterruptNumber);
+			LsicInterrupt(AmtsuDevices[2].InterruptNumber);
 
 		UnlockIoMutex();
 	}
@@ -92,7 +92,7 @@ void MouseReleased(struct Screen *screen, int button) {
 
 		MouseReleasedButton = button;
 		if (AmtsuDevices[2].InterruptNumber)
-			LSICInterrupt(AmtsuDevices[2].InterruptNumber);
+			LsicInterrupt(AmtsuDevices[2].InterruptNumber);
 
 		UnlockIoMutex();
 	}
@@ -107,7 +107,7 @@ void MouseMoved(struct Screen *screen, int dx, int dy) {
 	MouseMovedV = ((MouseDX&0xFFFF)<<16)|(MouseDY&0xFFFF);
 
 	if (AmtsuDevices[2].InterruptNumber)
-		LSICInterrupt(AmtsuDevices[2].InterruptNumber);
+		LsicInterrupt(AmtsuDevices[2].InterruptNumber);
 
 	UnlockIoMutex();
 }
