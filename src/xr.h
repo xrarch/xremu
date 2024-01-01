@@ -45,19 +45,34 @@
 #define XR_WB_DEPTH (1 << XR_WB_LOG)
 #define XR_WB_BYTE_COUNT (1 << (XR_WB_LOG + XR_DC_LINE_SIZE_LOG))
 
-typedef struct _XrProcessor {
-	uint64_t Dtb[XR_DTB_SIZE];
-	uint64_t Itb[XR_ITB_SIZE];
+// Exception codes.
 
-	uint64_t DtbLastResult;
+#define XR_EXC_INT 1
+#define XR_EXC_SYS 2
+#define XR_EXC_BUS 4
+#define XR_EXC_NMI 5
+#define XR_EXC_BRK 6
+#define XR_EXC_INV 7
+#define XR_EXC_PRV 8
+#define XR_EXC_UNA 9
+#define XR_EXC_PGF 12
+#define XR_EXC_PGW 13
+#define XR_EXC_ITB 14
+#define XR_EXC_DTB 15
+
+typedef struct _XrProcessor {
+	uint64_t Itb[XR_ITB_SIZE];
+	uint64_t Dtb[XR_DTB_SIZE];
+
 	uint64_t ItbLastResult;
+	uint64_t DtbLastResult;
 
 	uint32_t IcTags[XR_IC_LINE_COUNT];
 	uint32_t DcTags[XR_DC_LINE_COUNT];
 	uint32_t WbTags[XR_WB_DEPTH];
 
-	uint32_t DtbLastVpn;
 	uint32_t ItbLastVpn;
+	uint32_t DtbLastVpn;
 
 	uint32_t WbIndex;
 	uint32_t WbSize;
