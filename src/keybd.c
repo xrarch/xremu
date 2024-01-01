@@ -75,10 +75,14 @@ void KeyboardPressed(struct Screen *screen, int sdlscancode) {
 	int code = KeyMap[sdlscancode].code;
 
 	if (code) {
+		LockIoMutex();
+
 		OutstandingPressed[code-1] = true;
 		Pressed[code-1] = true;
 		if (AmtsuDevices[1].InterruptNumber)
 			LSICInterrupt(AmtsuDevices[1].InterruptNumber);
+
+		UnlockIoMutex();
 	}
 }
 
@@ -86,10 +90,14 @@ void KeyboardReleased(struct Screen *screen, int sdlscancode) {
 	int code = KeyMap[sdlscancode].code;
 
 	if (code) {
+		LockIoMutex();
+
 		OutstandingReleased[code-1] = true;
 		Pressed[code-1] = false;
 		if (AmtsuDevices[1].InterruptNumber)
 			LSICInterrupt(AmtsuDevices[1].InterruptNumber);
+
+		UnlockIoMutex();
 	}
 }
 

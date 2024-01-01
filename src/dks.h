@@ -11,7 +11,7 @@ extern bool DKSPrint;
 
 int DKSAttachImage(char *path);
 
-void DKSOperation(uint32_t dt);
+void DKSInterval(uint32_t dt);
 
 // fake disk geometry for simple seek time simulation
 

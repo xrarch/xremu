@@ -52,7 +52,7 @@ void DKSReset() {
 	DKSSelectedDrive = 0;
 }
 
-void DKSOperation(uint32_t dt) {
+void DKSInterval(uint32_t dt) {
 	for (int i = 0; i < DKSDISKS; i++) {
 		if (!DKSDisks[i].Present)
 			break;

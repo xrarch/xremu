@@ -37,6 +37,8 @@ bool CPUPrintCache = false;
 
 int CPUStall = 0;
 
+bool CPUInterruptPending = false;
+
 int CPUProgress;
 
 uint32_t Reg[32];
@@ -650,12 +652,16 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 		}
 	}
 
+	LockIoMutex();
+	CPUInterruptPending = (volatile bool)(LSICInterruptPending);
+	UnlockIoMutex();
+
 	if (Halted) {
 		// if there's an exception (such as an NMI), or interrupts are enabled
 		// and there is an interrupt pending, then unhalt the processor and
 		// continue execution.
 
-		if (CurrentException || ((ControlReg[RS] & RS_INT) && LSICInterruptPending)) {
+		if (CurrentException || ((ControlReg[RS] & RS_INT) && CPUInterruptPending)) {
 			Halted = false;
 		} else {
 			return cycles;
@@ -749,7 +755,7 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 			}
 		}
 
-		if (CurrentException || ((ControlReg[RS] & RS_INT) && LSICInterruptPending)) {
+		if (CurrentException || ((ControlReg[RS] & RS_INT) && CPUInterruptPending)) {
 			// there's a pending exception, or interrupts are enabled and
 			// there is a pending interrupt. figure out where to send the
 			// program counter off to, and what to set the status register bits
@@ -766,8 +772,9 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 			// if CurrentException is null, then we must have come here
 			// because of an interrupt.
 
-			if (!CurrentException)
+			if (!CurrentException) {
 				CurrentException = EXCINTERRUPT;
+			}
 
 			// enter kernel mode, disable interrupts.
 			newstate = ControlReg[RS] & 0xFC;
@@ -1097,6 +1104,12 @@ uint32_t CPUDoCycles(uint32_t cycles, uint32_t dt) {
 				uint64_t tlbe;
 				uint32_t pde;
 				uint32_t tbhi;
+
+				// All the privileged instructions cause the LSIC to be sampled.
+
+				LockIoMutex();
+				CPUInterruptPending = (volatile bool)(LSICInterruptPending);
+				UnlockIoMutex();
 
 				switch(funct) {
 					case 11: // RFE

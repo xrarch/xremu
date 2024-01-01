@@ -188,41 +188,55 @@ void TTYDraw(struct Screen *screen) {
 }
 
 void TTYKeyPressed(struct Screen *screen, int sdlscancode) {
+	LockIoMutex();
+
 	struct TTY *tty = (struct TTY *)(screen->Context1);
 
 	switch (sdlscancode) {
 		case SDL_SCANCODE_LCTRL:
 		case SDL_SCANCODE_RCTRL:
 			tty->IsCtrl = 1;
+
+			UnlockIoMutex();
 			return;
 
 		case SDL_SCANCODE_LSHIFT:
 		case SDL_SCANCODE_RSHIFT:
 			tty->IsShift = 1;
+
+			UnlockIoMutex();
 			return;
 
 		case SDL_SCANCODE_LEFT:
 			tty->Input(tty, 0x1B);
 			tty->Input(tty, '[');
 			tty->Input(tty, 'D');
+			
+			UnlockIoMutex();
 			return;
 
 		case SDL_SCANCODE_RIGHT:
 			tty->Input(tty, 0x1B);
 			tty->Input(tty, '[');
 			tty->Input(tty, 'C');
+			
+			UnlockIoMutex();
 			return;
 
 		case SDL_SCANCODE_UP:
 			tty->Input(tty, 0x1B);
 			tty->Input(tty, '[');
 			tty->Input(tty, 'A');
+			
+			UnlockIoMutex();
 			return;
 
 		case SDL_SCANCODE_DOWN:
 			tty->Input(tty, 0x1B);
 			tty->Input(tty, '[');
 			tty->Input(tty, 'B');
+			
+			UnlockIoMutex();
 			return;
 	}
 
@@ -238,18 +252,22 @@ void TTYKeyPressed(struct Screen *screen, int sdlscancode) {
 
 	if (c != -1)
 		tty->Input(tty, c);
+
+	UnlockIoMutex();
 }
 
 void TTYKeyReleased(struct Screen *screen, int sdlscancode) {
 	struct TTY *tty = (struct TTY *)(screen->Context1);
 
+	LockIoMutex();
+
 	if (sdlscancode == SDL_SCANCODE_LCTRL || sdlscancode == SDL_SCANCODE_RCTRL) {
 		tty->IsCtrl = 0;
-		return;
 	} else if (sdlscancode == SDL_SCANCODE_LSHIFT || sdlscancode == SDL_SCANCODE_RSHIFT) {
 		tty->IsShift = 0;
-		return;
 	}
+
+	UnlockIoMutex();
 }
 
 void TTYScrollUp(struct TTY *tty) {

@@ -42,8 +42,6 @@ bool RAMDumpOnExit = false;
 
 int ProcessorCount = 1;
 
-uint32_t tick_start;
-uint32_t tick_end;
 bool done = false;
 
 bool Headless = false;
@@ -59,12 +57,13 @@ int CPULoop(void *context) {
 
 	while (1) {
 		int this_tick = SDL_GetTicks();
-
 		int dt = this_tick - last_tick;
 		last_tick = this_tick;
 
 		int cyclespertick = SimulatorHz/1000;
 		int extracycles = SimulatorHz%1000; // squeeze in the sub-millisecond cycles
+
+		printf("delta time=%d\n", dt);
 
 		CPUProgress = 20;
 
@@ -78,13 +77,13 @@ int CPULoop(void *context) {
 				cyclesleft -= CPUDoCycles(cyclesleft, 1);
 			}
 
-			if (1) {
-				// CPU 0 doubles as the device thread.
+			if (1) { // TEMP condition
+				// The thread for CPU 0 doubles as the I/O device thread.
 
 				LockIoMutex();
 
+				DKSInterval(1);
 				RTCInterval(1);
-				DKSOperation(1);
 				SerialInterval(1);
 
 				UnlockIoMutex();
@@ -92,10 +91,9 @@ int CPULoop(void *context) {
 		}
 
 		int final_tick = SDL_GetTicks();
-
 		int this_tick_duration = final_tick - this_tick;
 
-		printf("%d\n", this_tick_duration);
+		printf("duration=%d, delay=%d\n", this_tick_duration, CPUSTEPMS - this_tick_duration);
 
 		if (this_tick_duration < CPUSTEPMS) {
 			SDL_Delay(CPUSTEPMS - this_tick_duration);
@@ -272,14 +270,11 @@ int main(int argc, char *argv[]) {
 
 	done = false;
 
-	tick_start = SDL_GetTicks();
-	tick_end = SDL_GetTicks();
-
 #ifndef EMSCRIPTEN
 	while (!done) {
+		int tick_start = SDL_GetTicks();
 		MainLoop();
-
-		tick_end = SDL_GetTicks();
+		int tick_end = SDL_GetTicks();
 		int delay = 1000/FPS - (tick_end - tick_start);
 
 		if (delay > 0) {
@@ -304,6 +299,5 @@ int main(int argc, char *argv[]) {
 
 void MainLoop(void) {
 	ScreenDraw();
-
 	done = ScreenProcessEvents();
 }
