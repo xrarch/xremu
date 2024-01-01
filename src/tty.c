@@ -12,6 +12,7 @@
 #include "text.h"
 #include "screen.h"
 #include "tty.h"
+#include "ebus.h"
 
 bool TTY132ColumnMode = false;
 
@@ -110,10 +111,15 @@ void TTYMoveCursor(struct TTY *tty, int x, int y) {
 extern uint32_t PixelBuffer[KINNOW_FRAMEBUFFER_WIDTH*KINNOW_FRAMEBUFFER_HEIGHT];
 
 void TTYDraw(struct Screen *screen) {
+	LockIoMutex();
+
 	struct TTY *tty = screen->Context1;
 
-	if (!tty->IsDirty)
+	if (!tty->IsDirty) {
+		UnlockIoMutex();
+
 		return;
+	}
 
 	SDL_Texture *texture = ScreenGetTexture(screen);
 
@@ -177,6 +183,8 @@ void TTYDraw(struct Screen *screen) {
 	SDL_UpdateTexture(texture, &rect, PixelBuffer, rect.w * 4);
 
 	tty->IsDirty = 0;
+
+	UnlockIoMutex();
 }
 
 void TTYKeyPressed(struct Screen *screen, int sdlscancode) {

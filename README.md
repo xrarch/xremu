@@ -36,6 +36,9 @@ be simulated using the switches `-asyncdisk`, `-asyncserial`, and `-cachesim` re
     -rom [file]
         Specify a file to use as the boot ROM.
 
+    -cpus [count]
+        Specify how many XR/17032 processors to simulate. Default is 1.
+
     -asyncdisk
         Simulate disk seek times.
 
@@ -70,4 +73,4 @@ be simulated using the switches `-asyncdisk`, `-asyncserial`, and `-cachesim` re
         Specify a file (i.e. a FIFO) as the TX line for serial port B.
 
     -cpuhz [frequency]
-        Specify the frequency that the CPU simulation should be run at. Default is 25000000.
+        Specify the frequency that the CPU simulation should be run at. Default is 16666666 (16.67MHz).

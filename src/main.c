@@ -26,9 +26,21 @@
 #include "screen.h"
 #include "tty.h"
 
+SDL_mutex *IoMutex;
+
+void LockIoMutex() {
+	SDL_LockMutex(IoMutex);
+}
+
+void UnlockIoMutex() {
+	SDL_UnlockMutex(IoMutex);
+}
+
 uint32_t SimulatorHz = CPUHZDEFAULT;
 
 bool RAMDumpOnExit = false;
+
+int ProcessorCount = 1;
 
 uint32_t tick_start;
 uint32_t tick_end;
@@ -39,6 +51,56 @@ bool Headless = false;
 
 void MainLoop(void);
 
+#define CPUSTEPMS 20
+
+int CPULoop(void *context) {
+	CPUReset();
+
+	int last_tick = SDL_GetTicks();
+
+	while (1) {
+		int this_tick = SDL_GetTicks();
+
+		int dt = this_tick - last_tick;
+		last_tick = this_tick;
+
+		int cyclespertick = SimulatorHz/1000;
+		int extracycles = SimulatorHz%1000; // squeeze in the sub-millisecond cycles
+
+		CPUProgress = 20;
+
+		for (int i = 0; i < dt; i++) {
+			int cyclesleft = cyclespertick;
+
+			if (i == CPUSTEPMS-1)
+				cyclesleft += extracycles;
+
+			while (cyclesleft > 0) {
+				cyclesleft -= CPUDoCycles(cyclesleft, 1);
+			}
+		}
+
+		int final_tick = SDL_GetTicks();
+
+		int this_tick_duration = final_tick - this_tick;
+
+		printf("%d\n", this_tick_duration);
+
+		if (this_tick_duration < CPUSTEPMS) {
+			SDL_Delay(CPUSTEPMS - this_tick_duration);
+		}
+	}
+}
+
+void CPUCreate(int id) {
+	if (id != 0) {
+		// TEMP
+		return;
+	}
+
+	SDL_CreateThread(&CPULoop, "CPULoop", 0);
+}
+
 extern void TLBDump(void);
 
 int main(int argc, char *argv[]) {
@@ -47,6 +109,13 @@ int main(int argc, char *argv[]) {
 
 	if (SDL_Init(SDL_INIT_VIDEO) != 0) {
 		fprintf(stderr, "Unable to initialize SDL: %s", SDL_GetError());
+		return 1;
+	}
+
+	IoMutex = SDL_CreateMutex();
+
+	if (IoMutex == NULL) {
+		fprintf(stderr, "Unable to allocate IoMutex: %s", SDL_GetError());
 		return 1;
 	}
 
@@ -137,6 +206,14 @@ int main(int argc, char *argv[]) {
 			DKSPrint = true;
 		} else if (strcmp(argv[i], "-132column") == 0) {
 			TTY132ColumnMode = true;
+		} else if (strcmp(argv[i], "-cpus") == 0) {
+			if (i+1 < argc) {
+				ProcessorCount = atoi(argv[i+1]);
+				i++;
+			} else {
+				fprintf(stderr, "no processor count specified\n");
+				return 1;
+			}
 		} else {
 			fprintf(stderr, "don't recognize option %s\n", argv[i]);
 			return 1;
@@ -147,7 +224,7 @@ int main(int argc, char *argv[]) {
 	if (!Headless) {
 		ScreenCreate(KINNOW_FRAMEBUFFER_WIDTH,
 					KINNOW_FRAMEBUFFER_HEIGHT,
-					"XR/STATION Framebuffer",
+					"XR/station Framebuffer",
 					KinnowDraw,
 					KeyboardPressed,
 					KeyboardReleased,
@@ -161,6 +238,11 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
+	if (ProcessorCount <= 0 || ProcessorCount > 8) {
+		fprintf(stderr, "Bad processor count %d, should be between 1 and 8\n", ProcessorCount);
+		return 1;
+	}
+
 #ifdef EMSCRIPTEN
 	DKSAsynchronous = true;
 	SerialAsynchronous = true;
@@ -170,7 +252,9 @@ int main(int argc, char *argv[]) {
 	DKSAttachImage("bin/aisix.img");
 #endif
 
-	CPUReset();
+	for (int i = 0; i < ProcessorCount; i++) {
+		CPUCreate(i);
+	}
 
 	ScreenInit();
 	ScreenDraw();
@@ -220,24 +304,14 @@ void MainLoop(void) {
 	if (dt > 20)
 		dt = 20;
 
-	int cyclespertick = SimulatorHz/1000;
-	int extracycles = SimulatorHz%1000; // squeeze in the sub-millisecond cycles
-
-	CPUProgress = 20;
-
 	for (int i = 0; i < dt; i++) {
-		int cyclesleft = cyclespertick;
-
-		if (i == dt-1)
-			cyclesleft += extracycles;
-
-		while (cyclesleft > 0) {
-			cyclesleft -= CPUDoCycles(cyclesleft, 1);
-		}
+		LockIoMutex();
 
 		RTCInterval(1);
 		DKSOperation(1);
 		SerialInterval(1);
+
+		UnlockIoMutex();
 	}
 
 	ScreenDraw();

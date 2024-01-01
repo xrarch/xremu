@@ -116,8 +116,13 @@ int KinnowRead(uint32_t address, void *dest, uint32_t length) {
 uint32_t PixelBuffer[KINNOW_FRAMEBUFFER_WIDTH*KINNOW_FRAMEBUFFER_HEIGHT];
 
 void KinnowDraw(struct Screen *screen) {
-	if (!IsDirty)
+	LockIoMutex();
+
+	if (!IsDirty) {
+		UnlockIoMutex();
+
 		return;
+	}
 
 	SDL_Texture *texture = ScreenGetTexture(screen);
 
@@ -151,6 +156,8 @@ void KinnowDraw(struct Screen *screen) {
 	DirtyRectY2 = 0;
 
 	IsDirty = false;
+
+	UnlockIoMutex();
 }
 
 int KinnowInit() {
