@@ -71,7 +71,8 @@ typedef struct _XrProcessor {
 	uint64_t ItbLastResult;
 	uint64_t DtbLastResult;
 
-	void *Mutex;
+	void *ExceptionMutex;
+	void *CacheMutex;
 
 	uint32_t IcTags[XR_IC_LINE_COUNT];
 	uint32_t DcTags[XR_DC_LINE_COUNT];
@@ -96,6 +97,7 @@ typedef struct _XrProcessor {
 	uint8_t Dc[XR_DC_BYTE_COUNT];
 	uint8_t Wb[XR_WB_BYTE_COUNT];
 
+	uint8_t Locked;
 	uint8_t LastTbMissWasWrite;
 	uint8_t IFetch;
 	uint8_t UserBreak;
@@ -115,6 +117,9 @@ extern void XrUnlockIoMutex();
 
 extern void XrLockProcessor(XrProcessor *proc);
 extern void XrUnlockProcessor(XrProcessor *proc);
+
+extern void XrLockCache(XrProcessor *proc);
+extern void XrUnlockCache(XrProcessor *proc);
 
 extern void XrReset(XrProcessor *proc);
 extern uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt);

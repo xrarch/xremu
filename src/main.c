@@ -51,11 +51,19 @@ void XrUnlockIoMutex() {
 }
 
 void XrLockProcessor(XrProcessor *proc) {
-	SDL_LockMutex((SDL_mutex *)proc->Mutex);
+	SDL_LockMutex((SDL_mutex *)proc->ExceptionMutex);
 }
 
 void XrUnlockProcessor(XrProcessor *proc) {
-	SDL_UnlockMutex((SDL_mutex *)proc->Mutex);
+	SDL_UnlockMutex((SDL_mutex *)proc->ExceptionMutex);
+}
+
+void XrLockCache(XrProcessor *proc) {
+	SDL_LockMutex((SDL_mutex *)proc->CacheMutex);
+}
+
+void XrUnlockCache(XrProcessor *proc) {
+	SDL_UnlockMutex((SDL_mutex *)proc->CacheMutex);
 }
 
 uint32_t SimulatorHz = 16666666;
@@ -87,7 +95,7 @@ int CpuLoop(void *context) {
 		int cyclespertick = SimulatorHz/1000;
 		int extracycles = SimulatorHz%1000; // squeeze in the sub-millisecond cycles
 
-		printf("delta time=%d\n", dt);
+		// printf("delta time=%d\n", dt);
 
 		proc->Progress = 20;
 
@@ -117,7 +125,7 @@ int CpuLoop(void *context) {
 		int final_tick = SDL_GetTicks();
 		int this_tick_duration = final_tick - this_tick;
 
-		printf("duration=%d, delay=%d\n", this_tick_duration, CPUSTEPMS - this_tick_duration);
+		// printf("duration=%d, delay=%d\n", this_tick_duration, CPUSTEPMS - this_tick_duration);
 
 		if (this_tick_duration < CPUSTEPMS) {
 			SDL_Delay(CPUSTEPMS - this_tick_duration);
@@ -133,10 +141,17 @@ void CpuCreate(int id) {
 		exit(1);
 	}
 
-	proc->Mutex = SDL_CreateMutex();
+	proc->ExceptionMutex = SDL_CreateMutex();
 
-	if (!proc->Mutex) {
-		fprintf(stderr, "Unable to allocate processor mutex: %s", SDL_GetError());
+	if (!proc->ExceptionMutex) {
+		fprintf(stderr, "Unable to allocate exception mutex: %s", SDL_GetError());
+		exit(1);
+	}
+
+	proc->CacheMutex = SDL_CreateMutex();
+
+	if (!proc->CacheMutex) {
+		fprintf(stderr, "Unable to allocate cache mutex: %s", SDL_GetError());
 		exit(1);
 	}
 
