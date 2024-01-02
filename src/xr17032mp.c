@@ -390,6 +390,7 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 
 		XrBasicInbetweenException(proc, XR_EXC_NMI);
 		proc->UserBreak = 0;
+		proc->Halted = 0;
 	}
 
 	if (proc->Halted) {
