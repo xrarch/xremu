@@ -12,6 +12,9 @@ uint8_t XrSimulateCaches = 1;
 uint8_t XrSimulateCacheStalls = 0;
 uint8_t XrPrintCache = 0;
 
+uint32_t XrScacheTags[XR_SC_LINE_COUNT];
+uint8_t XrScacheFlags[XR_SC_LINE_COUNT];
+
 static inline uint32_t RoR(uint32_t x, uint32_t n) {
     return (x >> n & 31) | (x << (32-n) & 31);
 }
@@ -66,6 +69,24 @@ static inline uint32_t RoR(uint32_t x, uint32_t n) {
 
 #define NONCACHED 0
 #define CACHED 1
+
+static inline void XrInvalidateAll(uint32_t tag, XrProcessor *excludeproc) {
+	// Invalidate a cache line in all processors except the one provided.
+
+	for (int i = 0; i < XrProcessorCount; i++) {
+		XrProcessor *proc = CpuTable[i];
+
+		if (proc == excludeproc) {
+			continue;
+		}
+
+		XrLockCache(proc);
+
+
+
+		XrUnlockCache(proc);
+	}
+}
 
 #define XrReadByte(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 1);
 #define XrReadInt(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 2);
@@ -402,7 +423,7 @@ static uint8_t XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uin
 			return 1;
 		}
 
-		uint32_t setnumber = address & (XR_IC_SET_LOG - 1);
+		uint32_t setnumber = (address >> XR_IC_LINE_SIZE_LOG) & (XR_IC_SETS - 1);
 		uint32_t cacheindex = setnumber << XR_IC_WAY_LOG;
 
 		for (int i = 0; i < XR_IC_WAYS; i++) {
@@ -454,6 +475,17 @@ static uint8_t XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uin
 
 		return 1;
 	}
+
+	// Access Dcache. Scary! We have to worry about coherency with the other
+	// Dcaches in the system, and this can be a 1, 2, or 4 byte access.
+
+restart:
+
+	XrLockCache(proc);
+
+
+
+	XrUnlockCache(proc);
 
 	return 1;
 }
@@ -820,11 +852,16 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 									}
 								} else if ((proc->Reg[ra] & 3) == 2) {
 									// Invalidate a single page frame of the
-									// Icache.
+									// Icache. We can use clever math to only
+									// search the cache lines that lines within
+									// this page frame could possibly be in.
 
 									uint32_t phys = proc->Reg[ra] & 0xFFFFF000;
 
-									for (int i = 0; i < XR_IC_LINE_COUNT; i++) {
+									uint32_t lowindex = ((phys >> XR_IC_LINE_SIZE_LOG) & (XR_IC_SETS - 1)) << XR_IC_WAY_LOG;
+									uint32_t highindex = (((phys + 4096) >> XR_IC_LINE_SIZE_LOG) & (XR_IC_SETS - 1)) << XR_IC_WAY_LOG;
+
+									for (int i = lowindex; i < highindex; i++) {
 										if ((proc->IcTags[i] & 0xFFFFF000) == phys) {
 											proc->IcFlags[i] = XR_LINE_INVALID;
 										}
@@ -851,11 +888,16 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 									}
 								} else if ((proc->Reg[ra] & 3) == 2) {
 									// Invalidate a single page frame of the
-									// Dcache.
+									// Dcache. We can use clever math to only
+									// search the cache lines that lines within
+									// this page frame could possibly be in.
 
 									uint32_t phys = proc->Reg[ra] & 0xFFFFF000;
 
-									for (int i = 0; i < XR_DC_LINE_COUNT; i++) {
+									uint32_t lowindex = ((phys >> XR_DC_LINE_SIZE_LOG) & (XR_DC_SETS - 1)) << XR_DC_WAY_LOG;
+									uint32_t highindex = (((phys + 4096) >> XR_DC_LINE_SIZE_LOG) & (XR_DC_SETS - 1)) << XR_DC_WAY_LOG;
+
+									for (int i = lowindex; i < highindex; i++) {
 										if ((proc->DcTags[i] & 0xFFFFF000) == phys) {
 											proc->DcFlags[i] = XR_LINE_INVALID;
 										}

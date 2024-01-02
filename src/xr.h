@@ -17,6 +17,10 @@
 #define XR_IC_WAY_LOG 1
 #define XR_DC_WAY_LOG 1
 
+#define XR_SC_LINE_COUNT_LOG (XR_DC_LINE_COUNT_LOG + 1)
+#define XR_SC_LINE_SIZE_LOG XR_DC_LINE_SIZE_LOG
+#define XR_SC_WAY_LOG XR_DC_WAY_LOG
+
 // Configurable write buffer size parameters.
 
 #define XR_WB_LOG 2
@@ -30,8 +34,9 @@
 // ICache and DCache size constants.
 // Don't change these directly.
 
-#define XR_IC_SET_LOG (1 << (XR_IC_LINE_COUNT_LOG - XR_IC_WAY_LOG))
-#define XR_DC_SET_LOG (1 << (XR_IC_LINE_COUNT_LOG - XR_IC_WAY_LOG))
+#define XR_IC_SET_LOG (XR_IC_LINE_COUNT_LOG - XR_IC_WAY_LOG)
+#define XR_DC_SET_LOG (XR_DC_LINE_COUNT_LOG - XR_DC_WAY_LOG)
+#define XR_SC_SET_LOG (XR_SC_LINE_COUNT_LOG - XR_SC_WAY_LOG)
 
 #define XR_IC_SETS (1 << XR_IC_SET_LOG)
 #define XR_DC_SETS (1 << XR_DC_SET_LOG)
@@ -43,6 +48,12 @@
 #define XR_DC_WAYS (1 << XR_DC_WAY_LOG)
 #define XR_IC_BYTE_COUNT (1 << (XR_IC_LINE_COUNT_LOG + XR_IC_LINE_SIZE_LOG))
 #define XR_DC_BYTE_COUNT (1 << (XR_DC_LINE_COUNT_LOG + XR_DC_LINE_SIZE_LOG))
+
+#define XR_SC_SETS (1 << XR_SC_SET_LOG)
+#define XR_SC_LINE_COUNT (1 << XR_SC_LINE_COUNT_LOG)
+#define XR_SC_LINE_SIZE (1 << XR_SC_LINE_SIZE_LOG)
+#define XR_SC_WAYS (1 << XR_SC_WAY_LOG)
+#define XR_SC_BYTE_COUNT (1 << (XR_SC_LINE_COUNT_LOG + XR_SC_LINE_SIZE_LOG))
 
 // Write buffer size constants.
 // Don't change these directly.
@@ -126,8 +137,13 @@ extern uint8_t XrSimulateCaches;
 extern uint8_t XrSimulateCacheStalls;
 extern uint8_t XrPrintCache;
 
+extern uint32_t XrProcessorCount;
+
 extern XrProcessor *CpuTable[XR_PROC_MAX];
 extern XrProcessor *XrIoMutexProcessor;
+
+extern void XrLockScache();
+extern void XrUnlockScache();
 
 extern void XrLockIoMutex(XrProcessor *proc);
 extern void XrUnlockIoMutex();

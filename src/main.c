@@ -32,6 +32,7 @@ XrProcessor *XrIoMutexProcessor;
 #ifndef EMSCRIPTEN
 
 SDL_mutex *IoMutex;
+SDL_mutex *ScacheMutex;
 
 void LockIoMutex() {
 	SDL_LockMutex(IoMutex);
@@ -60,6 +61,14 @@ void XrUnlockCache(XrProcessor *proc) {
 	SDL_UnlockMutex((SDL_mutex *)proc->CacheMutex);
 }
 
+void XrLockScache() {
+	SDL_LockMutex(ScacheMutex);
+}
+
+void XrUnlockScache() {
+	SDL_UnlockMutex(ScacheMutex);
+}
+
 #else
 
 void LockIoMutex() {}
@@ -68,6 +77,8 @@ void XrLockIoMutex(XrProcessor *proc) {}
 void XrUnlockIoMutex() {}
 void XrLockCache(XrProcessor *proc) {}
 void XrUnlockCache(XrProcessor *proc) {}
+void XrLockScache() {}
+void XrUnlockScache() {}
 
 uint32_t emscripten_last_tick = 0;
 
@@ -77,7 +88,7 @@ uint32_t SimulatorHz = 16666666;
 
 bool RAMDumpOnExit = false;
 
-int ProcessorCount = 1;
+uint32_t XrProcessorCount = 1;
 
 bool done = false;
 
@@ -270,7 +281,7 @@ int main(int argc, char *argv[]) {
 			TTY132ColumnMode = true;
 		} else if (strcmp(argv[i], "-cpus") == 0) {
 			if (i+1 < argc) {
-				ProcessorCount = atoi(argv[i+1]);
+				XrProcessorCount = atoi(argv[i+1]);
 				i++;
 			} else {
 				fprintf(stderr, "no processor count specified\n");
@@ -300,8 +311,8 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	if (ProcessorCount <= 0 || ProcessorCount > XR_PROC_MAX) {
-		fprintf(stderr, "Bad processor count %d, should be between 1 and %d\n", ProcessorCount, XR_PROC_MAX);
+	if (XrProcessorCount <= 0 || XrProcessorCount > XR_PROC_MAX) {
+		fprintf(stderr, "Bad processor count %d, should be between 1 and %d\n", XrProcessorCount, XR_PROC_MAX);
 		return 1;
 	}
 
@@ -319,7 +330,7 @@ int main(int argc, char *argv[]) {
 
 	done = false;
 
-	for (int i = 0; i < ProcessorCount; i++) {
+	for (int i = 0; i < XrProcessorCount; i++) {
 		CpuCreate(i);
 	}
 
