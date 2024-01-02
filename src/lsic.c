@@ -90,7 +90,8 @@ void LsicInterrupt(int intsrc) {
 			((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
 			((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
 
-		MemoryBarrier;
+		// I think unlocking a mutex will be an implicit memory barrier on most platforms?
+		// MemoryBarrier;
 
 		XrUnlockProcessor(proc);
 	}
@@ -185,7 +186,8 @@ int LsicWrite(int reg, uint32_t value) {
 		((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
 		((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
 
-	MemoryBarrier;
+	// I think unlocking a mutex will be an implicit memory barrier on most platforms?
+	// MemoryBarrier;
 
 	XrUnlockProcessor(proc);
 
