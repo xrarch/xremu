@@ -90,6 +90,8 @@ void LsicInterrupt(int intsrc) {
 			((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
 			((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
 
+		MemoryBarrier;
+
 		XrUnlockProcessor(proc);
 	}
 }
@@ -182,6 +184,8 @@ int LsicWrite(int reg, uint32_t value) {
 	lsic->InterruptPending =
 		((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
 		((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
+
+	MemoryBarrier;
 
 	XrUnlockProcessor(proc);
 

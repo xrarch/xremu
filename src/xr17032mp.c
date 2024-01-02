@@ -443,21 +443,18 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 			// TODO writebuffer sim
 		}
 
-		if ((cyclesdone & 63) == 0) {
-			// Sample the pending interrupt flag.
-			// We only do this once every 64 cycles to avoid crazy contention
-			// on the processor lock.
+		if (((cyclesdone & 63) == 0) && (proc->Cr[RS] & RS_INT)) {
+			// Interrupts are enabled, so sample the pending interrupt flag.
+			// We only do this once every 64 cycles.
 
-			XrLockProcessor(proc);
+			MemoryBarrier;
 
-			if ((proc->Cr[RS] & RS_INT) && lsic->InterruptPending) {
-				// There's an interrupt pending and interrupts are enabled, so
-				// cause an interrupt exception.
+			if (lsic->InterruptPending) {
+				// There's an interrupt pending, so cause an interrupt
+				// exception.
 
 				XrBasicInbetweenException(proc, XR_EXC_INT);
 			}
-
-			XrUnlockProcessor(proc);
 		}
 
 		currentpc = proc->Pc;
