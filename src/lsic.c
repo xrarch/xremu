@@ -111,14 +111,36 @@ int LsicWrite(int reg, uint32_t value) {
 	switch(reg) {
 		case LSIC_MASK_0:
 		case LSIC_MASK_1:
-		case LSIC_PENDING_0:
-		case LSIC_PENDING_1:
 			lsic->Registers[reg] = value;
 
 			break;
 
+		case LSIC_PENDING_0:
+		case LSIC_PENDING_1:
+			if (value == 0) {
+				// Clear all pending interrupts.
+
+				lsic->Registers[LSIC_PENDING_0] = 0;
+				lsic->Registers[LSIC_PENDING_1] = 0;
+
+				break;
+			}
+
+			// Writes to the pending register atomically set a pending interrupt
+			// bit. This is useful for IPIs and stuff.
+
+			if (value >= 64) {
+				XrUnlockProcessor(proc);
+
+				return EBUSERROR;
+			}
+
+			lsic->Registers[LSIC_PENDING_0 + (value >> 5)] |= (1 << (value & 31));
+
+			break;
+
 		case LSIC_CLAIM_COMPLETE:
-			// Complete.
+			// Complete. Atomically clear a pending interrupt bit.
 
 			if (value >= 64) {
 				XrUnlockProcessor(proc);
@@ -131,7 +153,9 @@ int LsicWrite(int reg, uint32_t value) {
 			break;
 
 		case LSIC_IPL:
-			// IPL.
+			// Set some bit masks to mask off interrupts with a number greater
+			// than the new IPL, which is a value from 0-63; 0 masks off all, 63
+			// enables all.
 
 			if (value >= 64) {
 				XrUnlockProcessor(proc);
@@ -184,6 +208,8 @@ int LsicRead(int reg, uint32_t *value) {
 		case LSIC_PENDING_0:
 		case LSIC_PENDING_1:
 		case LSIC_IPL:
+			// Reads from most LSIC registers just return their value.
+
 			*value = lsic->Registers[reg];
 
 			XrUnlockProcessor(proc);
@@ -191,7 +217,9 @@ int LsicRead(int reg, uint32_t *value) {
 			return EBUSSUCCESS;
 
 		case LSIC_CLAIM_COMPLETE:
-			// claim
+			// Reads from the claim register return the number of the highest
+			// priority pending interrupt that is not masked off (which is the
+			// one with the lowest number).
 
 			for (int i = 1; i <= lsic->Registers[LSIC_IPL]; i++) {
 				int bmp = i/32;
