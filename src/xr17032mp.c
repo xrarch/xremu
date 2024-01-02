@@ -385,26 +385,22 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 
 	Lsic *lsic = &LsicTable[proc->Id];
 
-	XrLockProcessor(proc);
-
 	if (proc->UserBreak) {
 		// There's a pending user-initiated NMI, so do that.
 
-		XrBasicException(proc, XR_EXC_NMI);
+		XrBasicInbetweenException(proc, XR_EXC_NMI);
 		proc->UserBreak = 0;
 	}
 
 	if (proc->Halted) {
+		MemoryBarrier;
+
 		if ((proc->Cr[RS] & RS_INT) && lsic->InterruptPending) {
 			proc->Halted = 0;
 		} else {
-			XrUnlockProcessor(proc);
-
 			return cycles;
 		}
 	}
-
-	XrUnlockProcessor(proc);
 
 	uint32_t cyclesdone = 0;
 

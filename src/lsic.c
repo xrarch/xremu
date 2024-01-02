@@ -82,18 +82,11 @@ void LsicInterrupt(int intsrc) {
 
 		XrProcessor *proc = CpuTable[i];
 
-		XrLockProcessor(proc);
-
 		lsic->Registers[LSIC_PENDING_0 + srcbmp] |= (1 << srcbmpoff);
 
 		lsic->InterruptPending =
 			((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
 			((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
-
-		// I think unlocking a mutex will be an implicit memory barrier on most platforms?
-		// MemoryBarrier;
-
-		XrUnlockProcessor(proc);
 	}
 }
 
@@ -108,8 +101,6 @@ int LsicWrite(int reg, uint32_t value) {
 	}
 
 	XrProcessor *proc = CpuTable[id];
-
-	XrLockProcessor(proc);
 
 	switch(reg) {
 		case LSIC_MASK_0:
@@ -133,8 +124,6 @@ int LsicWrite(int reg, uint32_t value) {
 			// bit. This is useful for IPIs and stuff.
 
 			if (value >= 64) {
-				XrUnlockProcessor(proc);
-
 				return EBUSERROR;
 			}
 
@@ -146,8 +135,6 @@ int LsicWrite(int reg, uint32_t value) {
 			// Complete. Atomically clear a pending interrupt bit.
 
 			if (value >= 64) {
-				XrUnlockProcessor(proc);
-
 				return EBUSERROR;
 			}
 
@@ -161,8 +148,6 @@ int LsicWrite(int reg, uint32_t value) {
 			// enables all.
 
 			if (value >= 64) {
-				XrUnlockProcessor(proc);
-
 				return EBUSERROR;
 			}
 
@@ -177,19 +162,12 @@ int LsicWrite(int reg, uint32_t value) {
 			}
 
 		default:
-			XrUnlockProcessor(proc);
-
 			return EBUSERROR;
 	}
 
 	lsic->InterruptPending =
 		((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
 		((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
-
-	// I think unlocking a mutex will be an implicit memory barrier on most platforms?
-	// MemoryBarrier;
-
-	XrUnlockProcessor(proc);
 
 	return EBUSSUCCESS;
 }
@@ -206,8 +184,6 @@ int LsicRead(int reg, uint32_t *value) {
 
 	XrProcessor *proc = CpuTable[id];
 
-	XrLockProcessor(proc);
-
 	switch(reg) {
 		case LSIC_MASK_0:
 		case LSIC_MASK_1:
@@ -217,8 +193,6 @@ int LsicRead(int reg, uint32_t *value) {
 			// Reads from most LSIC registers just return their value.
 
 			*value = lsic->Registers[reg];
-
-			XrUnlockProcessor(proc);
 
 			return EBUSSUCCESS;
 
@@ -234,25 +208,17 @@ int LsicRead(int reg, uint32_t *value) {
 				if ((((~lsic->Registers[LSIC_MASK_0 + bmp]) & lsic->Registers[LSIC_PENDING_0 + bmp]) >> bmpoff) & 1) {
 					*value = i;
 
-					XrUnlockProcessor(proc);
-
 					return EBUSSUCCESS;
 				}
 			}
 
 			*value = 0;
 
-			XrUnlockProcessor(proc);
-
 			return EBUSSUCCESS;
 
 		default:
-			XrUnlockProcessor(proc);
-
 			return EBUSERROR;
 	}
-
-	XrUnlockProcessor(proc);
 
 	return EBUSERROR;
 }

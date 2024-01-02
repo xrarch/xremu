@@ -193,9 +193,7 @@ int ScreenProcessEvents() {
 					IsAltDown = true;
 				} else if (event.key.keysym.scancode == SDL_SCANCODE_TAB && IsAltDown) {
 					// alt-tab means NMI
-					XrLockProcessor(CpuTable[0]);
 					CpuTable[0]->UserBreak = 1;
-					XrUnlockProcessor(CpuTable[0]);
 				}
 
 				if (ScreenCurrent->KeyPressed)

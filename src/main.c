@@ -50,14 +50,6 @@ void XrUnlockIoMutex() {
 	SDL_UnlockMutex(IoMutex);
 }
 
-void XrLockProcessor(XrProcessor *proc) {
-	SDL_LockMutex((SDL_mutex *)proc->ExceptionMutex);
-}
-
-void XrUnlockProcessor(XrProcessor *proc) {
-	SDL_UnlockMutex((SDL_mutex *)proc->ExceptionMutex);
-}
-
 void XrLockCache(XrProcessor *proc) {
 	SDL_LockMutex((SDL_mutex *)proc->CacheMutex);
 }
@@ -138,13 +130,6 @@ void CpuCreate(int id) {
 
 	if (!proc) {
 		fprintf(stderr, "failed to allocate cpu %d", id);
-		exit(1);
-	}
-
-	proc->ExceptionMutex = SDL_CreateMutex();
-
-	if (!proc->ExceptionMutex) {
-		fprintf(stderr, "Unable to allocate exception mutex: %s", SDL_GetError());
 		exit(1);
 	}
 

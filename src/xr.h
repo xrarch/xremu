@@ -115,9 +115,6 @@ extern XrProcessor *XrIoMutexProcessor;
 extern void XrLockIoMutex(XrProcessor *proc);
 extern void XrUnlockIoMutex();
 
-extern void XrLockProcessor(XrProcessor *proc);
-extern void XrUnlockProcessor(XrProcessor *proc);
-
 extern void XrLockCache(XrProcessor *proc);
 extern void XrUnlockCache(XrProcessor *proc);
 
