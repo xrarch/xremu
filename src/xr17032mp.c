@@ -183,13 +183,13 @@ static inline uint32_t XrReplaceScache(XrProcessor *proc, uint32_t tag, uint8_t 
 	return cacheindex;
 }
 
-#define XrReadByte(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 1);
-#define XrReadInt(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 2);
-#define XrReadLong(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 4);
+#define XrReadByte(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 1, 0);
+#define XrReadInt(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 2, 0);
+#define XrReadLong(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 4, 0);
 
-#define XrWriteByte(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 1);
-#define XrWriteInt(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 2);
-#define XrWriteLong(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 4);
+#define XrWriteByte(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 1, 0);
+#define XrWriteInt(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 2, 0);
+#define XrWriteLong(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 4, 0);
 
 void XrReset(XrProcessor *proc) {
 	// Set the program counter to point to the reset vector.
@@ -461,7 +461,7 @@ static uint32_t XrAccessMasks[5] = {
 	0xFFFFFFFF
 };
 
-static uint8_t XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length) {
+static uint8_t XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, uint8_t forceexclusive) {
 	if (address & (length - 1)) {
 		// Unaligned access.
 
@@ -486,6 +486,16 @@ static uint8_t XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uin
 	}
 
 	if (cachetype == NONCACHED) {
+		if (forceexclusive) {
+			// Attempt to use LL/SC on noncached memory. Nonsense! Just kill the
+			// evildoer with a bus error.
+
+			proc->Cr[EBADADDR] = address;
+			XrBasicException(proc, XR_EXC_BUS);
+
+			return 0;
+		}
+
 		proc->StallCycles += XR_UNCACHED_STALL;
 
 		int result;
@@ -601,6 +611,17 @@ static uint8_t XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uin
 	uint32_t tag = address & ~(XR_DC_LINE_SIZE - 1);
 	uint32_t lineoffset = address & (XR_DC_LINE_SIZE - 1);
 
+	// The cache line must already be present exclusive if this is a store with
+	// forceexclusive, if it's not then we must fail atomically (SC instruction)
+
+	uint8_t mustbeexclusive = !dest && forceexclusive;
+
+	if (!dest) {
+		// Cause the cache line to be made exclusive if this is a write.
+
+		forceexclusive = 1;
+	}
+
 restart:
 
 	XrLockCache(proc);
@@ -630,6 +651,15 @@ restart:
 
 	if (index == -1) {
 		// It's not in our Dcache, there's a miss!
+
+		if (mustbeexclusive) {
+			// We wanted to atomically check if we have it exclusive for the SC
+			// instruction. We don't!
+
+			XrUnlockCache(proc);
+
+			return 0;
+		}
 
 #ifdef PROFCPU
 		proc->DcMissCount++;
@@ -696,7 +726,7 @@ restart:
 
 			// Replace an Scache entry.
 
-			scacheindex = XrReplaceScache(proc, tag, dest ? XR_LINE_SHARED : XR_LINE_EXCLUSIVE);
+			scacheindex = XrReplaceScache(proc, tag, forceexclusive ? XR_LINE_EXCLUSIVE : XR_LINE_SHARED);
 		} else {
 			// Incur a partial penalty.
 
@@ -707,17 +737,17 @@ restart:
 
 				XrInvalidateLine(CpuTable[XrScacheExclusiveIds[scacheindex]], tag, 1);
 
-				if (dest) {
+				if (forceexclusive) {
+					// We want exclusivity, so leave the flag alone but set our ID.
+
+					XrScacheExclusiveIds[scacheindex] = proc->Id;
+				} else {
 					// We're reading, so set the flag to shared.
 
 					XrScacheFlags[scacheindex] = XR_LINE_SHARED;
-				} else {
-					// We're writing, so leave the flag alone but set our ID.
-
-					XrScacheExclusiveIds[scacheindex] = proc->Id;
 				}
-			} else if (!dest && XrScacheFlags[scacheindex] == XR_LINE_SHARED) {
-				// We're writing and it's shared. Remove it from everyone else.
+			} else if (forceexclusive && XrScacheFlags[scacheindex] == XR_LINE_SHARED) {
+				// We want exclusivity but it's shared. Remove it from everyone else.
 
 				XrInvalidateAll(proc, tag, 0);
 
@@ -731,7 +761,7 @@ restart:
 		//printf("insert %d %d %x %d %d\n", index, scacheindex, tag, dest ? XR_LINE_SHARED : XR_LINE_EXCLUSIVE, !!dest);
 
 		proc->DcTags[index] = tag;
-		proc->DcFlags[index] = dest ? XR_LINE_SHARED : XR_LINE_EXCLUSIVE;
+		proc->DcFlags[index] = forceexclusive ? XR_LINE_EXCLUSIVE : XR_LINE_SHARED;
 
 		// Re-lock our cache.
 
@@ -742,16 +772,23 @@ restart:
 		proc->DcHitCount++;
 #endif
 
-		if (!dest && proc->DcFlags[index] == XR_LINE_SHARED) {
-			// We're writing but we have the line shared. We need to grab it
-			// exclusive.
+		if (forceexclusive && proc->DcFlags[index] == XR_LINE_SHARED) {
+			// We want exclusivity but we have the line shared. We need to grab
+			// it exclusive.
 
 			XrUnlockCache(proc);
 
+			if (mustbeexclusive) {
+				// We wanted to atomically check if we have it exclusive for the
+				// SC instruction. We don't!
+
+				return 0;
+			}
+
 			XrLockScache();
 
-			// While we dropped our cache lock, somebody villainous might have taken
-			// our cache line from us.
+			// While we dropped our cache lock, somebody villainous might have
+			// taken our cache line from us.
 
 			if (proc->DcFlags[index] == XR_LINE_INVALID) {
 				// In this case, just retry.
@@ -766,10 +803,12 @@ restart:
 
 			scacheindex = XrFindInScache(tag);
 
+#ifdef PROFCPU
 			if (scacheindex == -1) {
 				fprintf(stderr, "huh? missed in Scache %x\n", tag);
 				exit(1);
 			}
+#endif
 
 			// Remove the line from everyone else.
 
@@ -1257,22 +1296,30 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 					break;
 
 				case 8: // SC
-					// TODO SC multiprocessor semantics
+					if (!proc->Locked) {
+						// Something happened on this processor that caused the
+						// lock to go away.
 
-					if (proc->Locked) {
-						XrWriteLong(proc, proc->Reg[ra], proc->Reg[rb]);
+						proc->Reg[rd] = 0;
+
+						break;
 					}
 
-					proc->Reg[rd] = proc->Locked;
+					// Store the word in a way that will atomically fail if we
+					// no longer have the cache line exclusive from LL's load.
+
+					proc->Reg[rd] = XrAccess(proc, proc->Reg[ra], 0, proc->Reg[rb], 4, 1);
 
 					break;
 
 				case 9: // LL
-					// TODO LL multiprocessor semantics
-
 					proc->Locked = 1;
 
-					XrReadLong(proc, proc->Reg[ra], &proc->Reg[rd]);
+					// Read the word in a way that forces the cache line
+					// exclusive. We use this in SC to check if anybody else
+					// futzed with the memory.
+
+					XrAccess(proc, proc->Reg[ra], &proc->Reg[rd], 0, 4, 1);
 
 					break;
 
