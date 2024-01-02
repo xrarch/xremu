@@ -29,20 +29,9 @@
 XrProcessor *CpuTable[XR_PROC_MAX];
 XrProcessor *XrIoMutexProcessor;
 
+#ifndef EMSCRIPTEN
+
 SDL_mutex *IoMutex;
-
-#ifdef EMSCRIPTEN
-
-void LockIoMutex() {}
-void UnlockIoMutex() {}
-void XrLockIoMutex(XrProcessor *proc) {}
-void XrUnlockIoMutex() {}
-void XrLockCache(XrProcessor *proc) {}
-void XrUnlockCache(XrProcessor *proc) {}
-
-uint32_t emscripten_last_tick = 0;
-
-#else
 
 void LockIoMutex() {
 	SDL_LockMutex(IoMutex);
@@ -70,6 +59,17 @@ void XrLockCache(XrProcessor *proc) {
 void XrUnlockCache(XrProcessor *proc) {
 	SDL_UnlockMutex((SDL_mutex *)proc->CacheMutex);
 }
+
+#else
+
+void LockIoMutex() {}
+void UnlockIoMutex() {}
+void XrLockIoMutex(XrProcessor *proc) {}
+void XrUnlockIoMutex() {}
+void XrLockCache(XrProcessor *proc) {}
+void XrUnlockCache(XrProcessor *proc) {}
+
+uint32_t emscripten_last_tick = 0;
 
 #endif
 
@@ -335,6 +335,8 @@ int main(int argc, char *argv[]) {
 		}
 	}
 #else
+	XrIoMutexProcessor = CpuTable[0];
+	emscripten_last_tick = SDL_GetTicks();
 	emscripten_set_main_loop(MainLoop, FPS, 0);
 #endif
 

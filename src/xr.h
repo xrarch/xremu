@@ -14,7 +14,7 @@
 #define XR_DC_LINE_COUNT_LOG 14
 #define XR_IC_LINE_SIZE_LOG 4 // WARNING  1<<4=16 bytes is special cased in CopyWithLength.
 #define XR_DC_LINE_SIZE_LOG 4 // WARNING  1<<4=16 bytes is special cased in CopyWithLength.
-#define XR_IC_WAY_LOG 1
+#define XR_IC_WAY_LOG 2
 #define XR_DC_WAY_LOG 1
 
 // Configurable write buffer size parameters.
@@ -30,12 +30,17 @@
 // ICache and DCache size constants.
 // Don't change these directly.
 
+#define XR_IC_SET_LOG (1 << (XR_IC_LINE_COUNT_LOG - XR_IC_WAY_LOG))
+#define XR_DC_SET_LOG (1 << (XR_IC_LINE_COUNT_LOG - XR_IC_WAY_LOG))
+
+#define XR_IC_SETS (1 << XR_IC_SET_LOG)
+#define XR_DC_SETS (1 << XR_DC_SET_LOG)
 #define XR_IC_LINE_COUNT (1 << XR_IC_LINE_COUNT_LOG)
 #define XR_DC_LINE_COUNT (1 << XR_DC_LINE_COUNT_LOG)
 #define XR_IC_LINE_SIZE (1 << XR_IC_LINE_SIZE_LOG)
 #define XR_DC_LINE_SIZE (1 << XR_DC_LINE_SIZE)
 #define XR_IC_WAYS (1 << XR_IC_WAY_LOG)
-#define XR_DC_WAYS (1 << XR_DC_WAYS)
+#define XR_DC_WAYS (1 << XR_DC_WAY_LOG)
 #define XR_IC_BYTE_COUNT (1 << (XR_IC_LINE_COUNT_LOG + XR_IC_LINE_SIZE_LOG))
 #define XR_DC_BYTE_COUNT (1 << (XR_DC_LINE_COUNT_LOG + XR_DC_LINE_SIZE_LOG))
 
@@ -93,9 +98,21 @@ typedef struct _XrProcessor {
 	uint32_t Id;
 	uint32_t Progress;
 
+	uint32_t IcReplacementIndex;
+	uint32_t DcReplacementIndex;
+
+	uint32_t IcLastTag;
+	uint32_t IcLastOffset;
+
+	uint32_t DcLastTag;
+	uint32_t DcLastOffset;
+
 	uint8_t Ic[XR_IC_BYTE_COUNT];
 	uint8_t Dc[XR_DC_BYTE_COUNT];
 	uint8_t Wb[XR_WB_BYTE_COUNT];
+
+	uint8_t IcFlags[XR_IC_LINE_COUNT];
+	uint8_t DcFlags[XR_DC_LINE_COUNT];
 
 	uint8_t Locked;
 	uint8_t LastTbMissWasWrite;

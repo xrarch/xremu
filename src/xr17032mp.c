@@ -16,6 +16,10 @@ static inline uint32_t RoR(uint32_t x, uint32_t n) {
     return (x >> n & 31) | (x << (32-n) & 31);
 }
 
+#define XR_LINE_INVALID 0
+#define XR_LINE_SHARED 1
+#define XR_LINE_EXCLUSIVE 2
+
 #define RS_USER   1
 #define RS_INT    2
 #define RS_MMU    4
@@ -88,6 +92,12 @@ void XrReset(XrProcessor *proc) {
 
 	proc->ItbLastVpn = -1;
 	proc->DtbLastVpn = -1;
+
+	proc->IcLastTag = -1;
+	proc->DcLastTag = -1;
+
+	proc->IcReplacementIndex = 0;
+	proc->DcReplacementIndex = 0;
 
 	proc->WbIndex = 0;
 	proc->WbSize = 0;
@@ -299,9 +309,6 @@ static inline uint8_t XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t 
 		return 0;
 	}
 
-	uint32_t physaddr = (tbe & 0x1FFFFE0) << 7;
-	int cached = (tbe & PTE_NONCACHED) ? NONCACHED : CACHED;
-
 	if (proc->IFetch) {
 		proc->ItbLastVpn = vpn;
 		proc->ItbLastResult = tbe;
@@ -310,8 +317,8 @@ static inline uint8_t XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t 
 		proc->DtbLastResult = tbe;
 	}
 
-	*cachetype = cached;
-	*phys = physaddr + (virtual & 0xFFF);
+	*cachetype = (tbe & PTE_NONCACHED) ? NONCACHED : CACHED;
+	*phys = ((tbe & 0x1FFFFE0) << 7) + (virtual & 0xFFF);
 
 	//printf("virt=%x phys=%x\n", virt, *phys);
 
@@ -342,37 +349,110 @@ static uint8_t XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uin
 		if (!XrTranslate(proc, address, &address, &cachetype, dest ? 0 : 1)) {
 			return 0;
 		}
-	} else if (address >= XR_NONCACHED_PHYS_BASE) {
+	} else if (address >= XR_NONCACHED_PHYS_BASE || !XrSimulateCaches) {
 		cachetype = NONCACHED;
 	}
 
-	if (!XrSimulateCaches) {
+	if (!proc->IFetch) { // TEMP
 		cachetype = NONCACHED;
 	}
 
-	// TODO cache sim
+	if (cachetype == NONCACHED) {
+		proc->StallCycles += XR_UNCACHED_STALL;
 
-	int result;
+		int result;
 
-	XrLockIoMutex(proc);
+		XrLockIoMutex(proc);
 
-	if (dest) {
-		result = EBusRead(address, dest, length);
-	} else {
-		result = EBusWrite(address, &srcvalue, length);
+		if (dest) {
+			result = EBusRead(address, dest, length);
+		} else {
+			result = EBusWrite(address, &srcvalue, length);
+		}
+
+		XrUnlockIoMutex();
+
+		if (result == EBUSERROR) {
+			proc->Cr[EBADADDR] = address;
+			XrBasicException(proc, XR_EXC_BUS);
+
+			return 0;
+		}
+
+		if (dest) {
+			*dest &= XrAccessMasks[length];
+		}
+
+		return 1;
 	}
 
-	XrUnlockIoMutex();
+	if (proc->IFetch) {
+		// Access Icache. Quite fast, don't need to take any locks or anything
+		// as there is no coherence, plus its always a 32-bit read, so we
+		// duplicate some logic here as a fast path.
 
-	if (result == EBUSERROR) {
-		proc->Cr[EBADADDR] = address;
-		XrBasicException(proc, XR_EXC_BUS);
+		uint32_t tag = address & ~(XR_IC_LINE_SIZE - 1);
+		uint32_t lineoffset = address & (XR_IC_LINE_SIZE - 1);
 
-		return 0;
-	}
+		if (tag == proc->IcLastTag) {
+			// Matches the lookup hint, nice.
 
-	if (dest) {
-		*dest &= XrAccessMasks[length];
+			*dest = *(uint32_t*)(&proc->Ic[proc->IcLastOffset + lineoffset]);
+
+			return 1;
+		}
+
+		uint32_t setnumber = address & (XR_IC_SET_LOG - 1);
+		uint32_t cacheindex = setnumber << XR_IC_WAY_LOG;
+
+		for (int i = 0; i < XR_IC_WAYS; i++) {
+			if (proc->IcFlags[cacheindex + i] && proc->IcTags[cacheindex + i] == tag) {
+				// Found it!
+
+				uint32_t cacheoff = (cacheindex + i) << XR_IC_LINE_SIZE_LOG;
+
+				*dest = *(uint32_t*)(&proc->Ic[cacheoff + lineoffset]);
+
+				proc->IcLastTag = tag;
+				proc->IcLastOffset = cacheoff;
+
+				return 1;
+			}
+		}
+
+		// Unfortunately there was a miss. Incur a penalty.
+
+		proc->StallCycles += XR_MISS_STALL;
+
+		// Replace a random line within the set.
+
+		uint32_t newindex = cacheindex + (proc->IcReplacementIndex & (XR_IC_WAYS - 1));
+		proc->IcReplacementIndex += 1;
+
+		uint32_t cacheoff = newindex << XR_IC_LINE_SIZE_LOG;
+
+		XrLockIoMutex(proc);
+		int result = EBusRead(tag, &proc->Ic[cacheoff], XR_IC_LINE_SIZE);
+		XrUnlockIoMutex();
+
+		if (result == EBUSERROR) {
+			proc->IcFlags[newindex] = XR_LINE_INVALID;
+
+			proc->Cr[EBADADDR] = address;
+			XrBasicException(proc, XR_EXC_BUS);
+
+			return 0;
+		}
+
+		proc->IcFlags[newindex] = XR_LINE_SHARED;
+		proc->IcTags[newindex] = tag;
+
+		proc->IcLastTag = tag;
+		proc->IcLastOffset = cacheoff;
+
+		*dest = *(uint32_t*)(&proc->Ic[cacheoff + lineoffset]);
+
+		return 1;
 	}
 
 	return 1;
@@ -427,6 +507,15 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 			// the host's CPU.
 
 			return cycles;
+		}
+
+		if (XrSimulateCacheStalls && proc->StallCycles) {
+			// There's a simulated cache stall of some number of cycles, so
+			// decrement the remaining stall and loop.
+
+			proc->StallCycles--;
+
+			continue;
 		}
 
 		// Make sure the zero register is always zero, except during TLB misses,
@@ -724,17 +813,27 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 									break;
 
 								if ((proc->Reg[ra] & 3) == 3) {
-									// Invalidate the entire icache.
+									// Invalidate the entire Icache.
 
-									// TODO cache sim
+									for (int i = 0; i < XR_IC_LINE_COUNT; i++) {
+										proc->IcFlags[i] = XR_LINE_INVALID;
+									}
 								} else if ((proc->Reg[ra] & 3) == 2) {
 									// Invalidate a single page frame of the
-									// icache.
+									// Icache.
 
 									uint32_t phys = proc->Reg[ra] & 0xFFFFF000;
 
-									// TODO cache sim
+									for (int i = 0; i < XR_IC_LINE_COUNT; i++) {
+										if ((proc->IcTags[i] & 0xFFFFF000) == phys) {
+											proc->IcFlags[i] = XR_LINE_INVALID;
+										}
+									}
 								}
+
+								// Reset the lookup hint.
+
+								proc->IcLastTag = -1;
 
 								break;
 
@@ -742,18 +841,32 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 								if (!XrSimulateCaches)
 									break;
 
-								if ((proc->Reg[ra] & 3) == 3) {
-									// Invalidate the entire dcache.
+								XrLockCache(proc);
 
-									// TODO cache sim
+								if ((proc->Reg[ra] & 3) == 3) {
+									// Invalidate the entire Dcache.
+
+									for (int i = 0; i < XR_DC_LINE_COUNT; i++) {
+										proc->DcFlags[i] = XR_LINE_INVALID;
+									}
 								} else if ((proc->Reg[ra] & 3) == 2) {
-									// invalidate a single page frame of the
-									// dcache.
+									// Invalidate a single page frame of the
+									// Dcache.
 
 									uint32_t phys = proc->Reg[ra] & 0xFFFFF000;
 
-									// TODO cache sim
+									for (int i = 0; i < XR_DC_LINE_COUNT; i++) {
+										if ((proc->DcTags[i] & 0xFFFFF000) == phys) {
+											proc->DcFlags[i] = XR_LINE_INVALID;
+										}
+									}
 								}
+
+								// Reset the lookup hint.
+
+								proc->DcLastTag = -1;
+
+								XrUnlockCache(proc);
 
 								break;
 
