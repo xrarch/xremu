@@ -14,7 +14,7 @@
 #define XR_DC_LINE_COUNT_LOG 14
 #define XR_IC_LINE_SIZE_LOG 4 // WARNING  1<<4=16 bytes is special cased in CopyWithLength.
 #define XR_DC_LINE_SIZE_LOG 4 // WARNING  1<<4=16 bytes is special cased in CopyWithLength.
-#define XR_IC_WAY_LOG 2
+#define XR_IC_WAY_LOG 1
 #define XR_DC_WAY_LOG 1
 
 // Configurable write buffer size parameters.

@@ -424,7 +424,7 @@ static uint8_t XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uin
 
 		proc->StallCycles += XR_MISS_STALL;
 
-		// Replace a random line within the set.
+		// Replace a random-ish line within the set.
 
 		uint32_t newindex = cacheindex + (proc->IcReplacementIndex & (XR_IC_WAYS - 1));
 		proc->IcReplacementIndex += 1;
