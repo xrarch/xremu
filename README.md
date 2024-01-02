@@ -74,3 +74,5 @@ be simulated using the switches `-asyncdisk`, `-asyncserial`, and `-cachesim` re
 
     -cpuhz [frequency]
         Specify the frequency that the CPU simulation should be run at. Default is 16666666 (16.67MHz).
+
+WARNING: For performance reasons, this emulator does not make any attempt to be portable to big-endian host platforms! If you are on PowerPC for some reason, it will not run correctly!

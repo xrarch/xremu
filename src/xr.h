@@ -2,6 +2,7 @@
 
 #define XR_UNCACHED_STALL 3
 #define XR_MISS_STALL (XR_UNCACHED_STALL + 1)
+#define XR_SCACHE_HIT_STALL 2
 
 // Configurable TB size parameters.
 
@@ -43,7 +44,7 @@
 #define XR_IC_LINE_COUNT (1 << XR_IC_LINE_COUNT_LOG)
 #define XR_DC_LINE_COUNT (1 << XR_DC_LINE_COUNT_LOG)
 #define XR_IC_LINE_SIZE (1 << XR_IC_LINE_SIZE_LOG)
-#define XR_DC_LINE_SIZE (1 << XR_DC_LINE_SIZE)
+#define XR_DC_LINE_SIZE (1 << XR_DC_LINE_SIZE_LOG)
 #define XR_IC_WAYS (1 << XR_IC_WAY_LOG)
 #define XR_DC_WAYS (1 << XR_DC_WAY_LOG)
 #define XR_IC_BYTE_COUNT (1 << (XR_IC_LINE_COUNT_LOG + XR_IC_LINE_SIZE_LOG))
@@ -116,7 +117,17 @@ typedef struct _XrProcessor {
 	uint32_t IcLastOffset;
 
 	uint32_t DcLastTag;
-	uint32_t DcLastOffset;
+	uint32_t DcLastIndex;
+
+#ifdef PROFCPU
+	uint32_t DcMissCount;
+	uint32_t DcHitCount;
+
+	uint32_t IcMissCount;
+	uint32_t IcHitCount;
+
+	int32_t TimeToNextPrint;
+#endif
 
 	uint8_t Ic[XR_IC_BYTE_COUNT];
 	uint8_t Dc[XR_DC_BYTE_COUNT];
@@ -125,6 +136,7 @@ typedef struct _XrProcessor {
 	uint8_t IcFlags[XR_IC_LINE_COUNT];
 	uint8_t DcFlags[XR_DC_LINE_COUNT];
 
+	uint8_t DcLastFlags;
 	uint8_t Locked;
 	uint8_t LastTbMissWasWrite;
 	uint8_t IFetch;

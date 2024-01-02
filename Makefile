@@ -10,6 +10,10 @@ else
 	TARGET=xremu.html
 endif
 
+ifdef PROFCPU
+	CFLAGS += -DPROFCPU
+endif
+
 CFILES = src/main.c \
 	src/ebus.c src/ebus.h \
 	src/ram256.c src/ram256.h \
