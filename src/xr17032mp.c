@@ -432,7 +432,7 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 		// Make sure the zero register is always zero, except during TLB misses,
 		// where it may be used as a scratch register.
 
-		if (!(proc->Cr[RS] & RS_TBMISS)) {
+		if ((proc->Cr[RS] & RS_TBMISS) == 0) {
 			proc->Reg[0] = 0;
 		}
 

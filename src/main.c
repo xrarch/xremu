@@ -31,6 +31,19 @@ XrProcessor *XrIoMutexProcessor;
 
 SDL_mutex *IoMutex;
 
+#ifdef EMSCRIPTEN
+
+void LockIoMutex() {}
+void UnlockIoMutex() {}
+void XrLockIoMutex(XrProcessor *proc) {}
+void XrUnlockIoMutex() {}
+void XrLockCache(XrProcessor *proc) {}
+void XrUnlockCache(XrProcessor *proc) {}
+
+uint32_t emscripten_last_tick = 0;
+
+#else
+
 void LockIoMutex() {
 	SDL_LockMutex(IoMutex);
 	XrIoMutexProcessor = 0;
@@ -58,6 +71,8 @@ void XrUnlockCache(XrProcessor *proc) {
 	SDL_UnlockMutex((SDL_mutex *)proc->CacheMutex);
 }
 
+#endif
+
 uint32_t SimulatorHz = 16666666;
 
 bool RAMDumpOnExit = false;
@@ -74,8 +89,6 @@ void MainLoop(void);
 
 int CpuLoop(void *context) {
 	XrProcessor *proc = (XrProcessor *)context;
-
-	XrReset(proc);
 
 	int last_tick = SDL_GetTicks();
 
@@ -133,6 +146,12 @@ void CpuCreate(int id) {
 		exit(1);
 	}
 
+	CpuTable[id] = proc;
+	proc->Id = id;
+
+	XrReset(proc);
+
+#ifndef EMSCRIPTEN
 	proc->CacheMutex = SDL_CreateMutex();
 
 	if (!proc->CacheMutex) {
@@ -140,11 +159,8 @@ void CpuCreate(int id) {
 		exit(1);
 	}
 
-	CpuTable[id] = proc;
-
-	proc->Id = id;
-
 	SDL_CreateThread(&CpuLoop, "CpuLoop", proc);
+#endif
 }
 
 extern void TLBDump(void);
@@ -158,6 +174,11 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
+	SDL_EnableScreenSaver();
+
+	uint32_t memsize = 4 * 1024 * 1024;
+
+#ifndef EMSCRIPTEN
 	IoMutex = SDL_CreateMutex();
 
 	if (!IoMutex) {
@@ -165,11 +186,6 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	SDL_EnableScreenSaver();
-
-	uint32_t memsize = 4 * 1024 * 1024;
-
-#ifndef EMSCRIPTEN
 	for (int i = 1; i < argc; i++) {
 		// shut up this is beautiful...
 
@@ -298,14 +314,14 @@ int main(int argc, char *argv[]) {
 	DKSAttachImage("bin/aisix.img");
 #endif
 
-	for (int i = 0; i < ProcessorCount; i++) {
-		CpuCreate(i);
-	}
-
 	ScreenInit();
 	ScreenDraw();
 
 	done = false;
+
+	for (int i = 0; i < ProcessorCount; i++) {
+		CpuCreate(i);
+	}
 
 #ifndef EMSCRIPTEN
 	while (!done) {
@@ -316,8 +332,6 @@ int main(int argc, char *argv[]) {
 
 		if (delay > 0) {
 			SDL_Delay(delay);
-		} else {
-			// printf("time overrun %d\n", delay);
 		}
 	}
 #else
@@ -337,4 +351,35 @@ int main(int argc, char *argv[]) {
 void MainLoop(void) {
 	ScreenDraw();
 	done = ScreenProcessEvents();
+
+	// Dumbed down CPU driving loop for emscripten since it sucks and doesn't
+	// like SDL's threads
+
+#ifdef EMSCRIPTEN
+	XrProcessor *proc = CpuTable[0];
+
+	int this_tick = SDL_GetTicks();
+	int dt = this_tick - emscripten_last_tick;
+	emscripten_last_tick = this_tick;
+
+	int cyclespertick = SimulatorHz/1000;
+	int extracycles = SimulatorHz%1000; // squeeze in the sub-millisecond cycles
+
+	proc->Progress = 20;
+
+	for (int i = 0; i < dt; i++) {
+		int cyclesleft = cyclespertick;
+
+		if (i == dt-1)
+			cyclesleft += extracycles;
+
+		while (cyclesleft > 0) {
+			cyclesleft -= XrExecute(proc, cyclesleft, 1);
+		}
+
+		DKSInterval(1);
+		RTCInterval(1);
+		SerialInterval(1);
+	}
+#endif
 }
