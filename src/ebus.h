@@ -94,5 +94,3 @@ static inline void CopyWithLength(void *dest, void *src, uint32_t length) {
 void EBusReset();
 
 #define EBUSSLOTSTART 24
-
-#define MemoryBarrier __sync_synchronize()

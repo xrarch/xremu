@@ -1026,13 +1026,23 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 	}
 
 	if (proc->Halted) {
-		MemoryBarrier;
+		// We're halted.
 
-		if ((proc->Cr[RS] & RS_INT) && lsic->InterruptPending) {
-			proc->Halted = 0;
-		} else {
+		if (!lsic->InterruptPending || (proc->Cr[RS] & RS_INT) == 0) {
+			// Interrupts are disabled or there is no interrupt pending. Just
+			// return.
+
+			// N.B. There's an assumption here that the host platform will make
+			// writes by other host cores to the interrupt pending flag visible
+			// to us in a timely manner, without needing any locking.
+
 			return cycles;
 		}
+
+		// Interrupts are enabled and there is an interrupt pending.
+		// Un-halt the processor.
+
+		proc->Halted = 0;
 	}
 
 	uint32_t cyclesdone = 0;
@@ -1108,18 +1118,15 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 			}
 		}
 
-		if (((cyclesdone & 63) == 0) && (proc->Cr[RS] & RS_INT)) {
-			// Interrupts are enabled, so sample the pending interrupt flag.
-			// We only do this once every 64 cycles.
+		if (lsic->InterruptPending && (proc->Cr[RS] & RS_INT)) {
+			// Interrupts are enabled and there's an interrupt pending, so cause
+			// an interrupt exception.
 
-			MemoryBarrier;
+			// N.B. There's an assumption here that the host platform will make
+			// writes by other host cores to the interrupt pending flag visible
+			// to us in a timely manner, without needing any locking.
 
-			if (lsic->InterruptPending) {
-				// There's an interrupt pending, so cause an interrupt
-				// exception.
-
-				XrBasicInbetweenException(proc, XR_EXC_INT);
-			}
+			XrBasicInbetweenException(proc, XR_EXC_INT);
 		}
 
 		currentpc = proc->Pc;
