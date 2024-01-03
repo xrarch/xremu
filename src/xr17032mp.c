@@ -1010,11 +1010,13 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 
 			proc->TimeToNextPrint = 2000;
 
+			/*
 			for (int i = 0; i < XR_DC_LINE_COUNT; i++) {
 				if (proc->DcFlags[i]) {
 					printf("%d: %d = %x %x\n", proc->Id, i, proc->DcTags[i], proc->DcFlags[i]);
 				}
 			}
+			*/
 		}
 	}
 #endif
