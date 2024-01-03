@@ -110,9 +110,9 @@ int LsicWrite(int reg, uint32_t value) {
 			break;
 
 		case LSIC_PENDING_0:
-		case LSIC_PENDING_1:
 			if (value == 0) {
-				// Clear all pending interrupts.
+				// A write of zero into the pending 0 register clears all
+				// pending interrupts. Useful for partial reset.
 
 				lsic->Registers[LSIC_PENDING_0] = 0;
 				lsic->Registers[LSIC_PENDING_1] = 0;
@@ -120,14 +120,18 @@ int LsicWrite(int reg, uint32_t value) {
 				break;
 			}
 
-			// Writes to the pending register atomically set a pending interrupt
-			// bit. This is useful for IPIs and stuff.
+			// Writes to the pending registers atomically OR into the pending
+			// interrupt bits. This is useful for IPIs and stuff.
 
-			if (value >= 64) {
-				return EBUSERROR;
-			}
+			lsic->Registers[LSIC_PENDING_0] |= value;
 
-			lsic->Registers[LSIC_PENDING_0 + (value >> 5)] |= (1 << (value & 31));
+			break;
+
+		case LSIC_PENDING_1:
+			// Writes to the pending registers atomically OR into the pending
+			// interrupt bits. This is useful for IPIs and stuff.
+
+			lsic->Registers[LSIC_PENDING_1] |= value;
 
 			break;
 
