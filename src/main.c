@@ -197,6 +197,13 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
+	ScacheMutex = SDL_CreateMutex();
+
+	if (!ScacheMutex) {
+		fprintf(stderr, "Unable to allocate ScacheMutex: %s", SDL_GetError());
+		return 1;
+	}
+
 	for (int i = 1; i < argc; i++) {
 		// shut up this is beautiful...
 

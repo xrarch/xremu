@@ -145,8 +145,12 @@ static inline uint32_t XrFindInScache(uint32_t tag) {
 	uint32_t cacheindex = setnumber << XR_SC_WAY_LOG;
 
 	for (int i = 0; i < XR_SC_WAYS; i++) {
+		//printf("scache search %d: flags=%d tag=%x\n", cacheindex+i, XrScacheFlags[cacheindex+i], XrScacheTags[cacheindex+i]);
+
 		if (XrScacheFlags[cacheindex + i] && XrScacheTags[cacheindex + i] == tag) {
 			// Found it!
+
+			//printf("found %x at scache %d\n", tag, cacheindex + i);
 
 			return cacheindex + i;
 		}
@@ -162,7 +166,7 @@ static inline uint32_t XrReplaceScache(XrProcessor *proc, uint32_t tag, uint8_t 
 	uint32_t cacheindex = (setnumber << XR_SC_WAY_LOG) + (XrScacheReplacementIndex & (XR_SC_WAYS - 1));
 	XrScacheReplacementIndex += 1;
 
-	//printf("replacing %x %d %d\n", XrScacheTags[cacheindex], XrScacheFlags[cacheindex], XrScacheExclusiveIds[cacheindex]);
+	//printf("replacing %d: %x %d %d\n", cacheindex, XrScacheTags[cacheindex], XrScacheFlags[cacheindex], XrScacheExclusiveIds[cacheindex]);
 
 	if (XrScacheFlags[cacheindex] == XR_LINE_INVALID) {
 		// Cool, we can just steal it.
@@ -658,7 +662,9 @@ restart:
 
 			XrUnlockCache(proc);
 
-			return 0;
+			//printf("%d: not exclusive 1\n", proc->Id);
+
+			return 2;
 		}
 
 #ifdef PROFCPU
@@ -687,6 +693,16 @@ restart:
 			proc->WbIndex = 0;
 		}
 
+		// Randomly replace an entry in our cache. We don't have to re-lock our
+		// cache yet because holding the Scache lock blocks out other people
+		// trying to mess with it.
+
+		index = cacheindex + (proc->DcReplacementIndex & (XR_DC_WAYS - 1));
+		proc->DcReplacementIndex += 1;
+
+		proc->DcTags[index] = tag;
+		proc->DcFlags[index] = forceexclusive ? XR_LINE_EXCLUSIVE : XR_LINE_SHARED;
+
 		// First unlock our cache, otherwise we will violate the lock ordering.
 
 		XrUnlockCache(proc);
@@ -695,32 +711,23 @@ restart:
 
 		XrLockScache();
 
-		// Randomly replace an entry in our cache. We don't have to re-lock our
-		// cache yet because holding the Scache lock blocks out other people
-		// trying to mess with it.
+		// While we dropped our cache lock, somebody villainous might have
+		// taken our cache line from us.
 
-		index = cacheindex + (proc->DcReplacementIndex & (XR_DC_WAYS - 1));
-		proc->DcReplacementIndex += 1;
+		if (proc->DcFlags[index] == XR_LINE_INVALID) {
+			// Just retry.
 
-		proc->DcFlags[index] = XR_LINE_INVALID;
-
-		XrLockIoMutex(proc);
-		int result = EBusRead(tag, &proc->Dc[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE);
-		XrUnlockIoMutex();
-
-		if (result == EBUSERROR) {
 			XrUnlockScache();
 
-			proc->Cr[EBADADDR] = address;
-			XrBasicException(proc, XR_EXC_BUS);
-
-			return 0;
+			goto restart;
 		}
 
 		scacheindex = XrFindInScache(tag);
 
 		if (scacheindex == -1) {
 			// It missed in the Scache too. Incur a full penalty.
+
+			//printf("%d: scache miss on %x\n", proc->Id, tag);
 
 			proc->StallCycles += XR_MISS_STALL;
 
@@ -732,17 +739,25 @@ restart:
 
 			proc->StallCycles += XR_SCACHE_HIT_STALL;
 
-			if (XrScacheFlags[scacheindex] == XR_LINE_EXCLUSIVE) {
-				// Someone has it exclusive, remove it from them.
+			//printf("%d: scache hit on %x; flag=%d id=%d\n", proc->Id, tag, XrScacheFlags[scacheindex], XrScacheExclusiveIds[scacheindex]);
+
+			if (XrScacheFlags[scacheindex] == XR_LINE_EXCLUSIVE && XrScacheExclusiveIds[scacheindex] != proc->Id) {
+				// Someone else has it exclusive, remove it from them.
+
+				//printf("%d: remove it from %d\n", proc->Id, XrScacheExclusiveIds[scacheindex]);
 
 				XrInvalidateLine(CpuTable[XrScacheExclusiveIds[scacheindex]], tag, 1);
 
 				if (forceexclusive) {
 					// We want exclusivity, so leave the flag alone but set our ID.
 
+					//printf("%d: set our id\n", proc->Id);
+
 					XrScacheExclusiveIds[scacheindex] = proc->Id;
 				} else {
 					// We're reading, so set the flag to shared.
+
+					//printf("%d: set shared\n", proc->Id);
 
 					XrScacheFlags[scacheindex] = XR_LINE_SHARED;
 				}
@@ -758,10 +773,23 @@ restart:
 			}
 		}
 
-		//printf("insert %d %d %x %d %d\n", index, scacheindex, tag, dest ? XR_LINE_SHARED : XR_LINE_EXCLUSIVE, !!dest);
+		//printf("%d: insert index=%d scacheindex=%d tag=%x myflag=%d scflag=%d reading=%d\n", proc->Id, index, scacheindex, tag, proc->DcFlags[index], XrScacheFlags[scacheindex], !!dest);
 
-		proc->DcTags[index] = tag;
-		proc->DcFlags[index] = forceexclusive ? XR_LINE_EXCLUSIVE : XR_LINE_SHARED;
+		XrLockIoMutex(proc);
+		int result = EBusRead(tag, &proc->Dc[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE);
+		XrUnlockIoMutex();
+
+		if (result == EBUSERROR) {
+			proc->DcFlags[index] = XR_LINE_INVALID;
+			XrScacheFlags[scacheindex] = XR_LINE_INVALID;
+
+			XrUnlockScache();
+
+			proc->Cr[EBADADDR] = address;
+			XrBasicException(proc, XR_EXC_BUS);
+
+			return 0;
+		}
 
 		// Re-lock our cache.
 
@@ -782,7 +810,9 @@ restart:
 				// We wanted to atomically check if we have it exclusive for the
 				// SC instruction. We don't!
 
-				return 0;
+				//printf("%d: not exclusive 2\n", proc->Id);
+
+				return 2;
 			}
 
 			XrLockScache();
@@ -979,6 +1009,12 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 			proc->DcHitCount = 0;
 
 			proc->TimeToNextPrint = 2000;
+
+			for (int i = 0; i < XR_DC_LINE_COUNT; i++) {
+				if (proc->DcFlags[i]) {
+					printf("%d: %d = %x %x\n", proc->Id, i, proc->DcTags[i], proc->DcFlags[i]);
+				}
+			}
 		}
 	}
 #endif
@@ -1308,7 +1344,15 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 					// Store the word in a way that will atomically fail if we
 					// no longer have the cache line exclusive from LL's load.
 
-					proc->Reg[rd] = XrAccess(proc, proc->Reg[ra], 0, proc->Reg[rb], 4, 1);
+					//printf("%d: SC %d\n", proc->Id, proc->Reg[rb]);
+
+					uint8_t status = XrAccess(proc, proc->Reg[ra], 0, proc->Reg[rb], 4, 1);
+
+					if (!status) {
+						break;
+					}
+
+					proc->Reg[rd] = (status == 2) ? 0 : 1;
 
 					break;
 
@@ -1320,6 +1364,8 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 					// futzed with the memory.
 
 					XrAccess(proc, proc->Reg[ra], &proc->Reg[rd], 0, 4, 1);
+
+					//printf("%d: LL %d\n", proc->Id, proc->Reg[rd]);
 
 					break;
 
@@ -1769,6 +1815,10 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 					break;
 
 				case 42: // MOV LONG RD+IMM, RA
+					//if (proc->Reg[rd] == 0x3000) {
+					//	printf("%d: write plain %d\n", proc->Id, proc->Reg[ra]);
+					//}
+
 					XrWriteLong(proc, proc->Reg[rd] + (imm << 2), proc->Reg[ra]);
 
 					break;
