@@ -667,6 +667,8 @@ restart:
 			return 2;
 		}
 
+		proc->StallCycles += XR_MISS_STALL;
+
 #ifdef PROFCPU
 		proc->DcMissCount++;
 #endif
@@ -725,52 +727,40 @@ restart:
 		scacheindex = XrFindInScache(tag);
 
 		if (scacheindex == -1) {
-			// It missed in the Scache too. Incur a full penalty.
+			// It missed in the Scache too. Replace an Scache entry.
 
 			//printf("%d: scache miss on %x\n", proc->Id, tag);
 
-			proc->StallCycles += XR_MISS_STALL;
-
-			// Replace an Scache entry.
-
 			scacheindex = XrReplaceScache(proc, tag, forceexclusive ? XR_LINE_EXCLUSIVE : XR_LINE_SHARED);
-		} else {
-			// Incur a partial penalty.
+		} else if (XrScacheFlags[scacheindex] == XR_LINE_EXCLUSIVE && XrScacheExclusiveIds[scacheindex] != proc->Id) {
+			// Someone else has it exclusive, remove it from them.
 
-			proc->StallCycles += XR_SCACHE_HIT_STALL;
+			//printf("%d: remove it from %d\n", proc->Id, XrScacheExclusiveIds[scacheindex]);
 
-			//printf("%d: scache hit on %x; flag=%d id=%d\n", proc->Id, tag, XrScacheFlags[scacheindex], XrScacheExclusiveIds[scacheindex]);
+			XrInvalidateLine(CpuTable[XrScacheExclusiveIds[scacheindex]], tag, 1);
 
-			if (XrScacheFlags[scacheindex] == XR_LINE_EXCLUSIVE && XrScacheExclusiveIds[scacheindex] != proc->Id) {
-				// Someone else has it exclusive, remove it from them.
+			if (forceexclusive) {
+				// We want exclusivity, so leave the flag alone but set our ID.
 
-				//printf("%d: remove it from %d\n", proc->Id, XrScacheExclusiveIds[scacheindex]);
+				//printf("%d: set our id\n", proc->Id);
 
-				XrInvalidateLine(CpuTable[XrScacheExclusiveIds[scacheindex]], tag, 1);
-
-				if (forceexclusive) {
-					// We want exclusivity, so leave the flag alone but set our ID.
-
-					//printf("%d: set our id\n", proc->Id);
-
-					XrScacheExclusiveIds[scacheindex] = proc->Id;
-				} else {
-					// We're reading, so set the flag to shared.
-
-					//printf("%d: set shared\n", proc->Id);
-
-					XrScacheFlags[scacheindex] = XR_LINE_SHARED;
-				}
-			} else if (forceexclusive && XrScacheFlags[scacheindex] == XR_LINE_SHARED) {
-				// We want exclusivity but it's shared. Remove it from everyone else.
-
-				XrInvalidateAll(proc, tag, 0);
-
-				// Set exclusive.
-
-				XrScacheFlags[scacheindex] = XR_LINE_EXCLUSIVE;
 				XrScacheExclusiveIds[scacheindex] = proc->Id;
+			} else {
+				// We're reading, so set the flag to shared.
+
+				//printf("%d: set shared\n", proc->Id);
+
+				XrScacheFlags[scacheindex] = XR_LINE_SHARED;
 			}
+		} else if (forceexclusive && XrScacheFlags[scacheindex] == XR_LINE_SHARED) {
+			// We want exclusivity but it's shared. Remove it from everyone else.
+
+			XrInvalidateAll(proc, tag, 0);
+
+			// Set exclusive.
+
+			XrScacheFlags[scacheindex] = XR_LINE_EXCLUSIVE;
+			XrScacheExclusiveIds[scacheindex] = proc->Id;
 		}
 
 		//printf("%d: insert index=%d scacheindex=%d tag=%x myflag=%d scflag=%d reading=%d\n", proc->Id, index, scacheindex, tag, proc->DcFlags[index], XrScacheFlags[scacheindex], !!dest);

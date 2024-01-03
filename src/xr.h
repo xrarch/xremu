@@ -2,7 +2,6 @@
 
 #define XR_UNCACHED_STALL 3
 #define XR_MISS_STALL (XR_UNCACHED_STALL + 1)
-#define XR_SCACHE_HIT_STALL 2
 
 // Configurable TB size parameters.
 
@@ -18,7 +17,7 @@
 #define XR_IC_WAY_LOG 1
 #define XR_DC_WAY_LOG 1
 
-#define XR_SC_LINE_COUNT_LOG (XR_DC_LINE_COUNT_LOG + 1)
+#define XR_SC_LINE_COUNT_LOG (XR_DC_LINE_COUNT_LOG + 2)
 #define XR_SC_LINE_SIZE_LOG XR_DC_LINE_SIZE_LOG
 #define XR_SC_WAY_LOG XR_DC_WAY_LOG
 
