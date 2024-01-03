@@ -19,7 +19,7 @@
 
 #define XR_SC_LINE_COUNT_LOG (XR_DC_LINE_COUNT_LOG + 2)
 #define XR_SC_LINE_SIZE_LOG XR_DC_LINE_SIZE_LOG
-#define XR_SC_WAY_LOG XR_DC_WAY_LOG
+#define XR_SC_WAY_LOG (XR_DC_WAY_LOG + 1)
 
 // Configurable write buffer size parameters.
 
