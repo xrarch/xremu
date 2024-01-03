@@ -1137,6 +1137,9 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 		proc->IFetch = 0;
 
 		if (!status) {
+			// The read failed and an exception was caused, so loop and let the
+			// exception handler execute.
+
 			continue;
 		}
 
