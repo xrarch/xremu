@@ -123,6 +123,7 @@ int LsicWrite(int reg, uint32_t value) {
 			// Writes to the pending registers atomically OR into the pending
 			// interrupt bits. This is useful for IPIs and stuff.
 
+			value &= ~1; // Make sure interrupt zero can't be triggered.
 			lsic->Registers[LSIC_PENDING_0] |= value;
 
 			break;
@@ -131,6 +132,7 @@ int LsicWrite(int reg, uint32_t value) {
 			// Writes to the pending registers atomically OR into the pending
 			// interrupt bits. This is useful for IPIs and stuff.
 
+			value &= ~1; // Make sure interrupt zero can't be triggered.
 			lsic->Registers[LSIC_PENDING_1] |= value;
 
 			break;
