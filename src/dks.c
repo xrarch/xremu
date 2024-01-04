@@ -102,36 +102,66 @@ void DKSInterval(uint32_t dt) {
 void DKSSeek(uint32_t lba) {
 	DKSDisk *disk = DKSSelectedDrive;
 
-	// set up the disk for seek
+	// Set up the disk for seek.
+
+	// Calculate how many cylinders the head has to seek across the disk
+	// surface.
 
 	double cylseek = ((int)disk->HeadLocation - (int)LBA_TO_CYLINDER(disk, lba));
 
 	if (cylseek < 0) {
+		// The head has to seek either back or forth so this should be an
+		// absolute value to reflect the cylinder distance.
+
 		cylseek = -cylseek;
 	}
 
+	// Multiply by the number of milliseconds it takes to seek one cylinder.
+
 	cylseek *= SEEK_PER_CYL_MS;
 
-	if (disk->HeadLocation != LBA_TO_CYLINDER(disk, lba))
+	if (disk->HeadLocation != LBA_TO_CYLINDER(disk, lba)) {
+		// We moved cylinders, so add a settle time.
+
 		cylseek += SETTLE_TIME_MS;
+	}
 
-	double blockseek = ((int)LBA_TO_SECTOR(disk, lba) - (int)disk->PlatterLocation);
+	// Calculate how many sectors the platter has to rotate by.
 
-	if (blockseek < 0)
-		blockseek += disk->SectorsPerTrack;
+	double sectorseek = ((int)LBA_TO_SECTOR(disk, lba) - (int)disk->PlatterLocation);
 
-	disk->OperationInterval = cylseek + blockseek/SECTOR_PER_MS(disk);
+	if (sectorseek < 0) {
+		// The platter is circular, so a negative sector seek means that the
+		// sector is "behind". Therefore we have to wait that many sectors less
+		// than a full rotation.
+
+		sectorseek += disk->SectorsPerTrack;
+	}
+
+	// Divide by the number of sectors that the platter rotates by per
+	// millisecond.
+
+	sectorseek /= SECTOR_PER_MS(disk);
+
+	// Set the operation interval to the platter rotation time plus the
+	// head seek time.
+
+	disk->OperationInterval = sectorseek + cylseek;
 	disk->SeekTo = lba;
 
 	if (disk->OperationInterval == 0) {
-		disk->ConsecutiveZeroSeeks += blockseek;
+		// If the interval rounded down to zero, increment the consecutive zero
+		// seeks by the number of sectors the platter had to rotate by.
+
+		disk->ConsecutiveZeroSeeks += sectorseek;
 
 		if (disk->ConsecutiveZeroSeeks > SECTOR_PER_MS(disk)) {
+			// If it exceeded the number of sectors the platter can rotate per
+			// millisecond, then set the operation interval to 1ms.
+
 			disk->OperationInterval = 1;
 			disk->ConsecutiveZeroSeeks = 0;
 		}
-	} else {
-		disk->ConsecutiveZeroSeeks = 0;
 	}
 }
 
