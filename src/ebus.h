@@ -1,3 +1,5 @@
+#include <string.h>
+
 int EBusInit(uint32_t memsize);
 
 #define EBUSBRANCHSIZE (128 * 1024 * 1024)
@@ -86,6 +88,11 @@ static inline void CopyWithLength(void *dest, void *src, uint32_t length) {
 			*(uint8_t*)(dest+13) = *(uint8_t*)(src+13);
 			*(uint8_t*)(dest+14) = *(uint8_t*)(src+14);
 			*(uint8_t*)(dest+15) = *(uint8_t*)(src+15);
+
+			break;
+
+		default:
+			memcpy(dest, src, length);
 
 			break;
 	}

@@ -54,6 +54,9 @@ uint32_t DKSCompleted = 0;
 uint32_t DKSPortA = 0;
 uint32_t DKSPortB = 0;
 
+uint32_t DKSTransferCount = 0;
+uint32_t DKSTransferAddress = 0;
+
 bool DKSDoInterrupt = false;
 bool DKSAsynchronous = false;
 bool DKSPrint = false;
@@ -70,6 +73,8 @@ void DKSReset() {
 	DKSPortA = 0;
 	DKSPortB = 0;
 	DKSSelectedDrive = 0;
+	DKSTransferCount = 0;
+	DKSTransferAddress = 0;
 }
 
 void DKSInterval(uint32_t dt) {
@@ -99,7 +104,9 @@ void DKSInterval(uint32_t dt) {
 	}
 }
 
-void DKSSeek(uint32_t lba) {
+void DKSSeek() {
+	uint32_t lba = DKSPortA + DKSTransferCount;
+
 	DKSDisk *disk = DKSSelectedDrive;
 
 	// Set up the disk for seek.
@@ -168,12 +175,15 @@ void DKSSeek(uint32_t lba) {
 	}
 }
 
-uint8_t DKSBlockBuffer[512*DKSDISKS];
+uint8_t DKSTempBlockBuffer[512];
 
 int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
+	int status;
+
 	switch(value) {
 		case 1:
 			// select drive
+
 			if ((DKSPortA < DKSDISKS) && (DKSDisks[DKSPortA].Present))
 				DKSSelectedDrive = &DKSDisks[DKSPortA];
 			else
@@ -182,24 +192,40 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 			return EBUSSUCCESS;
 
 		case 2:
-			// read block
+			// read sectors
+
 			if (!DKSSelectedDrive)
 				return EBUSERROR;
 
-			if (DKSPortA >= DKSSelectedDrive->SectorCount)
+			if ((DKSPortA + DKSTransferCount) < DKSPortA) {
+				// overflow!
+				return EBUSERROR;
+			}
+
+			if ((DKSPortA + DKSTransferCount) >= DKSSelectedDrive->SectorCount)
 				return EBUSERROR;
 
-			if (DKSStatus&(1<<DKSSelectedDrive->ID))
+			if (DKSStatus & (1 << DKSSelectedDrive->ID))
 				return EBUSERROR;
 
 			fseek(DKSSelectedDrive->DiskImage, DKSPortA*512, SEEK_SET);
 
-			fread(&DKSBlockBuffer[512 * DKSSelectedDrive->ID], 512, 1, DKSSelectedDrive->DiskImage);
+			for (int i = 0; i < DKSTransferCount; i++) {
+				fread(&DKSTempBlockBuffer[0], 512, 1, DKSSelectedDrive->DiskImage);
+
+				status = EBusWrite(DKSTransferAddress, &DKSTempBlockBuffer[0], 512);
+
+				if (status != EBUSSUCCESS) {
+					return status;
+				}
+
+				DKSTransferAddress += 512;
+			}
 
 			if (DKSPrint)
 				printf("dks%d: read  %d\n", DKSSelectedDrive->ID, DKSPortA);
 
-			DKSSeek(DKSPortA);
+			DKSSeek();
 
 			if (!DKSAsynchronous || DKSSelectedDrive->OperationInterval == 0) {
 				DKSCompleted |= 1<<DKSSelectedDrive->ID;
@@ -211,24 +237,42 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 			return EBUSSUCCESS;
 
 		case 3:
-			// write block
-			if (!DKSSelectedDrive)
+			// write sectors
+
+			if (!DKSSelectedDrive) {
+				return EBUSERROR;
+			}
+
+			if ((DKSPortA + DKSTransferCount) < DKSPortA) {
+				// overflow!
+				return EBUSERROR;
+			}
+
+			if ((DKSPortA + DKSTransferCount) >= DKSSelectedDrive->SectorCount)
 				return EBUSERROR;
 
-			if (DKSPortA >= DKSSelectedDrive->SectorCount)
+			if (DKSStatus & (1 << DKSSelectedDrive->ID)) {
 				return EBUSERROR;
-
-			if (DKSStatus&(1<<DKSSelectedDrive->ID))
-				return EBUSERROR;
+			}
 
 			fseek(DKSSelectedDrive->DiskImage, DKSPortA*512, SEEK_SET);
 
-			fwrite(&DKSBlockBuffer[512 * DKSSelectedDrive->ID], 512, 1, DKSSelectedDrive->DiskImage);
+			for (int i = 0; i < DKSTransferCount; i++) {
+				status = EBusRead(DKSTransferAddress, &DKSTempBlockBuffer[0], 512);
+
+				if (status != EBUSSUCCESS) {
+					return status;
+				}
+
+				fwrite(&DKSTempBlockBuffer[0], 512, 1, DKSSelectedDrive->DiskImage);
+
+				DKSTransferAddress += 512;
+			}
 
 			if (DKSPrint)
 				printf("dks%d: write %d\n", DKSSelectedDrive->ID, DKSPortA);
 
-			DKSSeek(DKSPortA);
+			DKSSeek();
 
 			if (!DKSAsynchronous || DKSSelectedDrive->OperationInterval == 0) {
 				DKSCompleted |= 1<<DKSSelectedDrive->ID;
@@ -241,6 +285,7 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 		case 4:
 			// read info
+
 			DKSPortA = DKSInfoWhat;
 			DKSPortB = DKSCompleted;
 
@@ -250,6 +295,7 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 		case 5:
 			// poll drive
+
 			if ((DKSPortA < DKSDISKS) && (DKSDisks[DKSPortA].Present)) {
 				DKSPortB = DKSDisks[DKSPortA].SectorCount;
 				DKSPortA = 1;
@@ -262,13 +308,35 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 		case 6:
 			// enable interrupts
+
 			DKSDoInterrupt = true;
 
 			return EBUSSUCCESS;
 
 		case 7:
 			// disable interrupts
+
 			DKSDoInterrupt = false;
+
+			return EBUSSUCCESS;
+
+		case 8:
+			// set transfer count
+
+			if (DKSPortA == 0 || DKSPortA > 8) {
+				// Zero length and greater than 8 sectors are both forbidden
+
+				return EBUSERROR;
+			}
+
+			DKSTransferCount = DKSPortA;
+
+			return EBUSSUCCESS;
+
+		case 9:
+			// set transfer address
+
+			DKSTransferAddress = DKSPortA;
 
 			return EBUSSUCCESS;
 	}
@@ -284,21 +352,25 @@ int DKSReadCMD(uint32_t port, uint32_t type, uint32_t *value) {
 
 int DKSWritePortA(uint32_t port, uint32_t type, uint32_t value) {
 	DKSPortA = value;
+
 	return EBUSSUCCESS;
 }
 
 int DKSReadPortA(uint32_t port, uint32_t type, uint32_t *value) {
 	*value = DKSPortA;
+
 	return EBUSSUCCESS;
 }
 
 int DKSWritePortB(uint32_t port, uint32_t type, uint32_t value) {
 	DKSPortB = value;
+
 	return EBUSSUCCESS;
 }
 
 int DKSReadPortB(uint32_t port, uint32_t type, uint32_t *value) {
 	*value = DKSPortB;
+
 	return EBUSSUCCESS;
 }
 
@@ -310,6 +382,7 @@ int DKSAttachImage(char *path) {
 		if (!DKSDisks[i].Present) {
 			// found a free disk
 			disk = &DKSDisks[i];
+
 			break;
 		}
 	}
