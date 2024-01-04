@@ -9,24 +9,44 @@
 
 #include "lsic.h"
 
-struct DKSDisk {
+typedef struct _DKSDisk {
 	FILE *DiskImage;
 	int ID;
 	int Present;
-	uint32_t BlockCount;
+	uint32_t SectorCount;
+	uint32_t SectorsPerTrack;
+	uint32_t CylinderCount;
 	bool Spinning;
-	uint32_t PlatterLocation;
-	uint32_t HeadLocation;
+	uint32_t PlatterLocation; // selects a sector
+	uint32_t HeadLocation; // selects a cylinder
 	uint32_t OperationInterval;
 	uint32_t SeekTo;
 	uint32_t ConsecutiveZeroSeeks;
-};
+} DKSDisk;
 
-struct DKSDisk DKSDisks[DKSDISKS];
+// fake disk geometry for simple seek time simulation
+
+#define TRACKS_PER_CYLINDER 4
+
+#define RPM 5400.0
+#define RPS (RPM/60.0)
+#define MS_PER_ROTATION (1000.0/RPS)
+
+#define SETTLE_TIME_MS 3.0
+
+#define SEEK_PER_CYL_MS 0.1
+
+#define SECTOR_PER_MS(_disk) ((_disk)->SectorsPerTrack/MS_PER_ROTATION)
+
+#define LBA_TO_SECTOR(_disk, _lba) ((_lba)%(_disk)->SectorsPerTrack)
+#define LBA_TO_TRACK(_disk, _lba) ((_lba)/(_disk)->SectorsPerTrack)
+#define LBA_TO_CYLINDER(_disk, _lba) (LBA_TO_TRACK(_disk, _lba)/TRACKS_PER_CYLINDER)
+
+DKSDisk DKSDisks[DKSDISKS];
 
 int DKSInfoWhat = 0;
 
-struct DKSDisk *DKSSelectedDrive = 0;
+DKSDisk *DKSSelectedDrive = 0;
 
 uint32_t DKSStatus = 0;
 uint32_t DKSCompleted = 0;
@@ -54,51 +74,59 @@ void DKSReset() {
 
 void DKSInterval(uint32_t dt) {
 	for (int i = 0; i < DKSDISKS; i++) {
-		if (!DKSDisks[i].Present)
+		DKSDisk *disk = &DKSDisks[i];
+
+		if (!disk->Present)
 			break;
 
-		if (!(DKSStatus&(1<<i))) {
-			if (DKSDisks[i].Spinning) {
-				DKSDisks[i].PlatterLocation += BLOCKSPERMS;
-				DKSDisks[i].PlatterLocation %= LBAPERTRACK;
+		if ((DKSStatus & (1 << i)) == 0) {
+			if (disk->Spinning) {
+				disk->PlatterLocation += SECTOR_PER_MS(disk);
+				disk->PlatterLocation %= disk->SectorsPerTrack;
 			}
-		} else if (dt >= DKSDisks[i].OperationInterval) {
-			DKSStatus &= ~(1<<i);
-			DKSCompleted |= 1<<i;
+		} else if (dt >= disk->OperationInterval) {
+			DKSStatus &= ~(1 << i);
+			DKSCompleted |= 1 << i;
 
-			DKSDisks[i].OperationInterval = 0;
-			DKSDisks[i].PlatterLocation = LBA_TO_BLOCK(DKSDisks[i].SeekTo);
-			DKSDisks[i].HeadLocation = LBA_TO_CYLINDER(DKSDisks[i].SeekTo);
+			disk->OperationInterval = 0;
+			disk->PlatterLocation = LBA_TO_SECTOR(disk, disk->SeekTo);
+			disk->HeadLocation = LBA_TO_CYLINDER(disk, disk->SeekTo);
 
 			DKSInfo(0);
 		} else {
-			DKSDisks[i].OperationInterval -= dt;
+			disk->OperationInterval -= dt;
 		}
 	}
 }
 
 void DKSSeek(uint32_t lba) {
-	struct DKSDisk *disk = DKSSelectedDrive;
+	DKSDisk *disk = DKSSelectedDrive;
 
 	// set up the disk for seek
 
-	int cylseek = abs((int)(disk->HeadLocation) - (int)(LBA_TO_CYLINDER(lba))) / (CYLPERDISK/FULLSEEKTIMEMS);
+	double cylseek = ((int)disk->HeadLocation - (int)LBA_TO_CYLINDER(disk, lba));
 
-	if (disk->HeadLocation != LBA_TO_CYLINDER(lba))
-		cylseek += SETTLETIMEMS;
+	if (cylseek < 0) {
+		cylseek = -cylseek;
+	}
 
-	int blockseek = LBA_TO_BLOCK(lba) - disk->PlatterLocation;
+	cylseek *= SEEK_PER_CYL_MS;
+
+	if (disk->HeadLocation != LBA_TO_CYLINDER(disk, lba))
+		cylseek += SETTLE_TIME_MS;
+
+	double blockseek = ((int)LBA_TO_SECTOR(disk, lba) - (int)disk->PlatterLocation);
 
 	if (blockseek < 0)
-		blockseek += LBAPERTRACK;
+		blockseek += disk->SectorsPerTrack;
 
-	disk->OperationInterval = cylseek + blockseek/(LBAPERTRACK/ROTATIONTIMEMS);
+	disk->OperationInterval = cylseek + blockseek/SECTOR_PER_MS(disk);
 	disk->SeekTo = lba;
 
 	if (disk->OperationInterval == 0) {
 		disk->ConsecutiveZeroSeeks += blockseek;
 
-		if (disk->ConsecutiveZeroSeeks > (LBAPERTRACK/ROTATIONTIMEMS)) {
+		if (disk->ConsecutiveZeroSeeks > SECTOR_PER_MS(disk)) {
 			disk->OperationInterval = 1;
 			disk->ConsecutiveZeroSeeks = 0;
 		}
@@ -125,7 +153,7 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 			if (!DKSSelectedDrive)
 				return EBUSERROR;
 
-			if (DKSPortA >= DKSSelectedDrive->BlockCount)
+			if (DKSPortA >= DKSSelectedDrive->SectorCount)
 				return EBUSERROR;
 
 			if (DKSStatus&(1<<DKSSelectedDrive->ID))
@@ -138,12 +166,13 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 			if (DKSPrint)
 				printf("dks%d: read  %d\n", DKSSelectedDrive->ID, DKSPortA);
 
-			if (!DKSAsynchronous) {
+			DKSSeek(DKSPortA);
+
+			if (!DKSAsynchronous || DKSSelectedDrive->OperationInterval == 0) {
 				DKSCompleted |= 1<<DKSSelectedDrive->ID;
 				DKSInfo(0);
 			} else {
 				DKSStatus |= 1<<DKSSelectedDrive->ID;
-				DKSSeek(DKSPortA);
 			}
 
 			return EBUSSUCCESS;
@@ -153,7 +182,7 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 			if (!DKSSelectedDrive)
 				return EBUSERROR;
 
-			if (DKSPortA >= DKSSelectedDrive->BlockCount)
+			if (DKSPortA >= DKSSelectedDrive->SectorCount)
 				return EBUSERROR;
 
 			if (DKSStatus&(1<<DKSSelectedDrive->ID))
@@ -166,12 +195,13 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 			if (DKSPrint)
 				printf("dks%d: write %d\n", DKSSelectedDrive->ID, DKSPortA);
 
-			if (!DKSAsynchronous) {
+			DKSSeek(DKSPortA);
+
+			if (!DKSAsynchronous || DKSSelectedDrive->OperationInterval == 0) {
 				DKSCompleted |= 1<<DKSSelectedDrive->ID;
 				DKSInfo(0);
 			} else {
 				DKSStatus |= 1<<DKSSelectedDrive->ID;
-				DKSSeek(DKSPortA);
 			}
 
 			return EBUSSUCCESS;
@@ -188,7 +218,7 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 		case 5:
 			// poll drive
 			if ((DKSPortA < DKSDISKS) && (DKSDisks[DKSPortA].Present)) {
-				DKSPortB = DKSDisks[DKSPortA].BlockCount;
+				DKSPortB = DKSDisks[DKSPortA].SectorCount;
 				DKSPortA = 1;
 			} else {
 				DKSPortA = 0;
@@ -240,7 +270,7 @@ int DKSReadPortB(uint32_t port, uint32_t type, uint32_t *value) {
 }
 
 int DKSAttachImage(char *path) {
-	struct DKSDisk *disk = 0;
+	DKSDisk *disk = 0;
 	int i = 0;
 
 	for (; i < DKSDISKS; i++) {
@@ -264,12 +294,60 @@ int DKSAttachImage(char *path) {
 	}
 
 	fseek(disk->DiskImage, 0, SEEK_END);
+	uint32_t bytes = ftell(disk->DiskImage);
 
-	disk->BlockCount = ftell(disk->DiskImage)/512;
+	disk->SectorCount = bytes / 512;
+
+	if (bytes & 511) {
+		fprintf(stderr, "Warning: %s: size %d not a multiple of 512, rounding down to %d\n", path, bytes, disk->SectorCount * 512);
+		bytes &= ~(511);
+	}
+
 	disk->Present = 1;
 	disk->Spinning = true;
 
-	printf("%s as dks%d (%d blocks)\n", path, i, disk->BlockCount);
+	// Roughly calculate geometry for disk seek simulation.
+	// The code is based on this algorithm from 86Box:
+	// https://github.com/86Box/86Box/blob/b5bb35688c19bfe07bc705bce05d9005d9884bb9/src/win/win_settings.c#L3403-L3424
+
+	uint32_t headspercyl;
+
+	if ((disk->SectorCount % 17) || (disk->SectorCount > 0x44000)) {
+		// Disk sector count isn't a multiple of 17, or more than 0x44000
+		// sectors. ATA-5 suggests the following parameters.
+
+		disk->SectorsPerTrack = 63;
+		headspercyl = 16;
+	} else {
+		// Disk sector count is a multiple of 17, so we can set the sectors per
+		// track to 17 and calculate the geometry based on that.
+
+		disk->SectorsPerTrack = 17;
+
+		if (disk->SectorCount <= 0xCC00) {
+			headspercyl = 4;
+		} else if (((disk->SectorCount % 6) == 0) && (disk->SectorCount <= 0x19800)) {
+			headspercyl = 6;
+		} else {
+			int i;
+
+			for (i = 5; i < 16; i++) {
+				if (((disk->SectorCount % i) == 0) && (disk->SectorCount <= (i * 17 * 1024))) {
+					break;
+				}
+
+				if (i == 5) {
+					i++;
+				}
+			}
+
+			headspercyl = i;
+		}
+	}
+
+	disk->CylinderCount = disk->SectorCount / headspercyl / disk->SectorsPerTrack;
+
+	printf("%s as dks%d (%d sectors) (cyl=%d, sec=%d)\n", path, i, disk->SectorCount, disk->CylinderCount, disk->SectorsPerTrack);
 
 	return true;
 }
