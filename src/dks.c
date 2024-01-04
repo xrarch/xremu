@@ -157,7 +157,10 @@ void DKSSeek(uint32_t lba) {
 
 		if (disk->ConsecutiveZeroSeeks > SECTOR_PER_MS(disk)) {
 			// If it exceeded the number of sectors the platter can rotate per
-			// millisecond, then set the operation interval to 1ms.
+			// millisecond, then set the operation interval to 1ms. Otherwise it
+			// could keep doing zero-time disk transfers forever due to the
+			// rounding down of the interval to the previous millisecond, which
+			// would be goofy.
 
 			disk->OperationInterval = 1;
 			disk->ConsecutiveZeroSeeks = 0;
