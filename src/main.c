@@ -102,7 +102,7 @@ bool Headless = false;
 
 void MainLoop(void);
 
-#define CPUSTEPMS 50
+#define CPUSTEPMS 40
 
 int CpuLoop(void *context) {
 	XrProcessor *proc = (XrProcessor *)context;
