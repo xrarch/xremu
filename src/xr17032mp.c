@@ -21,6 +21,8 @@ static inline uint32_t RoR(uint32_t x, uint32_t n) {
     return (x >> n & 31) | (x << (32-n) & 31);
 }
 
+#define NMI_MASK_CYCLES 64
+
 #define XR_LINE_INVALID 0
 #define XR_LINE_SHARED 1
 #define XR_LINE_EXCLUSIVE 2
@@ -235,6 +237,7 @@ void XrReset(XrProcessor *proc) {
 
 	proc->StallCycles = 0;
 
+	proc->NmiMaskCounter = NMI_MASK_CYCLES;
 	proc->LastTbMissWasWrite = 0;
 	proc->IFetch = 0;
 	proc->UserBreak = 0;
@@ -287,6 +290,14 @@ static inline void XrVectorException(XrProcessor *proc, uint32_t exc) {
 	// Set the mode bits in RS.
 
 	proc->Cr[RS] = (proc->Cr[RS] & 0xFFFFFF00) | newmode;
+
+	// Reset the NMI mask counter.
+
+	proc->NmiMaskCounter = NMI_MASK_CYCLES;
+
+	// Reset the "progress", allowing more polling.
+
+	proc->Progress = XR_POLL_MAX;
 }
 
 static inline void XrBasicException(XrProcessor *proc, uint32_t exc) {
@@ -978,7 +989,7 @@ restart:
 	return 1;
 }
 
-uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
+void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 #ifdef PROFCPU
 	if (XrPrintCache) {
 		proc->TimeToNextPrint -= dt;
@@ -1011,13 +1022,9 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 	}
 #endif
 
-	if (!proc->Running) {
-		return cycles;
-	}
-
 	Lsic *lsic = &LsicTable[proc->Id];
 
-	if (proc->UserBreak) {
+	if (proc->UserBreak && !proc->NmiMaskCounter) {
 		// There's a pending user-initiated NMI, so do that.
 
 		XrBasicInbetweenException(proc, XR_EXC_NMI);
@@ -1036,13 +1043,21 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 			// writes by other host cores to the interrupt pending flag visible
 			// to us in a timely manner, without needing any locking.
 
-			return cycles;
+			return;
 		}
 
 		// Interrupts are enabled and there is an interrupt pending.
 		// Un-halt the processor.
 
 		proc->Halted = 0;
+	}
+
+	if (proc->Progress <= 0) {
+		// This processor did a poll-y looking thing too many times this
+		// tick. Skip the rest of the tick so as not to eat up too much of
+		// the host's CPU.
+
+		return;
 	}
 
 	uint32_t cyclesdone = 0;
@@ -1062,22 +1077,19 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 
 	int status;
 
-	for (; cyclesdone < cycles; cyclesdone++) {
-		if (proc->Progress <= 0) {
-			// This processor did a poll-y looking thing too many times this
-			// tick. Skip the rest of the tick so as not to eat up too much of
-			// the host's CPU.
+	for (; cyclesdone < cycles && !proc->Halted && proc->Running; cyclesdone++) {
+		if (proc->NmiMaskCounter) {
+			// Decrement the NMI mask cycle counter.
 
-			return cycles;
-		}
+			proc->NmiMaskCounter -= 1;
 
-		if (XrSimulateCacheStalls && proc->StallCycles) {
-			// There's a simulated cache stall of some number of cycles, so
-			// decrement the remaining stall and loop.
+			if (proc->UserBreak && !proc->NmiMaskCounter) {
+				// There's a pending user-initiated NMI, so do that.
 
-			proc->StallCycles--;
-
-			continue;
+				XrBasicInbetweenException(proc, XR_EXC_NMI);
+				proc->UserBreak = 0;
+				proc->Halted = 0;
+			}
 		}
 
 		// Make sure the zero register is always zero, except during TLB misses,
@@ -1087,34 +1099,45 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 			proc->Reg[0] = 0;
 		}
 
-		if (XrSimulateCaches && proc->WbSize) {
-			if (proc->WbCyclesTilNextWrite) {
-				proc->WbCyclesTilNextWrite -= 1;
-			} else {
-				// Time to write out a write buffer entry.
+		if (XrSimulateCaches) {
+			if (proc->StallCycles) {
+				// There's a simulated cache stall of some number of cycles, so
+				// decrement the remaining stall and loop.
 
-				XrLockCache(proc);
+				proc->StallCycles--;
 
-				if (proc->WbSize) {
-					for (int i = 0; i < XR_WB_DEPTH; i++) {
-						int index = (proc->WbIndex + i) & (XR_WB_DEPTH - 1);
+				continue;
+			}
 
-						if (proc->WbTags[index]) {
-							XrLockIoMutex(proc);
-							EBusWrite(proc->WbTags[index], &proc->Wb[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE);
-							XrUnlockIoMutex();
+			if (proc->WbSize) {
+				if (proc->WbCyclesTilNextWrite) {
+					proc->WbCyclesTilNextWrite -= 1;
+				} else {
+					// Time to write out a write buffer entry.
 
-							proc->WbTags[index] = 0;
-							proc->WbIndex = index + 1;
-							break;
+					XrLockCache(proc);
+
+					if (proc->WbSize) {
+						for (int i = 0; i < XR_WB_DEPTH; i++) {
+							int index = (proc->WbIndex + i) & (XR_WB_DEPTH - 1);
+
+							if (proc->WbTags[index]) {
+								XrLockIoMutex(proc);
+								EBusWrite(proc->WbTags[index], &proc->Wb[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE);
+								XrUnlockIoMutex();
+
+								proc->WbTags[index] = 0;
+								proc->WbIndex = index + 1;
+								break;
+							}
 						}
+
+						proc->WbSize -= 1;
+						proc->WbCyclesTilNextWrite = XR_UNCACHED_STALL;
 					}
 
-					proc->WbSize -= 1;
-					proc->WbCyclesTilNextWrite = XR_UNCACHED_STALL;
+					XrUnlockCache(proc);
 				}
-
-				XrUnlockCache(proc);
 			}
 		}
 
@@ -1446,6 +1469,10 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 						break;
 
 					case 14: // MTCR
+						// Reset the NMI mask counter.
+
+						proc->NmiMaskCounter = NMI_MASK_CYCLES;
+
 						switch(rb) {
 							case ICACHECTRL:
 								if (!XrSimulateCaches)
@@ -1665,7 +1692,12 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 						}
 
 					case 15: // MFCR
+						// Reset the NMI mask counter.
+
+						proc->NmiMaskCounter = NMI_MASK_CYCLES;
+
 						proc->Reg[rd] = proc->Cr[rb];
+
 						break;
 
 					default:
@@ -1851,10 +1883,5 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 					break;
 			}
 		}
-
-		if (proc->Halted || (!proc->Running))
-			return cyclesdone;
 	}
-
-	return cyclesdone;
 }

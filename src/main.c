@@ -33,6 +33,7 @@ XrProcessor *XrIoMutexProcessor;
 
 SDL_mutex *IoMutex;
 SDL_mutex *ScacheMutex;
+SDL_sem* CpuSemaphore;
 
 void LockIoMutex() {
 	SDL_LockMutex(IoMutex);
@@ -41,6 +42,10 @@ void LockIoMutex() {
 
 void UnlockIoMutex() {
 	SDL_UnlockMutex(IoMutex);
+}
+
+void XrPokeCpu(XrProcessor *proc) {
+	SDL_SemPost(proc->LoopSemaphore);
 }
 
 void XrLockIoMutex(XrProcessor *proc) {
@@ -73,6 +78,7 @@ void XrUnlockScache() {
 
 void LockIoMutex() {}
 void UnlockIoMutex() {}
+void XrPokeCpu(XrProcessor *proc) {}
 void XrLockIoMutex(XrProcessor *proc) {}
 void XrUnlockIoMutex() {}
 void XrLockCache(XrProcessor *proc) {}
@@ -96,24 +102,24 @@ bool Headless = false;
 
 void MainLoop(void);
 
-#define CPUSTEPMS 10
+#define CPUSTEPMS 50
 
 int CpuLoop(void *context) {
 	XrProcessor *proc = (XrProcessor *)context;
 
 	int last_tick = SDL_GetTicks();
 
+	int cyclespertick = SimulatorHz/1000;
+	int extracycles = SimulatorHz%1000; // squeeze in the sub-millisecond cycles
+
 	while (1) {
 		int this_tick = SDL_GetTicks();
 		int dt = this_tick - last_tick;
 		last_tick = this_tick;
 
-		int cyclespertick = SimulatorHz/1000;
-		int extracycles = SimulatorHz%1000; // squeeze in the sub-millisecond cycles
-
 		// printf("delta time=%d\n", dt);
 
-		proc->Progress = 20;
+		proc->Progress = XR_POLL_MAX;
 
 		for (int i = 0; i < dt; i++) {
 			int cyclesleft = cyclespertick;
@@ -121,20 +127,13 @@ int CpuLoop(void *context) {
 			if (i == dt-1)
 				cyclesleft += extracycles;
 
-			while (cyclesleft > 0) {
-				cyclesleft -= XrExecute(proc, cyclesleft, 1);
-			}
+			XrExecute(proc, cyclesleft, 1);
 
 			if (proc->Id == 0) {
-				// The thread for CPU 0 doubles as the I/O device thread.
+				// The thread for CPU 0 also does the RTC intervals, once per
+				// millisecond of CPU time. 
 
-				LockIoMutex();
-
-				DKSInterval(1);
 				RTCInterval(1);
-				SerialInterval(1);
-
-				UnlockIoMutex();
 			}
 		}
 
@@ -144,7 +143,7 @@ int CpuLoop(void *context) {
 		// printf("duration=%d, delay=%d\n", this_tick_duration, CPUSTEPMS - this_tick_duration);
 
 		if (this_tick_duration < CPUSTEPMS) {
-			SDL_Delay(CPUSTEPMS - this_tick_duration);
+			SDL_SemWaitTimeout(proc->LoopSemaphore, CPUSTEPMS - this_tick_duration);
 		}
 	}
 }
@@ -170,6 +169,13 @@ void CpuCreate(int id) {
 		exit(1);
 	}
 
+	proc->LoopSemaphore = SDL_CreateSemaphore(0);
+
+	if (!proc->LoopSemaphore) {
+		fprintf(stderr, "Unable to allocate loop semaphore: %s", SDL_GetError());
+		exit(1);
+	}
+
 	SDL_CreateThread(&CpuLoop, "CpuLoop", proc);
 #endif
 }
@@ -180,7 +186,7 @@ int main(int argc, char *argv[]) {
 	SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "0", SDL_HINT_OVERRIDE);
 	SDL_SetHintWithPriority(SDL_HINT_VIDEO_HIGHDPI_DISABLED, "1", SDL_HINT_OVERRIDE);
 
-	if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
 		fprintf(stderr, "Unable to initialize SDL: %s", SDL_GetError());
 		return 1;
 	}
@@ -368,14 +374,27 @@ int main(int argc, char *argv[]) {
 	return 0;
 }
 
+void EnqueueCallback(uint32_t interval, uint32_t (*callback)(uint32_t, void*), void *param) {
+	SDL_AddTimer(interval, callback, param);
+}
+
 void MainLoop(void) {
 	ScreenDraw();
 	done = ScreenProcessEvents();
 
-	// Dumbed down CPU driving loop for emscripten since it sucks and doesn't
-	// like SDL's threads
+#ifndef EMSCRIPTEN
+	LockIoMutex();
+	DKSInterval(16);
+	SerialInterval(16);
+	UnlockIoMutex();
+#endif
+
+	UnlockIoMutex();
 
 #ifdef EMSCRIPTEN
+	// Dumbed down CPU driving loop for emscripten since it sucks and doesn't
+	// like SDL's threads.
+
 	XrProcessor *proc = CpuTable[0];
 
 	int this_tick = SDL_GetTicks();
@@ -385,7 +404,7 @@ void MainLoop(void) {
 	int cyclespertick = SimulatorHz/1000;
 	int extracycles = SimulatorHz%1000; // squeeze in the sub-millisecond cycles
 
-	proc->Progress = 20;
+	proc->Progress = XR_POLL_MAX;
 
 	for (int i = 0; i < dt; i++) {
 		int cyclesleft = cyclespertick;
@@ -393,9 +412,10 @@ void MainLoop(void) {
 		if (i == dt-1)
 			cyclesleft += extracycles;
 
-		while (cyclesleft > 0) {
-			cyclesleft -= XrExecute(proc, cyclesleft, 1);
-		}
+		XrExecute(proc, cyclesleft, 1);
+
+		// In emscripten, the interval functions are also responsible for
+		// driving async device activity.
 
 		DKSInterval(1);
 		RTCInterval(1);

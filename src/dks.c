@@ -42,6 +42,10 @@ typedef struct _DKSDisk {
 #define LBA_TO_TRACK(_disk, _lba) ((_lba)/(_disk)->SectorsPerTrack)
 #define LBA_TO_CYLINDER(_disk, _lba) (LBA_TO_TRACK(_disk, _lba)/TRACKS_PER_CYLINDER)
 
+// Accumulated disk interval before paying for the time cost all at once.
+
+#define ACCUMULATED_INTERVAL 50
+
 DKSDisk DKSDisks[DKSDISKS];
 
 int DKSInfoWhat = 0;
@@ -77,6 +81,39 @@ void DKSReset() {
 	DKSTransferAddress = 0;
 }
 
+uint32_t DKSCallback(uint32_t interval, void *param) {
+	DKSDisk *disk = param;
+
+	LockIoMutex();
+
+	if ((DKSStatus & (1 << disk->ID)) != 0) {
+#ifdef EMSCRIPTEN
+		if (interval < disk->OperationInterval) {
+			// There's still more left.
+
+			disk->OperationInterval -= interval;
+
+			UnlockIoMutex();
+
+			return 0;
+		}
+#endif
+
+		DKSStatus &= ~(1 << disk->ID);
+		DKSCompleted |= 1 << disk->ID;
+
+		disk->OperationInterval = 0;
+		disk->PlatterLocation = LBA_TO_SECTOR(disk, disk->SeekTo);
+		disk->HeadLocation = LBA_TO_CYLINDER(disk, disk->SeekTo);
+
+		DKSInfo(0);
+	}
+
+	UnlockIoMutex();
+
+	return 0;
+}
+
 void DKSInterval(uint32_t dt) {
 	for (int i = 0; i < DKSDISKS; i++) {
 		DKSDisk *disk = &DKSDisks[i];
@@ -89,17 +126,10 @@ void DKSInterval(uint32_t dt) {
 				disk->PlatterLocation += SECTOR_PER_MS(disk);
 				disk->PlatterLocation %= disk->SectorsPerTrack;
 			}
-		} else if (dt >= disk->OperationInterval) {
-			DKSStatus &= ~(1 << i);
-			DKSCompleted |= 1 << i;
-
-			disk->OperationInterval = 0;
-			disk->PlatterLocation = LBA_TO_SECTOR(disk, disk->SeekTo);
-			disk->HeadLocation = LBA_TO_CYLINDER(disk, disk->SeekTo);
-
-			DKSInfo(0);
+#ifdef EMSCRIPTEN
 		} else {
-			disk->OperationInterval -= dt;
+			DKSCallback(dt, disk);
+#endif
 		}
 	}
 }
@@ -153,10 +183,10 @@ void DKSSeek() {
 	// Set the operation interval to the platter rotation time plus the
 	// head seek time.
 
-	disk->OperationInterval = sectorseek + cylseek;
+	disk->OperationInterval += sectorseek + cylseek;
 	disk->SeekTo = lba;
 
-	if (disk->OperationInterval == 0) {
+	if ((sectorseek + cylseek) == 0) {
 		// If the interval rounded down to zero, increment the consecutive zero
 		// seeks by the number of sectors the platter had to rotate by.
 
@@ -169,7 +199,7 @@ void DKSSeek() {
 			// rounding down of the interval to the previous millisecond, which
 			// would be goofy.
 
-			disk->OperationInterval = 1;
+			disk->OperationInterval += 1;
 			disk->ConsecutiveZeroSeeks = 0;
 		}
 	}
@@ -227,11 +257,14 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 			DKSSeek();
 
-			if (!DKSAsynchronous || DKSSelectedDrive->OperationInterval == 0) {
+			if (!DKSAsynchronous || DKSSelectedDrive->OperationInterval < ACCUMULATED_INTERVAL) {
 				DKSCompleted |= 1<<DKSSelectedDrive->ID;
 				DKSInfo(0);
 			} else {
 				DKSStatus |= 1<<DKSSelectedDrive->ID;
+#ifndef EMSCRIPTEN
+				EnqueueCallback(DKSSelectedDrive->OperationInterval, &DKSCallback, DKSSelectedDrive);
+#endif
 			}
 
 			return EBUSSUCCESS;
@@ -274,11 +307,14 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 			DKSSeek();
 
-			if (!DKSAsynchronous || DKSSelectedDrive->OperationInterval == 0) {
+			if (!DKSAsynchronous || DKSSelectedDrive->OperationInterval < ACCUMULATED_INTERVAL) {
 				DKSCompleted |= 1<<DKSSelectedDrive->ID;
 				DKSInfo(0);
 			} else {
 				DKSStatus |= 1<<DKSSelectedDrive->ID;
+#ifndef EMSCRIPTEN
+				EnqueueCallback(DKSSelectedDrive->OperationInterval, &DKSCallback, DKSSelectedDrive);
+#endif
 			}
 
 			return EBUSSUCCESS;

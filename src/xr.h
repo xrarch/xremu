@@ -80,6 +80,12 @@
 
 #define XR_PROC_MAX 8
 
+// Maximum number of times a processor can poll an I/O device before it loses
+// the rest of its tick. Reset before each 20ms tick and also when an interrupt
+// is received.
+
+#define XR_POLL_MAX 8
+
 typedef struct _XrProcessor {
 	uint64_t Itb[XR_ITB_SIZE];
 	uint64_t Dtb[XR_DTB_SIZE];
@@ -89,6 +95,7 @@ typedef struct _XrProcessor {
 
 	void *ExceptionMutex;
 	void *CacheMutex;
+	void *LoopSemaphore;
 
 	uint32_t IcTags[XR_IC_LINE_COUNT];
 	uint32_t DcTags[XR_DC_LINE_COUNT];
@@ -107,7 +114,7 @@ typedef struct _XrProcessor {
 
 	uint32_t StallCycles;
 	uint32_t Id;
-	uint32_t Progress;
+	int32_t Progress;
 
 	uint32_t IcReplacementIndex;
 	uint32_t DcReplacementIndex;
@@ -135,6 +142,7 @@ typedef struct _XrProcessor {
 	uint8_t IcFlags[XR_IC_LINE_COUNT];
 	uint8_t DcFlags[XR_DC_LINE_COUNT];
 
+	uint8_t NmiMaskCounter;
 	uint8_t DcLastFlags;
 	uint8_t Locked;
 	uint8_t LastTbMissWasWrite;
@@ -163,4 +171,6 @@ extern void XrLockCache(XrProcessor *proc);
 extern void XrUnlockCache(XrProcessor *proc);
 
 extern void XrReset(XrProcessor *proc);
-extern uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt);
+extern void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt);
+
+extern void XrPokeCpu(XrProcessor *proc);

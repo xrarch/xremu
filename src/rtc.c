@@ -20,12 +20,17 @@ uint32_t RTCIntervalCounter = 0;
 uint32_t RTCPortA;
 
 void RTCInterval(uint32_t dt) {
+	// Currently the thread for CPU 0 does the RTC intervals, so we don't need
+	// any synchronization until we need to do an interrupt.
+
 	gettimeofday(&RTCCurrentTime, 0);
 
 	RTCIntervalCounter += dt;
 
 	if (RTCIntervalCounter >= RTCIntervalMS) {
+		LockIoMutex();
 		LsicInterrupt(0x2);
+		UnlockIoMutex();
 
 		RTCIntervalCounter -= RTCIntervalMS;
 	}

@@ -84,9 +84,19 @@ void LsicInterrupt(int intsrc) {
 
 		lsic->Registers[LSIC_PENDING_0 + srcbmp] |= (1 << srcbmpoff);
 
+		uint8_t oldpending = lsic->InterruptPending;
+
 		lsic->InterruptPending =
 			((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
 			((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
+
+		if (intsrc != 2 || i != 0) { // HACKHACK: Don't poke CPU 0 if this is the RTC interrupt since CPU 0's thread is the one who sends the RTC interrupt.
+			if (oldpending != lsic->InterruptPending) {
+				// Poke the thread for this cpu to wake it up.
+
+				XrPokeCpu(proc);
+			}
+		}
 	}
 }
 
@@ -171,9 +181,17 @@ int LsicWrite(int reg, uint32_t value) {
 			return EBUSERROR;
 	}
 
+	uint8_t oldpending = lsic->InterruptPending;
+
 	lsic->InterruptPending =
 		((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
 		((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
+
+	if (oldpending != lsic->InterruptPending) {
+		// Poke the thread for this cpu to wake it up.
+
+		XrPokeCpu(proc);
+	}
 
 	return EBUSSUCCESS;
 }
