@@ -52,7 +52,7 @@ be simulated using the switches `-asyncdisk`, `-asyncserial`, and `-cachesim` re
         Simulate cycle delays on cache misses.
 
     -cacheprint
-        Print cache statistics every 2 seconds.
+        Print cache statistics every 2 seconds. Only works if the emulator was compiled with PROFCPU=1 (which may slow down CPU emulation a bit).
 
     -diskprint
         Print disk accesses.
