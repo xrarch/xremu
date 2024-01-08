@@ -121,11 +121,10 @@ int LsicWrite(int reg, uint32_t value) {
 
 		case LSIC_PENDING_0:
 			if (value == 0) {
-				// A write of zero into the pending 0 register clears all
+				// A write of zero into the pending register clears all
 				// pending interrupts. Useful for partial reset.
 
 				lsic->Registers[LSIC_PENDING_0] = 0;
-				lsic->Registers[LSIC_PENDING_1] = 0;
 
 				break;
 			}
@@ -139,6 +138,15 @@ int LsicWrite(int reg, uint32_t value) {
 			break;
 
 		case LSIC_PENDING_1:
+			if (value == 0) {
+				// A write of zero into the pending register clears all
+				// pending interrupts. Useful for partial reset.
+
+				lsic->Registers[LSIC_PENDING_1] = 0;
+
+				break;
+			}
+
 			// Writes to the pending registers atomically OR into the pending
 			// interrupt bits. This is useful for IPIs and stuff.
 
