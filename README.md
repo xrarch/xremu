@@ -73,6 +73,6 @@ be simulated using the switches `-asyncdisk`, `-asyncserial`, and `-cachesim` re
         Specify a file (i.e. a FIFO) as the TX line for serial port B.
 
     -cpuhz [frequency]
-        Specify the frequency that the CPU simulation should be run at. Default is 16666666 (16.67MHz).
+        Specify the frequency that the CPU simulation should be run at. Default is 20000000 (20MHz).
 
 WARNING: For performance reasons, this emulator does not make any attempt to be portable to big-endian host platforms! If you are on PowerPC for some reason, it will not run correctly!

@@ -90,7 +90,7 @@ uint32_t emscripten_last_tick = 0;
 
 #endif
 
-uint32_t SimulatorHz = 16666666;
+uint32_t SimulatorHz = 20000000;
 
 bool RAMDumpOnExit = false;
 
