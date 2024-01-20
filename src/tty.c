@@ -574,6 +574,18 @@ void TTYPutCharacter(struct TTY *tty, char c) {
 			TTYMakeDirty(tty, curx, cury, tty->CursorX, cury);
 			return;
 
+		case '\t':
+			tty->CursorX += 1;
+			tty->CursorX = (tty->CursorX + 7) & ~7;
+
+			if (tty->CursorX >= tty->Width) {
+				tty->CursorX = 0;
+				TTYNewline(tty);
+			}
+
+			TTYMakeDirty(tty, curx, cury, tty->CursorX, tty->CursorY);
+			return;
+
 		case 0x1B:
 			tty->IsEscape = 1;
 			tty->EscapeIndex = 0;
