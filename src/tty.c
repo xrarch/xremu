@@ -579,8 +579,7 @@ void TTYPutCharacter(struct TTY *tty, char c) {
 			tty->CursorX = (tty->CursorX + 7) & ~7;
 
 			if (tty->CursorX >= tty->Width) {
-				tty->CursorX = 0;
-				TTYNewline(tty);
+				tty->CursorX = tty->Width - 1;
 			}
 
 			TTYMakeDirty(tty, curx, cury, tty->CursorX, tty->CursorY);
