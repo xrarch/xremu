@@ -101,8 +101,8 @@ void LsicInterrupt(int intsrc) {
 }
 
 int LsicWrite(int reg, uint32_t value) {
-	int id = reg >> 5;
-	reg &= 31;
+	int id = reg >> 3;
+	reg &= 7;
 
 	Lsic *lsic = &LsicTable[id];
 
@@ -185,6 +185,8 @@ int LsicWrite(int reg, uint32_t value) {
 				lsic->HighIplMask = 0;
 			}
 
+			break;
+
 		default:
 			return EBUSERROR;
 	}
@@ -205,8 +207,8 @@ int LsicWrite(int reg, uint32_t value) {
 }
 
 int LsicRead(int reg, uint32_t *value) {
-	int id = reg >> 5;
-	reg &= 31;
+	int id = reg >> 3;
+	reg &= 7;
 
 	Lsic *lsic = &LsicTable[id];
 
