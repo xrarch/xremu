@@ -372,7 +372,7 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 		case 9:
 			// set transfer address
 
-			DKSTransferAddress = DKSPortA;
+			DKSTransferAddress = DKSPortA & ~511;
 
 			return EBUSSUCCESS;
 	}

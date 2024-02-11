@@ -1460,7 +1460,6 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 						}
 
 						proc->Cr[RS] = (proc->Cr[RS] & 0xF0000000) | ((proc->Cr[RS] >> 8) & 0xFFFF);
-						//printf("rfe rs=%x\n", ControlReg[RS]);
 
 						break;
 
