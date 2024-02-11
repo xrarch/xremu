@@ -13,7 +13,6 @@ typedef struct _Lsic {
 	uint32_t LowIplMask;
 	uint32_t HighIplMask;
 	volatile uint8_t InterruptPending;
-	uint8_t Enabled;
 } Lsic;
 
 extern Lsic LsicTable[];

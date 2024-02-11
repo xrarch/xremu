@@ -58,7 +58,6 @@ void LsicReset() {
 		lsic->LowIplMask = 0xFFFFFFFF;
 		lsic->HighIplMask = 0xFFFFFFFF;
 		lsic->InterruptPending = 0;
-		lsic->Enabled = (CpuTable[i] != 0);
 	}
 }
 
@@ -76,11 +75,11 @@ void LsicInterrupt(int intsrc) {
 	for (int i = 0; i < XR_PROC_MAX; i++) {
 		Lsic *lsic = &LsicTable[i];
 
-		if (lsic->Enabled == 0) {
+		XrProcessor *proc = CpuTable[i];
+
+		if (!proc) {
 			continue;
 		}
-
-		XrProcessor *proc = CpuTable[i];
 
 		lsic->Registers[LSIC_PENDING_0 + srcbmp] |= (1 << srcbmpoff);
 
@@ -106,11 +105,11 @@ int LsicWrite(int reg, uint32_t value) {
 
 	Lsic *lsic = &LsicTable[id];
 
-	if (lsic->Enabled == 0) {
+	XrProcessor *proc = CpuTable[id];
+
+	if (!proc) {
 		return EBUSERROR;
 	}
-
-	XrProcessor *proc = CpuTable[id];
 
 	switch(reg) {
 		case LSIC_MASK_0:
@@ -212,11 +211,11 @@ int LsicRead(int reg, uint32_t *value) {
 
 	Lsic *lsic = &LsicTable[id];
 
-	if (lsic->Enabled == 0) {
+	XrProcessor *proc = CpuTable[id];
+
+	if (!proc) {
 		return EBUSERROR;
 	}
-
-	XrProcessor *proc = CpuTable[id];
 
 	switch(reg) {
 		case LSIC_MASK_0:
