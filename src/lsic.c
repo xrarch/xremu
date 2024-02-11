@@ -45,20 +45,7 @@ uint32_t LsicIplMasks[32] = {
 };
 
 void LsicReset() {
-	for (int i = 0; i < XR_PROC_MAX; i++) {
-		Lsic *lsic = &LsicTable[i];
-
-		lsic->Registers[LSIC_MASK_0] = 0;
-		lsic->Registers[LSIC_MASK_1] = 0;
-		lsic->Registers[LSIC_PENDING_0] = 0;
-		lsic->Registers[LSIC_PENDING_1] = 0;
-		lsic->Registers[LSIC_CLAIM_COMPLETE] = 0;
-		lsic->Registers[LSIC_IPL] = 63;
-
-		lsic->LowIplMask = 0xFFFFFFFF;
-		lsic->HighIplMask = 0xFFFFFFFF;
-		lsic->InterruptPending = 0;
-	}
+	// Nothing
 }
 
 void LsicInterrupt(int intsrc) {
