@@ -240,6 +240,10 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 			fseek(DKSSelectedDrive->DiskImage, DKSPortA*512, SEEK_SET);
 
+			if (DKSPrint) {
+				printf("dks%d: read %d to %08x\n", DKSSelectedDrive->ID, DKSPortA, DKSTransferAddress);
+			}
+
 			for (int i = 0; i < DKSTransferCount; i++) {
 				fread(&DKSTempBlockBuffer[0], 512, 1, DKSSelectedDrive->DiskImage);
 
@@ -251,9 +255,6 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 				DKSTransferAddress += 512;
 			}
-
-			if (DKSPrint)
-				printf("dks%d: read  %d\n", DKSSelectedDrive->ID, DKSPortA);
 
 			DKSSeek();
 
@@ -290,6 +291,10 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 			fseek(DKSSelectedDrive->DiskImage, DKSPortA*512, SEEK_SET);
 
+			if (DKSPrint) {
+				printf("dks%d: write %d from %08x\n", DKSSelectedDrive->ID, DKSPortA, DKSTransferAddress);
+			}
+
 			for (int i = 0; i < DKSTransferCount; i++) {
 				status = EBusRead(DKSTransferAddress, &DKSTempBlockBuffer[0], 512);
 
@@ -301,9 +306,6 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 
 				DKSTransferAddress += 512;
 			}
-
-			if (DKSPrint)
-				printf("dks%d: write %d\n", DKSSelectedDrive->ID, DKSPortA);
 
 			DKSSeek();
 
