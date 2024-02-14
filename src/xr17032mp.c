@@ -1100,7 +1100,7 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 		}
 
 		if (XrSimulateCaches) {
-			if (proc->StallCycles) {
+			if (proc->StallCycles && XrSimulateCacheStalls) {
 				// There's a simulated cache stall of some number of cycles, so
 				// decrement the remaining stall and loop.
 

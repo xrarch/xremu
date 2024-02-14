@@ -20,10 +20,6 @@ Then, type `./graphical.sh` in the project directory.
 
 Striking the right ALT key will switch the display between the framebuffer and the serial TTYs.
 
-For performance reasons, disk and serial operations will appear to complete instantly by default,
-and caches aren't simulated. In order to test for accuracy in systems programming these things can
-be simulated using the switches `-asyncdisk`, `-asyncserial`, and `-cachesim` respectively.
-
     -ramsize [bytes]
         Specify the size of RAM in bytes.
 
@@ -46,7 +42,7 @@ be simulated using the switches `-asyncdisk`, `-asyncserial`, and `-cachesim` re
         Simulate serial latency.
 
     -nocachesim
-        Don't simulate an I-cache and a writethrough D-cache with a 4-entry writebuffer.
+        Don't simulate the I-cache and D-cache.
 
     -cachemiss
         Simulate cycle delays on cache misses.
