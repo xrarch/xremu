@@ -33,6 +33,8 @@ SDL_Renderer *ScreenRenderer;
 
 SDL_Rect WindowRect;
 
+void KinnowDump();
+
 void ScreenInit() {
 	// all the screens should have been created before this is called.
 
@@ -194,6 +196,9 @@ int ScreenProcessEvents() {
 				} else if (event.key.keysym.scancode == SDL_SCANCODE_TAB && IsAltDown) {
 					// alt-tab means NMI
 					CpuTable[0]->UserBreak = 1;
+				} else if (event.key.keysym.scancode == SDL_SCANCODE_F1 && IsAltDown) {
+					// alt-f1 means screenshot
+					KinnowDump();
 				}
 
 				if (ScreenCurrent->KeyPressed)

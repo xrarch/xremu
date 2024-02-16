@@ -187,3 +187,22 @@ int KinnowInit() {
 
 	return 0;
 }
+
+void KinnowDump() {
+	// Dump the contents of the framebuffer as RGBA32.
+
+	FILE *dumpfile = fopen("kinnowfb.raw", "wb");
+
+	uint32_t *tempbuffer = malloc(FBSize * 4);
+
+	if (dumpfile) {
+		for (int i = 0; i < FBSize; i++) {
+			tempbuffer[i] = KinnowPalette[KinnowFB[i]];
+		}
+
+		fwrite(tempbuffer, 1, FBSize * 4, dumpfile);
+		fclose(dumpfile);
+	}
+
+	free(tempbuffer);
+}

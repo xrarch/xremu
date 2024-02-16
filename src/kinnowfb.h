@@ -5,3 +5,4 @@
 
 int KinnowInit();
 void KinnowDraw(struct Screen *screen);
+void KinnowDump();

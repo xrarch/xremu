@@ -93,6 +93,7 @@ uint32_t emscripten_last_tick = 0;
 uint32_t SimulatorHz = 20000000;
 
 bool RAMDumpOnExit = false;
+bool KinnowDumpOnExit = false;
 
 uint32_t XrProcessorCount = 1;
 
@@ -244,6 +245,8 @@ int main(int argc, char *argv[]) {
 			}
 		} else if (strcmp(argv[i], "-dumpram") == 0) {
 			RAMDumpOnExit = true;
+		} else if (strcmp(argv[i], "-dumpfb") == 0) {
+			KinnowDumpOnExit = true;
 		} else if (strcmp(argv[i], "-asyncdisk") == 0) {
 			DKSAsynchronous = true;
 		} else if (strcmp(argv[i], "-asyncserial") == 0) {
@@ -366,8 +369,13 @@ int main(int argc, char *argv[]) {
 
 	NVRAMSave();
 
-	if (RAMDumpOnExit)
+	if (RAMDumpOnExit) {
 		RAMDump();
+	}
+
+	if (KinnowDumpOnExit) {
+		KinnowDump();
+	}
 
 	// TLBDump();
 

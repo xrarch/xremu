@@ -2,6 +2,5 @@
 #define RAMSLOTCOUNT 8
 #define RAMMAXIMUM (RAMSLOTSIZE * RAMSLOTCOUNT)
 
-int RAMInit(uint32_t memsize);
-
-void RAMDump();
+extern int RAMInit(uint32_t memsize);
+extern void RAMDump();
