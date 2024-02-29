@@ -1,12 +1,12 @@
 # XR/EMU (C+SDL)
 
-Emulates the XR/station fantasy computer, inspired by late 80s RISC workstations.
+Emulates the XR/station fantasy computer, inspired by late 80s workstation computers.
 
-The long-term goal is to create a really neat (but useless) emulated desktop computer.
+The long term goal is to have a sophisticated (and fully self-hosted) software environment within the emulated workstation computer.
 
 For easy testing and experimentation, you can check out the [web emulator](https://xrarch.github.io).
 
-Ships with a pre-built [boot ROM](https://github.com/xrarch/a4x) binary.
+Note, if you fear binary blobs, that the emulator ships with a pre-built [boot ROM](https://github.com/xrarch/a4x) binary.
 
 <img src="https://raw.githubusercontent.com/xrarch/xremu/master/17032.png" width="256">
 
