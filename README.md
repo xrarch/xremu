@@ -6,7 +6,7 @@ The long-term goal is to create a really neat (but useless) emulated desktop com
 
 For easy testing and experimentation, you can check out the [web emulator](https://xrarch.github.io).
 
-Ships with a pre-built [boot ROM](https://github.com/xrarch/a3x) binary.
+Ships with a pre-built [boot ROM](https://github.com/xrarch/a4x) binary.
 
 <img src="https://raw.githubusercontent.com/xrarch/xremu/master/17032.png" width="256">
 
