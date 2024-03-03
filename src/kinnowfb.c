@@ -42,11 +42,13 @@ bool IsDirty = false;
 static inline void MakeDirty(uint32_t x1, uint32_t y1, uint32_t x2, uint32_t y2) {
 	IsDirty = true;
 
-	if (x1 < DirtyRectX1)
+	if (x1 < DirtyRectX1) {
 		DirtyRectX1 = x1;
+	}
 
-	if (y1 < DirtyRectY1)
+	if (y1 < DirtyRectY1) {
 		DirtyRectY1 = y1;
+	}
 
 	if (x2 > DirtyRectX2) {
 		DirtyRectX2 = x2;
