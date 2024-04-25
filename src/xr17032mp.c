@@ -501,7 +501,7 @@ static uint8_t XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uin
 	}
 
 	if (cachetype == NONCACHED) {
-		if (forceexclusive) {
+		if (forceexclusive && XrSimulateCaches) {
 			// Attempt to use LL/SC on noncached memory. Nonsense! Just kill the
 			// evildoer with a bus error.
 

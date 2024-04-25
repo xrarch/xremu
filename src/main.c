@@ -332,6 +332,11 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
+	if (!XrSimulateCaches && XrProcessorCount > 1) {
+		fprintf(stderr, "Can't simulate multiprocessor with disabled caches\n");
+		return 1;
+	}
+
 #ifdef EMSCRIPTEN
 	DKSAsynchronous = true;
 	SerialAsynchronous = true;
