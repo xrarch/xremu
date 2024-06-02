@@ -19,7 +19,7 @@
 
 #define XR_SC_LINE_COUNT_LOG (XR_DC_LINE_COUNT_LOG + 2)
 #define XR_SC_LINE_SIZE_LOG XR_DC_LINE_SIZE_LOG
-#define XR_SC_WAY_LOG (XR_DC_WAY_LOG + 1)
+#define XR_SC_WAY_LOG 0
 
 // Configurable write buffer size parameters.
 
@@ -93,7 +93,6 @@ typedef struct _XrProcessor {
 	uint64_t ItbLastResult;
 	uint64_t DtbLastResult;
 
-	void *ExceptionMutex;
 	void *CacheMutex;
 	void *LoopSemaphore;
 
