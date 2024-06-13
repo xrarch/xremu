@@ -101,7 +101,9 @@ bool done = false;
 
 bool Headless = false;
 
+#ifdef EMSCRIPTEN
 void MainLoop(void);
+#endif
 
 #define CPUSTEPMS 40
 
@@ -356,10 +358,23 @@ int main(int argc, char *argv[]) {
 	}
 
 #ifndef EMSCRIPTEN
+	int tick_end = 0;
+	int tick_start = 0;
+
 	while (!done) {
-		int tick_start = SDL_GetTicks();
-		MainLoop();
-		int tick_end = SDL_GetTicks();
+		tick_start = SDL_GetTicks();
+
+		ScreenDraw();
+		done = ScreenProcessEvents();
+
+		int tick_after_draw = SDL_GetTicks();
+
+		LockIoMutex();
+		DKSInterval(tick_after_draw - tick_end);
+		SerialInterval(tick_after_draw - tick_end);
+		UnlockIoMutex();
+
+		tick_end = SDL_GetTicks();
 		int delay = 1000/FPS - (tick_end - tick_start);
 
 		if (delay > 0) {
@@ -391,22 +406,13 @@ void EnqueueCallback(uint32_t interval, uint32_t (*callback)(uint32_t, void*), v
 	SDL_AddTimer(interval, callback, param);
 }
 
-void MainLoop(void) {
-	ScreenDraw();
-	done = ScreenProcessEvents();
-
-#ifndef EMSCRIPTEN
-	LockIoMutex();
-	DKSInterval(16);
-	SerialInterval(16);
-	UnlockIoMutex();
-#endif
-
-	UnlockIoMutex();
-
 #ifdef EMSCRIPTEN
+void MainLoop(void) {
 	// Dumbed down CPU driving loop for emscripten since it sucks and doesn't
 	// like SDL's threads.
+
+	ScreenDraw();
+	done = ScreenProcessEvents();
 
 	XrProcessor *proc = CpuTable[0];
 
@@ -434,5 +440,5 @@ void MainLoop(void) {
 		RTCInterval(1);
 		SerialInterval(1);
 	}
-#endif
 }
+#endif

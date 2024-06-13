@@ -14,6 +14,10 @@ typedef struct _DKSDisk {
 	int ID;
 	int Present;
 	bool Spinning;
+	uint8_t TemporaryBuffer[512];
+	uint32_t TransferAddress;
+	uint32_t TransferSector;
+	uint32_t TransferCount;
 	uint32_t IoType;
 	uint32_t SectorCount;
 	uint32_t SectorsPerTrack;
@@ -85,25 +89,27 @@ void DKSReset() {
 	DKSTransferAddress = 0;
 }
 
-uint8_t DKSTempBlockBuffer[512];
-
 void DKSCompleteTransfer(DKSDisk *disk) {
 	// Complete the transfer.
 
-	fseek(DKSSelectedDrive->DiskImage, DKSPortA*512, SEEK_SET);
+	if (DKSPrint) {
+		printf("dks%d: %s %d @ %08x\n", disk->ID, disk->IoType == DKS_READ ? "read" : "write", disk->TransferSector, disk->TransferAddress);
+	}
 
-	for (int i = 0; i < DKSTransferCount; i++) {
+	fseek(disk->DiskImage, disk->TransferSector*512, SEEK_SET);
+
+	for (int i = 0; i < disk->TransferCount; i++) {
 		if (disk->IoType == DKS_READ) {
-			fread(&DKSTempBlockBuffer[0], 512, 1, DKSSelectedDrive->DiskImage);
+			fread(&disk->TemporaryBuffer[0], 512, 1, disk->DiskImage);
 
-			EBusWrite(DKSTransferAddress, &DKSTempBlockBuffer[0], 512);
+			EBusWrite(disk->TransferAddress, &disk->TemporaryBuffer[0], 512);
 		} else {
-			EBusRead(DKSTransferAddress, &DKSTempBlockBuffer[0], 512);
+			EBusRead(disk->TransferAddress, &disk->TemporaryBuffer[0], 512);
 
-			fwrite(&DKSTempBlockBuffer[0], 512, 1, DKSSelectedDrive->DiskImage);
+			fwrite(&disk->TemporaryBuffer[0], 512, 1, disk->DiskImage);
 		}
 
-		DKSTransferAddress += 512;
+		disk->TransferAddress += 512;
 	}
 
 	// Set parameters and send interrupt.
@@ -254,10 +260,6 @@ int DKSDispatchIO(uint32_t type) {
 		return EBUSERROR;
 	}
 
-	if (DKSPrint) {
-		printf("dks%d: %s %d @ %08x\n", DKSSelectedDrive->ID, type == DKS_READ ? "read" : "write", DKSPortA, DKSTransferAddress);
-	}
-
 	// Mark the disk busy.
 
 	DKSStatus |= 1 << DKSSelectedDrive->ID;
@@ -274,6 +276,10 @@ int DKSDispatchIO(uint32_t type) {
 		DKSSelectedDrive->OperationInterval = 0;
 	}
 
+	DKSSelectedDrive->TransferSector = DKSPortA;
+	DKSSelectedDrive->TransferAddress = DKSTransferAddress;
+	DKSSelectedDrive->TransferCount = DKSTransferCount;
+
 #ifndef EMSCRIPTEN
 	// Enqueue a timer callback to perform the operation and signal the
 	// completion interrupt. If the interval is 0, this should dispatch it
@@ -281,15 +287,6 @@ int DKSDispatchIO(uint32_t type) {
 	// from having to eat the cost of the read and write syscalls.
 
 	EnqueueCallback(DKSSelectedDrive->OperationInterval, &DKSCallback, DKSSelectedDrive);
-#else
-	// Emscripten builds are single-threaded, so if the accumulated interval
-	// hasn't exceeded a certain threshold, just complete the operation
-	// immediately. Otherwise there will be very long minimum operation time
-	// due to how infrequently the emscripten build calls DKSInterval.
-
-	if (!DKSAsynchronous || disk->OperationInterval < ACCUMULATED_INTERVAL) {
-		DKSCompleteTransfer(disk);
-	}
 #endif
 
 	return EBUSSUCCESS;

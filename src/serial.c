@@ -234,7 +234,7 @@ int SerialWriteData(uint32_t port, uint32_t type, uint32_t value) {
 
 	thisport->Cost += 1;
 
-	if (!SerialAsynchronous || thisport->Cost < ACCUMULATED_COST) {
+	if ((!SerialAsynchronous || thisport->Cost < ACCUMULATED_COST) && !thisport->TransmitBufferIndex) {
 		SerialPutCharacter(thisport, value&0xFF);
 		return EBUSSUCCESS;
 	}
