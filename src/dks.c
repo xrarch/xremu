@@ -13,16 +13,20 @@ typedef struct _DKSDisk {
 	FILE *DiskImage;
 	int ID;
 	int Present;
+	bool Spinning;
+	uint32_t IoType;
 	uint32_t SectorCount;
 	uint32_t SectorsPerTrack;
 	uint32_t CylinderCount;
-	bool Spinning;
 	uint32_t PlatterLocation; // selects a sector
 	uint32_t HeadLocation; // selects a cylinder
 	uint32_t OperationInterval;
 	uint32_t SeekTo;
 	uint32_t ConsecutiveZeroSeeks;
 } DKSDisk;
+
+#define DKS_READ 1
+#define DKS_WRITE 2
 
 // fake disk geometry for simple seek time simulation
 
@@ -81,6 +85,38 @@ void DKSReset() {
 	DKSTransferAddress = 0;
 }
 
+uint8_t DKSTempBlockBuffer[512];
+
+void DKSCompleteTransfer(DKSDisk *disk) {
+	// Complete the transfer.
+
+	fseek(DKSSelectedDrive->DiskImage, DKSPortA*512, SEEK_SET);
+
+	for (int i = 0; i < DKSTransferCount; i++) {
+		if (disk->IoType == DKS_READ) {
+			fread(&DKSTempBlockBuffer[0], 512, 1, DKSSelectedDrive->DiskImage);
+
+			EBusWrite(DKSTransferAddress, &DKSTempBlockBuffer[0], 512);
+		} else {
+			EBusRead(DKSTransferAddress, &DKSTempBlockBuffer[0], 512);
+
+			fwrite(&DKSTempBlockBuffer[0], 512, 1, DKSSelectedDrive->DiskImage);
+		}
+
+		DKSTransferAddress += 512;
+	}
+
+	// Set parameters and send interrupt.
+
+	DKSStatus &= ~(1 << disk->ID);
+	DKSCompleted |= 1 << disk->ID;
+
+	disk->PlatterLocation = LBA_TO_SECTOR(disk, disk->SeekTo);
+	disk->HeadLocation = LBA_TO_CYLINDER(disk, disk->SeekTo);
+
+	DKSInfo(0);
+}
+
 uint32_t DKSCallback(uint32_t interval, void *param) {
 	DKSDisk *disk = param;
 
@@ -99,14 +135,9 @@ uint32_t DKSCallback(uint32_t interval, void *param) {
 		}
 #endif
 
-		DKSStatus &= ~(1 << disk->ID);
-		DKSCompleted |= 1 << disk->ID;
+		DKSCompleteTransfer(disk);
 
 		disk->OperationInterval = 0;
-		disk->PlatterLocation = LBA_TO_SECTOR(disk, disk->SeekTo);
-		disk->HeadLocation = LBA_TO_CYLINDER(disk, disk->SeekTo);
-
-		DKSInfo(0);
 	}
 
 	UnlockIoMutex();
@@ -205,7 +236,64 @@ void DKSSeek() {
 	}
 }
 
-uint8_t DKSTempBlockBuffer[512];
+int DKSDispatchIO(uint32_t type) {
+	if (!DKSSelectedDrive) {
+		return EBUSERROR;
+	}
+
+	if ((DKSPortA + DKSTransferCount) < DKSPortA) {
+		// overflow!
+		return EBUSERROR;
+	}
+
+	if ((DKSPortA + DKSTransferCount) >= DKSSelectedDrive->SectorCount) {
+		return EBUSERROR;
+	}
+
+	if (DKSStatus & (1 << DKSSelectedDrive->ID)) {
+		return EBUSERROR;
+	}
+
+	if (DKSPrint) {
+		printf("dks%d: %s %d @ %08x\n", DKSSelectedDrive->ID, type == DKS_READ ? "read" : "write", DKSPortA, DKSTransferAddress);
+	}
+
+	// Mark the disk busy.
+
+	DKSStatus |= 1 << DKSSelectedDrive->ID;
+
+	DKSSelectedDrive->IoType = type;
+
+	if (DKSAsynchronous) {
+		// Calculate seek values.
+
+		DKSSeek();
+	} else {
+		// Zero seek time.
+
+		DKSSelectedDrive->OperationInterval = 0;
+	}
+
+#ifndef EMSCRIPTEN
+	// Enqueue a timer callback to perform the operation and signal the
+	// completion interrupt. If the interval is 0, this should dispatch it
+	// to a worker thread for immediate processing. This keeps the CPU threads
+	// from having to eat the cost of the read and write syscalls.
+
+	EnqueueCallback(DKSSelectedDrive->OperationInterval, &DKSCallback, DKSSelectedDrive);
+#else
+	// Emscripten builds are single-threaded, so if the accumulated interval
+	// hasn't exceeded a certain threshold, just complete the operation
+	// immediately. Otherwise there will be very long minimum operation time
+	// due to how infrequently the emscripten build calls DKSInterval.
+
+	if (!DKSAsynchronous || disk->OperationInterval < ACCUMULATED_INTERVAL) {
+		DKSCompleteTransfer(disk);
+	}
+#endif
+
+	return EBUSSUCCESS;
+}
 
 int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 	int status;
@@ -224,102 +312,12 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 		case 2:
 			// read sectors
 
-			if (!DKSSelectedDrive)
-				return EBUSERROR;
-
-			if ((DKSPortA + DKSTransferCount) < DKSPortA) {
-				// overflow!
-				return EBUSERROR;
-			}
-
-			if ((DKSPortA + DKSTransferCount) >= DKSSelectedDrive->SectorCount)
-				return EBUSERROR;
-
-			if (DKSStatus & (1 << DKSSelectedDrive->ID))
-				return EBUSERROR;
-
-			fseek(DKSSelectedDrive->DiskImage, DKSPortA*512, SEEK_SET);
-
-			if (DKSPrint) {
-				printf("dks%d: read %d to %08x\n", DKSSelectedDrive->ID, DKSPortA, DKSTransferAddress);
-			}
-
-			for (int i = 0; i < DKSTransferCount; i++) {
-				fread(&DKSTempBlockBuffer[0], 512, 1, DKSSelectedDrive->DiskImage);
-
-				status = EBusWrite(DKSTransferAddress, &DKSTempBlockBuffer[0], 512);
-
-				if (status != EBUSSUCCESS) {
-					return status;
-				}
-
-				DKSTransferAddress += 512;
-			}
-
-			DKSSeek();
-
-			if (!DKSAsynchronous || DKSSelectedDrive->OperationInterval < ACCUMULATED_INTERVAL) {
-				DKSCompleted |= 1<<DKSSelectedDrive->ID;
-				DKSInfo(0);
-			} else {
-				DKSStatus |= 1<<DKSSelectedDrive->ID;
-#ifndef EMSCRIPTEN
-				EnqueueCallback(DKSSelectedDrive->OperationInterval, &DKSCallback, DKSSelectedDrive);
-#endif
-			}
-
-			return EBUSSUCCESS;
+			return DKSDispatchIO(DKS_READ);
 
 		case 3:
 			// write sectors
 
-			if (!DKSSelectedDrive) {
-				return EBUSERROR;
-			}
-
-			if ((DKSPortA + DKSTransferCount) < DKSPortA) {
-				// overflow!
-				return EBUSERROR;
-			}
-
-			if ((DKSPortA + DKSTransferCount) >= DKSSelectedDrive->SectorCount)
-				return EBUSERROR;
-
-			if (DKSStatus & (1 << DKSSelectedDrive->ID)) {
-				return EBUSERROR;
-			}
-
-			fseek(DKSSelectedDrive->DiskImage, DKSPortA*512, SEEK_SET);
-
-			if (DKSPrint) {
-				printf("dks%d: write %d from %08x\n", DKSSelectedDrive->ID, DKSPortA, DKSTransferAddress);
-			}
-
-			for (int i = 0; i < DKSTransferCount; i++) {
-				status = EBusRead(DKSTransferAddress, &DKSTempBlockBuffer[0], 512);
-
-				if (status != EBUSSUCCESS) {
-					return status;
-				}
-
-				fwrite(&DKSTempBlockBuffer[0], 512, 1, DKSSelectedDrive->DiskImage);
-
-				DKSTransferAddress += 512;
-			}
-
-			DKSSeek();
-
-			if (!DKSAsynchronous || DKSSelectedDrive->OperationInterval < ACCUMULATED_INTERVAL) {
-				DKSCompleted |= 1<<DKSSelectedDrive->ID;
-				DKSInfo(0);
-			} else {
-				DKSStatus |= 1<<DKSSelectedDrive->ID;
-#ifndef EMSCRIPTEN
-				EnqueueCallback(DKSSelectedDrive->OperationInterval, &DKSCallback, DKSSelectedDrive);
-#endif
-			}
-
-			return EBUSSUCCESS;
+			return DKSDispatchIO(DKS_WRITE);
 
 		case 4:
 			// read info
@@ -433,9 +431,11 @@ int DKSAttachImage(char *path) {
 	disk->DiskImage = fopen(path, "r+b");
 
 	if (!disk->DiskImage) {
-		fprintf(stderr, "couldn't open disk image\n");
+		fprintf(stderr, "%s: couldn't open disk image\n", path);
 		return false;
 	}
+
+	setvbuf(disk->DiskImage, 0, _IONBF, 0);
 
 	fseek(disk->DiskImage, 0, SEEK_END);
 	uint32_t bytes = ftell(disk->DiskImage);
@@ -450,7 +450,7 @@ int DKSAttachImage(char *path) {
 	disk->Present = 1;
 	disk->Spinning = true;
 
-	// Roughly calculate geometry for disk seek simulation.
+	// Roughly calculate a disk geometry for use by disk seek simulation.
 	// The code is based on this algorithm from 86Box:
 	// https://github.com/86Box/86Box/blob/b5bb35688c19bfe07bc705bce05d9005d9884bb9/src/win/win_settings.c#L3403-L3424
 

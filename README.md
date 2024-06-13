@@ -71,4 +71,4 @@ Striking the right ALT key will switch the display between the framebuffer and t
     -cpuhz [frequency]
         Specify the frequency that the CPU simulation should be run at. Default is 20000000 (20MHz).
 
-WARNING: For performance reasons, this emulator does not make any attempt to be portable to big-endian host platforms! If you are on PowerPC for some reason, it will not run correctly!
+WARNING: This emulator does not make any attempt to be portable to big-endian host platforms! If you are on PowerPC for some reason, it will not run correctly!
