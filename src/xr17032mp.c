@@ -1259,15 +1259,34 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 				case 8: // *SH
 					switch(shifttype) {
 						case 0: // LSH
-							proc->Reg[rd] = proc->Reg[rb] << proc->Reg[ra];
+							if (proc->Reg[ra] >= 32) {
+								proc->Reg[rd] = 0;
+							} else {
+								proc->Reg[rd] = proc->Reg[rb] << proc->Reg[ra];
+							}
+
 							break;
 
 						case 1: // RSH
-							proc->Reg[rd] = proc->Reg[rb] >> proc->Reg[ra];
+							if (proc->Reg[ra] >= 32) {
+								proc->Reg[rd] = 0;
+							} else {
+								proc->Reg[rd] = proc->Reg[rb] >> proc->Reg[ra];
+							}
+
 							break;
 
 						case 2: // ASH
-							proc->Reg[rd] = (int32_t) proc->Reg[rb] >> proc->Reg[ra];
+							if (proc->Reg[ra] >= 32) {
+								if (proc->Reg[rb] & 0x80000000) {
+									proc->Reg[rd] = 0xFFFFFFFF;
+								} else {
+									proc->Reg[rd] = 0;
+								}
+							} else {
+								proc->Reg[rd] = (int32_t) proc->Reg[rb] >> proc->Reg[ra];
+							}
+
 							break;
 
 						case 3: // ROR
