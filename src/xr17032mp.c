@@ -23,6 +23,13 @@ static inline uint32_t RoR(uint32_t x, uint32_t n) {
 
 #define NMI_MASK_CYCLES 64
 
+// The canonical invalid TB entry is:
+// ASID=4095 VPN=0 V=0
+//
+// This means ASID 4095 is unusable if access to the zeroth page is required.
+
+#define TB_INVALID_ENTRY 0xFFF0000000000000
+
 #define XR_LINE_INVALID 0
 #define XR_LINE_SHARED 1
 #define XR_LINE_EXCLUSIVE 2
@@ -1550,7 +1557,7 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 									// Invalidate the entire ITB.
 
 									for (int i = 0; i < XR_ITB_SIZE; i++) {
-										proc->Itb[i] = 0;
+										proc->Itb[i] = TB_INVALID_ENTRY;
 									}
 								} else if ((proc->Reg[ra] & 3) == 2) {
 									// Invalidate the entire ITB except for
@@ -1558,7 +1565,7 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 
 									for (int i = 0; i < XR_ITB_SIZE; i++) {
 										if ((proc->Itb[i] & PTE_GLOBAL) == 0) {
-											proc->Itb[i] = 0;
+											proc->Itb[i] = TB_INVALID_ENTRY;
 										}
 									}
 								} else if ((proc->Reg[ra] & 3) == 0) {
@@ -1568,7 +1575,7 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 
 									for (int i = 0; i < XR_ITB_SIZE; i++) {
 										if ((proc->Itb[i] & 0xFFFFF00000000) == vpn) {
-											proc->Itb[i] = 0;
+											proc->Itb[i] = TB_INVALID_ENTRY;
 										}
 									}
 
@@ -1588,7 +1595,7 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 									// Invalidate the entire DTB.
 
 									for (int i = 0; i < XR_DTB_SIZE; i++) {
-										proc->Dtb[i] = 0;
+										proc->Dtb[i] = TB_INVALID_ENTRY;
 									}
 								} else if ((proc->Reg[ra] & 3) == 2) {
 									// Invalidate the entire DTB except for
@@ -1596,7 +1603,7 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 
 									for (int i = 0; i < XR_DTB_SIZE; i++) {
 										if ((proc->Dtb[i] & PTE_GLOBAL) == 0) {
-											proc->Dtb[i] = 0;
+											proc->Dtb[i] = TB_INVALID_ENTRY;
 										}
 									}
 								} else if ((proc->Reg[ra] & 3) == 0) {
@@ -1606,7 +1613,7 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 
 									for (int i = 0; i < XR_DTB_SIZE; i++) {
 										if ((proc->Dtb[i] & 0xFFFFF00000000) == vpn) {
-											proc->Dtb[i] = 0;
+											proc->Dtb[i] = TB_INVALID_ENTRY;
 										}
 									}
 
