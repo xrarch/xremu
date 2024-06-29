@@ -1042,6 +1042,8 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 	if (proc->Halted) {
 		// We're halted.
 
+		proc->NmiMaskCounter = 0;
+
 		if (!lsic->InterruptPending || (proc->Cr[RS] & RS_INT) == 0) {
 			// Interrupts are disabled or there is no interrupt pending. Just
 			// return.
