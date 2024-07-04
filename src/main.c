@@ -31,8 +31,9 @@ XrProcessor *XrIoMutexProcessor;
 
 #ifndef EMSCRIPTEN
 
+SDL_mutex *ScacheMutexes[XR_CACHE_MUTEXES];
+
 SDL_mutex *IoMutex;
-SDL_mutex *ScacheMutex;
 SDL_sem* CpuSemaphore;
 
 void LockIoMutex() {
@@ -58,20 +59,20 @@ void XrUnlockIoMutex() {
 	SDL_UnlockMutex(IoMutex);
 }
 
-void XrLockCache(XrProcessor *proc) {
-	SDL_LockMutex((SDL_mutex *)proc->CacheMutex);
+void XrLockCache(XrProcessor *proc, uint32_t tag) {
+	SDL_LockMutex((SDL_mutex *)(proc->CacheMutexes[(tag >> XR_DC_LINE_SIZE_LOG) & XR_CACHE_MUTEX_MASK]));
 }
 
-void XrUnlockCache(XrProcessor *proc) {
-	SDL_UnlockMutex((SDL_mutex *)proc->CacheMutex);
+void XrUnlockCache(XrProcessor *proc, uint32_t tag) {
+	SDL_UnlockMutex((SDL_mutex *)(proc->CacheMutexes[(tag >> XR_DC_LINE_SIZE_LOG) & XR_CACHE_MUTEX_MASK]));
 }
 
-void XrLockScache() {
-	SDL_LockMutex(ScacheMutex);
+void XrLockScache(uint32_t tag) {
+	SDL_LockMutex(ScacheMutexes[(tag >> XR_DC_LINE_SIZE_LOG) & XR_CACHE_MUTEX_MASK]);
 }
 
-void XrUnlockScache() {
-	SDL_UnlockMutex(ScacheMutex);
+void XrUnlockScache(uint32_t tag) {
+	SDL_UnlockMutex(ScacheMutexes[(tag >> XR_DC_LINE_SIZE_LOG) & XR_CACHE_MUTEX_MASK]);
 }
 
 #else
@@ -81,10 +82,10 @@ void UnlockIoMutex() {}
 void XrPokeCpu(XrProcessor *proc) {}
 void XrLockIoMutex(XrProcessor *proc) {}
 void XrUnlockIoMutex() {}
-void XrLockCache(XrProcessor *proc) {}
-void XrUnlockCache(XrProcessor *proc) {}
-void XrLockScache() {}
-void XrUnlockScache() {}
+void XrLockCache(XrProcessor *proc, uint32_t tag) {}
+void XrUnlockCache(XrProcessor *proc, uint32_t tag) {}
+void XrLockScache(uint32_t tag) {}
+void XrUnlockScache(uint32_t tag) {}
 
 uint32_t emscripten_last_tick = 0;
 
@@ -165,11 +166,13 @@ void CpuCreate(int id) {
 	XrReset(proc);
 
 #ifndef EMSCRIPTEN
-	proc->CacheMutex = SDL_CreateMutex();
+	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
+		proc->CacheMutexes[i] = SDL_CreateMutex();
 
-	if (!proc->CacheMutex) {
-		fprintf(stderr, "Unable to allocate cache mutex: %s", SDL_GetError());
-		exit(1);
+		if (!proc->CacheMutexes[i]) {
+			fprintf(stderr, "Unable to allocate cache mutex: %s", SDL_GetError());
+			exit(1);
+		}
 	}
 
 	proc->LoopSemaphore = SDL_CreateSemaphore(0);
@@ -206,11 +209,13 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	ScacheMutex = SDL_CreateMutex();
+	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
+		ScacheMutexes[i] = SDL_CreateMutex();
 
-	if (!ScacheMutex) {
-		fprintf(stderr, "Unable to allocate ScacheMutex: %s", SDL_GetError());
-		return 1;
+		if (!ScacheMutexes[i]) {
+			fprintf(stderr, "Unable to allocate ScacheMutex: %s", SDL_GetError());
+			return 1;
+		}
 	}
 
 	for (int i = 1; i < argc; i++) {

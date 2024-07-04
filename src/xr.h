@@ -86,6 +86,9 @@
 
 #define XR_POLL_MAX 8
 
+#define XR_CACHE_MUTEXES 32
+#define XR_CACHE_MUTEX_MASK (XR_CACHE_MUTEXES - 1)
+
 typedef struct _XrProcessor {
 	uint64_t Itb[XR_ITB_SIZE];
 	uint64_t Dtb[XR_DTB_SIZE];
@@ -93,7 +96,7 @@ typedef struct _XrProcessor {
 	uint64_t ItbLastResult;
 	uint64_t DtbLastResult;
 
-	void *CacheMutex;
+	void *CacheMutexes[XR_CACHE_MUTEXES];
 	void *LoopSemaphore;
 
 	uint32_t IcTags[XR_IC_LINE_COUNT];
@@ -160,14 +163,14 @@ extern uint32_t XrProcessorCount;
 extern XrProcessor *CpuTable[XR_PROC_MAX];
 extern XrProcessor *XrIoMutexProcessor;
 
-extern void XrLockScache();
-extern void XrUnlockScache();
+extern void XrLockScache(uint32_t tag);
+extern void XrUnlockScache(uint32_t tag);
 
 extern void XrLockIoMutex(XrProcessor *proc);
 extern void XrUnlockIoMutex();
 
-extern void XrLockCache(XrProcessor *proc);
-extern void XrUnlockCache(XrProcessor *proc);
+extern void XrLockCache(XrProcessor *proc, uint32_t tag);
+extern void XrUnlockCache(XrProcessor *proc, uint32_t tag);
 
 extern void XrReset(XrProcessor *proc);
 extern void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt);

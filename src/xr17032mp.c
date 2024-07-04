@@ -87,7 +87,7 @@ static inline void XrInvalidateLine(XrProcessor *proc, uint32_t tag, uint8_t was
 	uint32_t setnumber = (tag >> XR_DC_LINE_SIZE_LOG) & (XR_DC_SETS - 1);
 	uint32_t cacheindex = setnumber << XR_DC_WAY_LOG;
 
-	XrLockCache(proc);
+	XrLockCache(proc, tag);
 
 	//printf("searching for %x at %d\n", tag, cacheindex);
 
@@ -99,7 +99,7 @@ static inline void XrInvalidateLine(XrProcessor *proc, uint32_t tag, uint8_t was
 		if (proc->DcFlags[cacheindex + i] && proc->DcTags[cacheindex + i] == tag) {
 			// Found it! Kill it.
 
-			//printf("found to inval %x %d %d\n", tag, proc->DcFlags[cacheindex + i], cacheindex + i);
+			// printf("found to inval %x %d %d\n", tag, proc->DcFlags[cacheindex + i], cacheindex + i);
 
 			proc->DcFlags[cacheindex + i] = XR_LINE_INVALID;
 
@@ -130,7 +130,7 @@ static inline void XrInvalidateLine(XrProcessor *proc, uint32_t tag, uint8_t was
 		}
 	}
 
-	XrUnlockCache(proc);
+	XrUnlockCache(proc, tag);
 }
 
 static inline void XrInvalidateAll(XrProcessor *thisproc, uint32_t tag, uint8_t wasexclusive) {
@@ -646,7 +646,7 @@ static uint8_t XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uin
 
 restart:
 
-	XrLockCache(proc);
+	XrLockCache(proc, tag);
 
 	uint32_t scacheindex = -1;
 
@@ -678,7 +678,7 @@ restart:
 			// We wanted to atomically check if we have it exclusive for the SC
 			// instruction. We don't!
 
-			XrUnlockCache(proc);
+			XrUnlockCache(proc, tag);
 
 			//printf("%d: not exclusive 1\n", proc->Id);
 
@@ -725,11 +725,11 @@ restart:
 
 		// First unlock our cache, otherwise we will violate the lock ordering.
 
-		XrUnlockCache(proc);
+		XrUnlockCache(proc, tag);
 
 		// Lock the Scache and look up the tag within it.
 
-		XrLockScache();
+		XrLockScache(tag);
 
 		// While we dropped our cache lock, somebody villainous might have
 		// taken our cache line from us.
@@ -737,7 +737,7 @@ restart:
 		if (proc->DcFlags[index] == XR_LINE_INVALID) {
 			// Just retry.
 
-			XrUnlockScache();
+			XrUnlockScache(tag);
 
 			goto restart;
 		}
@@ -791,7 +791,7 @@ restart:
 			proc->DcFlags[index] = XR_LINE_INVALID;
 			XrScacheFlags[scacheindex] = XR_LINE_INVALID;
 
-			XrUnlockScache();
+			XrUnlockScache(tag);
 
 			proc->Cr[EBADADDR] = address;
 			XrBasicException(proc, XR_EXC_BUS);
@@ -801,8 +801,8 @@ restart:
 
 		// Re-lock our cache.
 
-		XrLockCache(proc);
-		XrUnlockScache();
+		XrLockCache(proc, tag);
+		XrUnlockScache(tag);
 	} else {
 #ifdef PROFCPU
 		proc->DcHitCount++;
@@ -812,7 +812,7 @@ restart:
 			// We want exclusivity but we have the line shared. We need to grab
 			// it exclusive.
 
-			XrUnlockCache(proc);
+			XrUnlockCache(proc, tag);
 
 			if (mustbeexclusive) {
 				// We wanted to atomically check if we have it exclusive for the
@@ -823,7 +823,7 @@ restart:
 				return 2;
 			}
 
-			XrLockScache();
+			XrLockScache(tag);
 
 			// While we dropped our cache lock, somebody villainous might have
 			// taken our cache line from us.
@@ -831,7 +831,7 @@ restart:
 			if (proc->DcFlags[index] == XR_LINE_INVALID) {
 				// In this case, just retry.
 
-				XrUnlockScache();
+				XrUnlockScache(tag);
 
 				goto restart;
 			}
@@ -858,8 +858,8 @@ restart:
 			XrScacheFlags[scacheindex] = XR_LINE_EXCLUSIVE;
 			XrScacheExclusiveIds[scacheindex] = proc->Id;
 
-			XrLockCache(proc);
-			XrUnlockScache();
+			XrLockCache(proc, tag);
+			XrUnlockScache(tag);
 		}
 	}
 
@@ -885,7 +885,7 @@ restart:
 				break;
 		}
 
-		XrUnlockCache(proc);
+		XrUnlockCache(proc, tag);
 
 		return 1;
 	}
@@ -954,7 +954,7 @@ restart:
 	if (foundwb) {
 		// Done.
 
-		XrUnlockCache(proc);
+		XrUnlockCache(proc, tag);
 
 		return 1;
 	}
@@ -991,7 +991,7 @@ restart:
 	proc->WbTags[freewbindex] = tag;
 	proc->WbSize += 1;
 
-	XrUnlockCache(proc);
+	XrUnlockCache(proc, tag);
 
 	return 1;
 }
@@ -1118,34 +1118,36 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 				continue;
 			}
 
-			if (proc->WbSize) {
-				if (proc->WbCyclesTilNextWrite) {
-					proc->WbCyclesTilNextWrite -= 1;
-				} else {
-					// Time to write out a write buffer entry.
+			if (proc->WbCyclesTilNextWrite) {
+				proc->WbCyclesTilNextWrite -= 1;
+			} else if (proc->WbSize) {
+				// Time to write out a write buffer entry.
 
-					XrLockCache(proc);
+				for (int i = 0; i < XR_WB_DEPTH; i++) {
+					int index = (proc->WbIndex + i) & (XR_WB_DEPTH - 1);
 
-					if (proc->WbSize) {
-						for (int i = 0; i < XR_WB_DEPTH; i++) {
-							int index = (proc->WbIndex + i) & (XR_WB_DEPTH - 1);
+					uint32_t tag = proc->WbTags[index];
 
-							if (proc->WbTags[index]) {
-								XrLockIoMutex(proc);
-								EBusWrite(proc->WbTags[index], &proc->Wb[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE);
-								XrUnlockIoMutex();
+					if (tag) {
+						XrLockCache(proc, tag);
 
-								proc->WbTags[index] = 0;
-								proc->WbIndex = index + 1;
-								break;
-							}
+						if (proc->WbTags[index]) {
+							XrLockIoMutex(proc);
+							EBusWrite(tag, &proc->Wb[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE);
+							XrUnlockIoMutex();
+
+							proc->WbTags[index] = 0;
+							proc->WbIndex = index + 1;
+							proc->WbSize -= 1;
+							proc->WbCyclesTilNextWrite = XR_UNCACHED_STALL;
+
+							XrUnlockCache (proc, tag);
+
+							break;
 						}
 
-						proc->WbSize -= 1;
-						proc->WbCyclesTilNextWrite = XR_UNCACHED_STALL;
+						XrUnlockCache(proc, tag);
 					}
-
-					XrUnlockCache(proc);
 				}
 			}
 		}
@@ -1345,41 +1347,37 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 					break;
 
 				case 3: // MB
-					if (XrSimulateCaches) {
-						// Lock and unlock the Scache to synchronize behind
-						// anyone else doing coherency work.
-
-						XrLockScache();
-						XrUnlockScache();
-					}
-
 					// fall-through
 
 				case 2: // WMB
 					if (XrSimulateCaches && proc->WbSize) {
 						// Flush the write buffer.
 
-						XrLockCache(proc);
-
 						for (int i = 0; i < XR_WB_DEPTH; i++) {
-							if (proc->WbTags[i]) {
+							uint32_t tag = proc->WbTags[i];
+
+							if (tag) {
 								// Force a write-out.
-								
-								proc->StallCycles += XR_UNCACHED_STALL;
-								proc->WbCyclesTilNextWrite = XR_UNCACHED_STALL;
 
-								XrLockIoMutex(proc);
-								EBusWrite(proc->WbTags[i], &proc->Wb[i << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE);
-								XrUnlockIoMutex();
+								XrLockCache(proc, tag);
 
-								proc->WbTags[i] = 0;
+								if (proc->WbTags[i]) {
+									proc->StallCycles += XR_UNCACHED_STALL;
+									proc->WbCyclesTilNextWrite = XR_UNCACHED_STALL;
+
+									XrLockIoMutex(proc);
+									EBusWrite(tag, &proc->Wb[i << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE);
+									XrUnlockIoMutex();
+
+									proc->WbTags[i] = 0;
+									proc->WbSize -= 1;
+								}
+
+								XrUnlockCache(proc, tag);
 							}
 						}
 
-						proc->WbSize = 0;
 						proc->WbIndex = 0;
-
-						XrUnlockCache(proc);
 					}
 
 					break;
@@ -1539,8 +1537,6 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 								if (!XrSimulateCaches)
 									break;
 
-								XrLockCache(proc);
-
 								if ((proc->Reg[ra] & 3) == 3) {
 									// Invalidate the entire Dcache.
 
@@ -1568,8 +1564,6 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 								// Reset the lookup hint.
 
 								proc->DcLastTag = -1;
-
-								XrUnlockCache(proc);
 
 								break;
 
