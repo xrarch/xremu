@@ -60,19 +60,19 @@ void XrUnlockIoMutex() {
 }
 
 void XrLockCache(XrProcessor *proc, uint32_t tag) {
-	SDL_LockMutex((SDL_mutex *)(proc->CacheMutexes[(tag >> XR_DC_LINE_SIZE_LOG) & XR_CACHE_MUTEX_MASK]));
+	SDL_LockMutex((SDL_mutex *)(proc->CacheMutexes[XR_CACHE_INDEX(tag)]));
 }
 
 void XrUnlockCache(XrProcessor *proc, uint32_t tag) {
-	SDL_UnlockMutex((SDL_mutex *)(proc->CacheMutexes[(tag >> XR_DC_LINE_SIZE_LOG) & XR_CACHE_MUTEX_MASK]));
+	SDL_UnlockMutex((SDL_mutex *)(proc->CacheMutexes[XR_CACHE_INDEX(tag)]));
 }
 
 void XrLockScache(uint32_t tag) {
-	SDL_LockMutex(ScacheMutexes[(tag >> XR_DC_LINE_SIZE_LOG) & XR_CACHE_MUTEX_MASK]);
+	SDL_LockMutex(ScacheMutexes[XR_CACHE_INDEX(tag)]);
 }
 
 void XrUnlockScache(uint32_t tag) {
-	SDL_UnlockMutex(ScacheMutexes[(tag >> XR_DC_LINE_SIZE_LOG) & XR_CACHE_MUTEX_MASK]);
+	SDL_UnlockMutex(ScacheMutexes[XR_CACHE_INDEX(tag)]);
 }
 
 #else

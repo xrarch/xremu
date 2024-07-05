@@ -86,8 +86,12 @@
 
 #define XR_POLL_MAX 8
 
-#define XR_CACHE_MUTEXES 32
-#define XR_CACHE_MUTEX_MASK (XR_CACHE_MUTEXES - 1)
+#define XR_CACHE_MUTEXES 64
+
+// Take 1 uppermost and 5 low bits from cache index. Tries to divide the cache
+// in half between memory and I/O.
+
+#define XR_CACHE_INDEX(tag) (((tag >> 31) << 5) | ((tag >> XR_DC_LINE_COUNT_LOG) & 31))
 
 typedef struct _XrProcessor {
 	uint64_t Itb[XR_ITB_SIZE];
