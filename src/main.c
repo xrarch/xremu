@@ -31,6 +31,7 @@ XrProcessor *XrIoMutexProcessor;
 
 #ifndef EMSCRIPTEN
 
+SDL_mutex *ScacheReplacementMutex;
 SDL_mutex *ScacheMutexes[XR_CACHE_MUTEXES];
 
 SDL_mutex *IoMutex;
@@ -75,6 +76,14 @@ void XrUnlockScache(uint32_t tag) {
 	SDL_UnlockMutex(ScacheMutexes[XR_CACHE_INDEX(tag)]);
 }
 
+void XrLockScacheReplacement() {
+	SDL_LockMutex(ScacheReplacementMutex);
+}
+
+void XrUnlockScacheReplacement() {
+	SDL_UnlockMutex(ScacheReplacementMutex);
+}
+
 #else
 
 void LockIoMutex() {}
@@ -86,6 +95,8 @@ void XrLockCache(XrProcessor *proc, uint32_t tag) {}
 void XrUnlockCache(XrProcessor *proc, uint32_t tag) {}
 void XrLockScache(uint32_t tag) {}
 void XrUnlockScache(uint32_t tag) {}
+void XrLockScacheReplacement() {}
+void XrUnlockScacheReplacement() {}
 
 uint32_t emscripten_last_tick = 0;
 
@@ -216,6 +227,13 @@ int main(int argc, char *argv[]) {
 			fprintf(stderr, "Unable to allocate ScacheMutex: %s", SDL_GetError());
 			return 1;
 		}
+	}
+
+	ScacheReplacementMutex = SDL_CreateMutex();
+
+	if (!ScacheReplacementMutex) {
+		fprintf(stderr, "Unable to allocate ScacheReplacementMutex: %s", SDL_GetError());
+		return 1;
 	}
 
 	for (int i = 1; i < argc; i++) {

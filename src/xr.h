@@ -93,6 +93,9 @@
 
 #define XR_CACHE_INDEX(tag) (((tag >> 31) << 5) | ((tag >> XR_DC_LINE_COUNT_LOG) & 31))
 
+#define XR_WB_INDEX_INVALID 255
+#define XR_CACHE_INDEX_INVALID 0xFFFFFFFF
+
 typedef struct _XrProcessor {
 	uint64_t Itb[XR_ITB_SIZE];
 	uint64_t Dtb[XR_DTB_SIZE];
@@ -105,14 +108,14 @@ typedef struct _XrProcessor {
 
 	uint32_t IcTags[XR_IC_LINE_COUNT];
 	uint32_t DcTags[XR_DC_LINE_COUNT];
-	uint32_t WbTags[XR_WB_DEPTH];
+	uint32_t WbIndices[XR_WB_DEPTH];
 
 	uint32_t ItbLastVpn;
 	uint32_t DtbLastVpn;
 
-	uint32_t WbIndex;
-	uint32_t WbSize;
-	uint32_t WbCyclesTilNextWrite;
+	uint32_t WbFillIndex;
+	uint32_t WbWriteIndex;
+	uint32_t WbCycles;
 
 	uint32_t Reg[32];
 	uint32_t Cr[32];
@@ -128,9 +131,6 @@ typedef struct _XrProcessor {
 	uint32_t IcLastTag;
 	uint32_t IcLastOffset;
 
-	uint32_t DcLastTag;
-	uint32_t DcLastIndex;
-
 #ifdef PROFCPU
 	uint32_t DcMissCount;
 	uint32_t DcHitCount;
@@ -143,10 +143,10 @@ typedef struct _XrProcessor {
 
 	uint8_t Ic[XR_IC_BYTE_COUNT];
 	uint8_t Dc[XR_DC_BYTE_COUNT];
-	uint8_t Wb[XR_WB_BYTE_COUNT];
 
 	uint8_t IcFlags[XR_IC_LINE_COUNT];
 	uint8_t DcFlags[XR_DC_LINE_COUNT];
+	uint8_t DcIndexToWbIndex[XR_DC_LINE_COUNT];
 
 	uint8_t NmiMaskCounter;
 	uint8_t DcLastFlags;
@@ -175,6 +175,9 @@ extern void XrUnlockIoMutex();
 
 extern void XrLockCache(XrProcessor *proc, uint32_t tag);
 extern void XrUnlockCache(XrProcessor *proc, uint32_t tag);
+
+extern void XrLockScacheReplacement();
+extern void XrUnlockScacheReplacement();
 
 extern void XrReset(XrProcessor *proc);
 extern void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt);
