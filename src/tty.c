@@ -107,8 +107,7 @@ void TTYMoveCursor(struct TTY *tty, int x, int y) {
 	tty->CursorY = y;
 }
 
-// reuse the kinnowfb one to save memory
-extern uint32_t PixelBuffer[KINNOW_FRAMEBUFFER_WIDTH*KINNOW_FRAMEBUFFER_HEIGHT];
+static uint32_t PixelBufferTty[1024 * 768];
 
 void TTYDraw(struct Screen *screen) {
 	LockIoMutex();
@@ -155,7 +154,7 @@ void TTYDraw(struct Screen *screen) {
 							width*tty->FontWidth,
 							TTYPalette[cell>>12],
 							TTYPalette[(cell>>8)&15],
-							PixelBuffer);
+							PixelBufferTty);
 			} else {
 				TextBlitCharacter(cell&0x7F,
 							tty->FontBMP,
@@ -166,7 +165,7 @@ void TTYDraw(struct Screen *screen) {
 							width*tty->FontWidth,
 							TTYPalette[(cell>>8)&15],
 							TTYPalette[cell>>12],
-							PixelBuffer);
+							PixelBufferTty);
 			}
 		}
 
@@ -180,7 +179,7 @@ void TTYDraw(struct Screen *screen) {
 		.h = height * tty->FontHeight,
 	};
 
-	SDL_UpdateTexture(texture, &rect, PixelBuffer, rect.w * 4);
+	SDL_UpdateTexture(texture, &rect, PixelBufferTty, rect.w * 4);
 
 	tty->IsDirty = 0;
 
