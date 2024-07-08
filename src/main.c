@@ -134,6 +134,12 @@ int CpuLoop(void *context) {
 
 		// printf("delta time=%d\n", dt);
 
+		if (dt == 0) {
+			// Guarantee interrupt response.
+
+			dt = 1;
+		}
+
 		proc->Progress = XR_POLL_MAX;
 
 		for (int i = 0; i < dt; i++) {
@@ -155,10 +161,18 @@ int CpuLoop(void *context) {
 		int final_tick = SDL_GetTicks();
 		int this_tick_duration = final_tick - this_tick;
 
+		int delay;
+
+		if (this_tick_duration < CPUSTEPMS) {
+			delay = CPUSTEPMS - this_tick_duration;
+		} else {
+			delay = CPUSTEPMS;
+		}
+
 		// printf("duration=%d, delay=%d\n", this_tick_duration, CPUSTEPMS - this_tick_duration);
 
 		if (this_tick_duration < CPUSTEPMS) {
-			SDL_SemWaitTimeout(proc->LoopSemaphore, CPUSTEPMS - this_tick_duration);
+			SDL_SemWaitTimeout(proc->LoopSemaphore, delay);
 		}
 	}
 }
