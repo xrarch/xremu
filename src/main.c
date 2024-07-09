@@ -122,59 +122,52 @@ void MainLoop(void);
 int CpuLoop(void *context) {
 	XrProcessor *proc = (XrProcessor *)context;
 
-	int next_step = SDL_GetTicks() + CPUSTEPMS;
-	int delay = 0;
-	int tickdue = 1;
+	int last_tick = SDL_GetTicks();
+
 	int cyclespertick = SimulatorHz/1000;
 	int extracycles = SimulatorHz%1000; // squeeze in the sub-millisecond cycles
 
+	int reason = -1;
+
 	while (1) {
-		// printf("delta time=%d\n", dt);
+		int this_tick = SDL_GetTicks();
+		int dt = this_tick - last_tick;
+		last_tick = this_tick;
 
 		proc->Progress = XR_POLL_MAX;
 
-		// printf("duration=%d, delay=%d\n", this_tick_duration, CPUSTEPMS - this_tick_duration);
-
-		int reason = SDL_SemWaitTimeout(proc->LoopSemaphore, delay);
-
-		if (reason == 0) {
-			// Execute 1000 instructions to service the interrupt.
+		if (reason == 0 && dt == 0) {
+			// Execute a tiny amount of CPU time to handle this interrupt.
 
 			XrExecute(proc, 1000, 1);
 		}
 
-		if (tickdue) {
-			tickdue = 0;
+		// printf("delta time=%d\n", dt);
 
-			for (int i = 0; i < CPUSTEPMS; i++) {
-				int cyclesleft = cyclespertick;
+		for (int i = 0; i < dt; i++) {
+			int cyclesleft = cyclespertick;
 
-				if (i == CPUSTEPMS-1)
-					cyclesleft += extracycles;
+			if (i == dt-1)
+				cyclesleft += extracycles;
 
-				if (cyclesleft)
-					XrExecute(proc, cyclesleft, 1);
+			XrExecute(proc, cyclesleft, 1);
 
-				if (proc->Id == 0) {
-					// The thread for CPU 0 also does the RTC intervals, once per
-					// millisecond of CPU time. 
+			if (proc->Id == 0) {
+				// The thread for CPU 0 also does the RTC intervals, once per
+				// millisecond of CPU time. 
 
-					RTCInterval(1);
-				}
+				RTCInterval(1);
 			}
 		}
 
 		int final_tick = SDL_GetTicks();
+		int this_tick_duration = final_tick - this_tick;
 
-		if (final_tick >= next_step) {
-			tickdue = 1;
+		// printf("duration=%d, delay=%d\n", this_tick_duration, CPUSTEPMS - this_tick_duration);
 
-			while (final_tick >= next_step) {
-				next_step += CPUSTEPMS;
-			}
+		if (this_tick_duration < CPUSTEPMS) {
+			reason = SDL_SemWaitTimeout(proc->LoopSemaphore, CPUSTEPMS - this_tick_duration);
 		}
-
-		delay = next_step - final_tick;
 	}
 }
 
