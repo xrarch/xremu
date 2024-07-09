@@ -25,6 +25,7 @@
 #include "serial.h"
 #include "screen.h"
 #include "tty.h"
+#include "lsic.h"
 
 XrProcessor *CpuTable[XR_PROC_MAX];
 XrProcessor *XrIoMutexProcessor;
@@ -139,12 +140,20 @@ int CpuLoop(void *context) {
 		if (reason == 0 && dt == 0) {
 			// Execute a tiny amount of CPU time to handle this interrupt.
 
-			XrExecute(proc, 1000, 1);
+			XrExecute(proc, 2000, 1);
 		}
 
 		// printf("delta time=%d\n", dt);
 
 		for (int i = 0; i < dt; i++) {
+			if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
+				// Send self the interrupt.
+
+				LsicInterruptTargeted(proc, 2);
+
+				proc->TimerInterruptCounter = 0;
+			}
+
 			int cyclesleft = cyclespertick;
 
 			if (i == dt-1)
@@ -156,8 +165,10 @@ int CpuLoop(void *context) {
 				// The thread for CPU 0 also does the RTC intervals, once per
 				// millisecond of CPU time. 
 
-				RTCInterval(1);
+				RTCUpdateRealTime();
 			}
+
+			proc->TimerInterruptCounter += 1;
 		}
 
 		int final_tick = SDL_GetTicks();
@@ -181,6 +192,7 @@ void CpuCreate(int id) {
 
 	CpuTable[id] = proc;
 	proc->Id = id;
+	proc->TimerInterruptCounter = 0;
 
 	XrReset(proc);
 

@@ -48,47 +48,53 @@ void LsicReset() {
 	// Nothing
 }
 
+void LsicInterruptTargeted(void *proc, int intsrc) {
+	XrProcessor *rproc = proc;
+
+	Lsic *lsic = &LsicTable[rproc->Id];
+
+	int srcbmp = intsrc/32;
+	int srcbmpoff = intsrc&31;
+
+	lsic->Registers[LSIC_PENDING_0 + srcbmp] |= (1 << srcbmpoff);
+
+	uint8_t oldpending = lsic->InterruptPending;
+
+	lsic->InterruptPending =
+		((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
+		((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
+
+	if (intsrc == 2) {
+		// HACK: Don't poke if this is the RTC interrupt. Each processor sends
+		//       that to itself from its own thread to avoid excessive wakeups
+		//       and improve accuracy.
+
+		return;
+	}
+
+	if (oldpending != lsic->InterruptPending) {
+		// Poke the thread for this cpu to wake it up.
+
+		XrPokeCpu(rproc);
+	}
+}
+
 void LsicInterrupt(int intsrc) {
 	if ((intsrc >= 64) || (intsrc == 0)) {
 		fprintf(stderr, "bad interrupt source\n");
 		abort();
 	}
 
-	int srcbmp = intsrc/32;
-	int srcbmpoff = intsrc&31;
-
 	// Broadcast the interrupt to all LSICs.
 
 	for (int i = 0; i < XR_PROC_MAX; i++) {
-		Lsic *lsic = &LsicTable[i];
-
 		XrProcessor *proc = CpuTable[i];
 
 		if (!proc) {
 			continue;
 		}
 
-		lsic->Registers[LSIC_PENDING_0 + srcbmp] |= (1 << srcbmpoff);
-
-		uint8_t oldpending = lsic->InterruptPending;
-
-		lsic->InterruptPending =
-			((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
-			((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
-
-		if (intsrc == 2 && i == 0) {
-			// HACK: Don't poke CPU 0 if this is the RTC interrupt, since
-			//       CPU 0's thread is the one who sends the RTC interrupt to
-			//       the others, so it's already awake.
-
-			continue;
-		}
-
-		if (oldpending != lsic->InterruptPending) {
-			// Poke the thread for this cpu to wake it up.
-
-			XrPokeCpu(proc);
-		}
+		LsicInterruptTargeted(proc, intsrc);
 	}
 }
 

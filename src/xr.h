@@ -110,6 +110,8 @@ typedef struct _XrProcessor {
 	uint32_t DcTags[XR_DC_LINE_COUNT];
 	uint32_t WbIndices[XR_WB_DEPTH];
 
+	uint32_t TimerInterruptCounter;
+
 	uint32_t ItbLastVpn;
 	uint32_t DtbLastVpn;
 

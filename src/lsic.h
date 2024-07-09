@@ -21,3 +21,4 @@ extern int LsicRead(int reg, uint32_t *value);
 extern void LsicReset();
 extern void LsicInterrupt(int intsrc);
 extern void LsicEnable(int id);
+extern void LsicInterruptTargeted(void *proc, int intsrc);

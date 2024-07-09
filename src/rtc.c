@@ -15,27 +15,14 @@
 struct timeval RTCCurrentTime;
 
 uint32_t RTCIntervalMS = 0;
-uint32_t RTCIntervalCounter = 0;
 
 uint32_t RTCPortA;
 
-void RTCInterval(uint32_t dt) {
+void RTCUpdateRealTime() {
 	// Currently the thread for CPU 0 does the RTC intervals, so we don't need
 	// any synchronization until we need to do an interrupt.
 
 	gettimeofday(&RTCCurrentTime, 0);
-
-	if (RTCIntervalMS) {
-		RTCIntervalCounter += dt;
-
-		if (RTCIntervalCounter >= RTCIntervalMS) {
-			LockIoMutex();
-			LsicInterrupt(0x2);
-			UnlockIoMutex();
-
-			RTCIntervalCounter -= RTCIntervalMS;
-		}
-	}
 }
 
 int RTCWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
@@ -43,7 +30,6 @@ int RTCWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 		case 1:
 			// set interval
 			RTCIntervalMS = RTCPortA;
-			RTCIntervalCounter = 0;
 
 			return EBUSSUCCESS;
 
@@ -110,6 +96,5 @@ void RTCInit() {
 
 void RTCReset() {
 	RTCIntervalMS = 0;
-	RTCIntervalCounter = 0;
 	RTCPortA = 0;
 }
