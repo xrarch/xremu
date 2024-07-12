@@ -158,6 +158,7 @@ typedef struct _XrProcessor {
 	uint8_t UserBreak;
 	uint8_t Halted;
 	uint8_t Running;
+	uint8_t Poked;
 } XrProcessor;
 
 extern uint8_t XrSimulateCaches;

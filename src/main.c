@@ -48,7 +48,10 @@ void UnlockIoMutex() {
 }
 
 void XrPokeCpu(XrProcessor *proc) {
-	SDL_SemPost(proc->LoopSemaphore);
+	if (!proc->Poked) {
+		proc->Poked = true;
+		SDL_SemPost(proc->LoopSemaphore);
+	}
 }
 
 void XrLockIoMutex(XrProcessor *proc) {
@@ -141,6 +144,8 @@ int CpuLoop(void *context) {
 			// Execute a tiny amount of CPU time to handle this interrupt.
 
 			XrExecute(proc, 2000, 1);
+
+			proc->Poked = 0;
 		}
 
 		// printf("delta time=%d\n", dt);
@@ -193,6 +198,7 @@ void CpuCreate(int id) {
 	CpuTable[id] = proc;
 	proc->Id = id;
 	proc->TimerInterruptCounter = 0;
+	proc->Poked = 0;
 
 	XrReset(proc);
 
