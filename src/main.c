@@ -224,6 +224,7 @@ void CpuCreate(int id) {
 }
 
 extern void TLBDump(void);
+extern void DbgInit(void);
 
 int main(int argc, char *argv[]) {
 	SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "0", SDL_HINT_OVERRIDE);
@@ -396,6 +397,8 @@ int main(int argc, char *argv[]) {
 	DKSAttachImage("bin/mintia.img");
 	DKSAttachImage("bin/aisix.img");
 #endif
+
+	DbgInit();
 
 	ScreenInit();
 	ScreenDraw();

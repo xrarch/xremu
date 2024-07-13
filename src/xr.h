@@ -5,7 +5,7 @@
 
 // Configurable TB size parameters.
 
-#define XR_DTB_SIZE_LOG 6
+#define XR_DTB_SIZE_LOG 5
 #define XR_ITB_SIZE_LOG 5
 
 // Configurable ICache and DCache size parameters.
@@ -126,6 +126,7 @@ typedef struct _XrProcessor {
 	uint32_t StallCycles;
 	uint32_t Id;
 	int32_t Progress;
+	uint32_t CycleCounter;
 
 	uint32_t IcReplacementIndex;
 	uint32_t DcReplacementIndex;

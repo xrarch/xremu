@@ -1356,6 +1356,10 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 			}
 		}
 
+#ifdef PROFCPU
+		proc->CycleCounter++;
+#endif
+
 		// Make sure the zero register is always zero, except during TLB misses,
 		// where it may be used as a scratch register.
 
@@ -1589,6 +1593,20 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 					}
 
 					break;
+
+#ifdef PROFCPU
+				case 4: // CYCLE_COUNT_START (0x40000031)
+
+					proc->CycleCounter = 0;
+
+					break;
+
+				case 5: // CYCLE_COUNT_END (0x50000031)
+
+					printf("Cycles: %d\n", proc->CycleCounter);
+
+					break;
+#endif
 
 				case 8: // SC
 					if (!proc->Locked) {
