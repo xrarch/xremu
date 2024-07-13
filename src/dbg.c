@@ -196,9 +196,9 @@ void DbgDumpTb(uint64_t *tb, int size) {
 		sprintf(
 			&printbuf[0],
 			"%05llX %05llX %03llX ",
-			tb[i] >> 44,
+			(tb[i] >> 32) & 0xFFFFF,
 			(tb[i] >> 5) & 0xFFFFF,
-			(tb[i] >> 32) & 0xFFF
+			(tb[i] >> 52) & 0xFFF
 		);
 
 		DbgPutString(&printbuf[0]);

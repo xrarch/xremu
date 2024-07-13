@@ -1810,7 +1810,7 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 									uint64_t vpn = (uint64_t)(proc->Reg[ra] >> 12) << 32;
 
 									for (int i = 0; i < XR_ITB_SIZE; i++) {
-										if ((proc->Itb[i] & 0xFFFFF00000000) == vpn) {
+										if ((proc->Itb[i] & 0x000FFFFF00000000) == vpn) {
 											proc->Itb[i] = TB_INVALID_ENTRY;
 										}
 									}
@@ -1848,7 +1848,7 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 									uint64_t vpn = (uint64_t)(proc->Reg[ra] >> 12) << 32;
 
 									for (int i = 0; i < XR_DTB_SIZE; i++) {
-										if ((proc->Dtb[i] & 0xFFFFF00000000) == vpn) {
+										if ((proc->Dtb[i] & 0x000FFFFF00000000) == vpn) {
 											proc->Dtb[i] = TB_INVALID_ENTRY;
 										}
 									}
