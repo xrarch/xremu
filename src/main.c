@@ -54,53 +54,11 @@ void XrPokeCpu(XrProcessor *proc) {
 	}
 }
 
-void XrLockIoMutex(XrProcessor *proc) {
-	SDL_LockMutex(IoMutex);
-	XrIoMutexProcessor = proc;
-}
-
-void XrUnlockIoMutex() {
-	XrIoMutexProcessor = 0;
-	SDL_UnlockMutex(IoMutex);
-}
-
-void XrLockCache(XrProcessor *proc, uint32_t tag) {
-	SDL_LockMutex((SDL_mutex *)(proc->CacheMutexes[XR_CACHE_INDEX(tag)]));
-}
-
-void XrUnlockCache(XrProcessor *proc, uint32_t tag) {
-	SDL_UnlockMutex((SDL_mutex *)(proc->CacheMutexes[XR_CACHE_INDEX(tag)]));
-}
-
-void XrLockScache(uint32_t tag) {
-	SDL_LockMutex(ScacheMutexes[XR_CACHE_INDEX(tag)]);
-}
-
-void XrUnlockScache(uint32_t tag) {
-	SDL_UnlockMutex(ScacheMutexes[XR_CACHE_INDEX(tag)]);
-}
-
-void XrLockScacheReplacement() {
-	SDL_LockMutex(ScacheReplacementMutex);
-}
-
-void XrUnlockScacheReplacement() {
-	SDL_UnlockMutex(ScacheReplacementMutex);
-}
-
 #else
 
 void LockIoMutex() {}
 void UnlockIoMutex() {}
 void XrPokeCpu(XrProcessor *proc) {}
-void XrLockIoMutex(XrProcessor *proc) {}
-void XrUnlockIoMutex() {}
-void XrLockCache(XrProcessor *proc, uint32_t tag) {}
-void XrUnlockCache(XrProcessor *proc, uint32_t tag) {}
-void XrLockScache(uint32_t tag) {}
-void XrUnlockScache(uint32_t tag) {}
-void XrLockScacheReplacement() {}
-void XrUnlockScacheReplacement() {}
 
 uint32_t emscripten_last_tick = 0;
 

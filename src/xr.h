@@ -1,3 +1,5 @@
+#include <SDL.h>
+
 // Configurable stall parameters.
 
 #define XR_UNCACHED_STALL 3
@@ -171,19 +173,66 @@ extern uint32_t XrProcessorCount;
 extern XrProcessor *CpuTable[XR_PROC_MAX];
 extern XrProcessor *XrIoMutexProcessor;
 
-extern void XrLockScache(uint32_t tag);
-extern void XrUnlockScache(uint32_t tag);
-
-extern void XrLockIoMutex(XrProcessor *proc);
-extern void XrUnlockIoMutex();
-
-extern void XrLockCache(XrProcessor *proc, uint32_t tag);
-extern void XrUnlockCache(XrProcessor *proc, uint32_t tag);
-
-extern void XrLockScacheReplacement();
-extern void XrUnlockScacheReplacement();
-
 extern void XrReset(XrProcessor *proc);
 extern void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt);
 
 extern void XrPokeCpu(XrProcessor *proc);
+
+#ifndef EMSCRIPTEN
+
+extern SDL_mutex *ScacheReplacementMutex;
+extern SDL_mutex *ScacheMutexes[XR_CACHE_MUTEXES];
+
+extern SDL_mutex *IoMutex;
+extern SDL_sem* CpuSemaphore;
+
+static inline void XrLockIoMutex(XrProcessor *proc, uint32_t address) {
+	if (address >= XR_NONCACHED_PHYS_BASE) {
+		SDL_LockMutex(IoMutex);
+		XrIoMutexProcessor = proc;
+	}
+}
+
+static inline void XrUnlockIoMutex(uint32_t address) {
+	if (address >= XR_NONCACHED_PHYS_BASE) {
+		XrIoMutexProcessor = 0;
+		SDL_UnlockMutex(IoMutex);
+	}
+}
+
+static inline void XrLockCache(XrProcessor *proc, uint32_t tag) {
+	SDL_LockMutex((SDL_mutex *)(proc->CacheMutexes[XR_CACHE_INDEX(tag)]));
+}
+
+static inline void XrUnlockCache(XrProcessor *proc, uint32_t tag) {
+	SDL_UnlockMutex((SDL_mutex *)(proc->CacheMutexes[XR_CACHE_INDEX(tag)]));
+}
+
+static inline void XrLockScache(uint32_t tag) {
+	SDL_LockMutex(ScacheMutexes[XR_CACHE_INDEX(tag)]);
+}
+
+static inline void XrUnlockScache(uint32_t tag) {
+	SDL_UnlockMutex(ScacheMutexes[XR_CACHE_INDEX(tag)]);
+}
+
+static inline void XrLockScacheReplacement() {
+	SDL_LockMutex(ScacheReplacementMutex);
+}
+
+static inline void XrUnlockScacheReplacement() {
+	SDL_UnlockMutex(ScacheReplacementMutex);
+}
+
+#else
+
+static inline void XrLockIoMutex(XrProcessor *proc) {}
+static inline void XrUnlockIoMutex() {}
+static inline void XrLockCache(XrProcessor *proc, uint32_t tag) {}
+static inline void XrUnlockCache(XrProcessor *proc, uint32_t tag) {}
+static inline void XrLockScache(uint32_t tag) {}
+static inline void XrUnlockScache(uint32_t tag) {}
+static inline void XrLockScacheReplacement() {}
+static inline void XrUnlockScacheReplacement() {}
+
+#endif
