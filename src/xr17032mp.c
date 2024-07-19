@@ -1251,6 +1251,954 @@ static inline void XrWriteWbEntry(XrProcessor *proc) {
 	}
 }
 
+static inline uint32_t XrComputeValue(uint32_t val, uint32_t ir) {
+	// Compute a value based on the inline shift expressed in the instruction.
+
+	uint32_t shifttype = (ir >> 26) & 3;
+	uint32_t shift = (ir >> 21) & 31;
+
+	switch(shifttype) {
+		case 0: // LSH
+			return val << shift;
+
+		case 1: // RSH
+			return val >> shift;
+
+		case 2: // ASH
+			return (int32_t) val >> shift;
+
+		case 3: // ROR
+			return RoR(val, shift);
+	}
+
+	return val;
+}
+
+typedef void (*XrInstructionF)(XrProcessor *proc, uint32_t currentpc, uint32_t ir);
+
+static void XrIllegalInstruction(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	XrBasicException(proc, XR_EXC_INV);
+}
+
+static void XrNor(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+
+	proc->Reg[rd] = ~(proc->Reg[ra] | val);
+}
+
+static void XrOr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+
+	proc->Reg[rd] = proc->Reg[ra] | val;
+}
+
+static void XrXor(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+
+	proc->Reg[rd] = proc->Reg[ra] ^ val;
+}
+
+static void XrAnd(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+
+	proc->Reg[rd] = proc->Reg[ra] & val;
+}
+
+static void XrSltSigned(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+
+	if ((int32_t) proc->Reg[ra] < (int32_t) val)
+		proc->Reg[rd] = 1;
+	else
+		proc->Reg[rd] = 0;
+}
+
+static void XrSlt(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+
+	if (proc->Reg[ra] < val)
+		proc->Reg[rd] = 1;
+	else
+		proc->Reg[rd] = 0;
+}
+
+static void XrSub(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+
+	proc->Reg[rd] = proc->Reg[ra] - val;
+}
+
+static void XrAdd(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+
+	proc->Reg[rd] = proc->Reg[ra] + val;
+}
+
+static void XrRegShifts(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+
+	uint32_t shifttype = (ir >> 26) & 3;
+
+	switch(shifttype) {
+		case 0: // LSH
+			if (proc->Reg[ra] >= 32) {
+				proc->Reg[rd] = 0;
+			} else {
+				proc->Reg[rd] = proc->Reg[rb] << proc->Reg[ra];
+			}
+
+			break;
+
+		case 1: // RSH
+			if (proc->Reg[ra] >= 32) {
+				proc->Reg[rd] = 0;
+			} else {
+				proc->Reg[rd] = proc->Reg[rb] >> proc->Reg[ra];
+			}
+
+			break;
+
+		case 2: // ASH
+			if (proc->Reg[ra] >= 32) {
+				if (proc->Reg[rb] & 0x80000000) {
+					proc->Reg[rd] = 0xFFFFFFFF;
+				} else {
+					proc->Reg[rd] = 0;
+				}
+			} else {
+				proc->Reg[rd] = (int32_t) proc->Reg[rb] >> proc->Reg[ra];
+			}
+
+			break;
+
+		case 3: // ROR
+			proc->Reg[rd] = RoR(proc->Reg[rb], proc->Reg[ra]);
+			break;
+	}
+}
+
+static void XrStoreLongRegOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+
+	XrWriteLong(proc, proc->Reg[ra] + val, proc->Reg[rd]);
+}
+
+static void XrStoreIntRegOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+
+	XrWriteInt(proc, proc->Reg[ra] + val, proc->Reg[rd]);
+}
+
+static void XrStoreByteRegOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+
+	XrWriteByte(proc, proc->Reg[ra] + val, proc->Reg[rd]);
+}
+
+static void XrLoadLongRegOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+
+	XrReadLong(proc, proc->Reg[ra] + val, &proc->Reg[rd]);
+}
+
+static void XrLoadIntRegOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+
+	XrReadInt(proc, proc->Reg[ra] + val, &proc->Reg[rd]);
+}
+
+static void XrLoadByteRegOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+
+	XrReadByte(proc, proc->Reg[ra] + val, &proc->Reg[rd]);
+}
+
+static XrInstructionF XrFunctions111001[16] = {
+	[0] = &XrNor,
+	[1] = &XrOr,
+	[2] = &XrXor,
+	[3] = &XrAnd,
+	[4] = &XrSltSigned,
+	[5] = &XrSlt,
+	[6] = &XrSub,
+	[7] = &XrAdd,
+	[8] = &XrRegShifts,
+	[9] = &XrStoreLongRegOffset,
+	[10] = &XrStoreIntRegOffset,
+	[11] = &XrStoreByteRegOffset,
+	[12] = &XrIllegalInstruction,
+	[13] = &XrLoadLongRegOffset,
+	[14] = &XrLoadIntRegOffset,
+	[15] = &XrLoadByteRegOffset,
+};
+
+static void XrLookup111001(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	XrFunctions111001[ir >> 28](proc, currentpc, ir);
+}
+
+static void XrSys(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	XrBasicInbetweenException(proc, XR_EXC_SYS);
+}
+
+static void XrBrk(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	XrBasicInbetweenException(proc, XR_EXC_BRK);
+}
+
+static void XrWmb(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	if (XrSimulateCaches) {
+		// Flush the write buffer.
+
+		XrFlushWriteBuffer(proc);
+	}
+}
+
+static void XrMb(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	XrWmb(proc, currentpc, ir);
+}
+
+static void XrSC(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+
+	if (!proc->Locked) {
+		// Something happened on this processor that caused the
+		// lock to go away.
+
+		proc->Reg[rd] = 0;
+
+		return;
+	}
+
+	// Store the word in a way that will atomically fail if we
+	// no longer have the cache line from LL's load.
+
+	//printf("%d: SC %d\n", proc->Id, proc->Reg[rb]);
+
+	uint8_t status = XrAccess(proc, proc->Reg[ra], 0, proc->Reg[rb], 4, 1);
+
+	if (!status) {
+		return;
+	}
+
+	proc->Reg[rd] = (status == 2) ? 0 : 1;
+}
+
+static void XrLL(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+
+	proc->Locked = 1;
+
+	XrReadLong(proc, proc->Reg[ra], &proc->Reg[rd]);
+}
+
+static void XrMod(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+
+	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+
+	if (val == 0) {
+		proc->Reg[rd] = 0;
+		return;
+	}
+
+	proc->Reg[rd] = proc->Reg[ra] % val;
+}
+
+static void XrDivSigned(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+
+	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+
+	if (val == 0) {
+		proc->Reg[rd] = 0;
+		return;
+	}
+
+	proc->Reg[rd] = (int32_t) proc->Reg[ra] / (int32_t) val;
+}
+
+static void XrDiv(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+
+	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+
+	if (val == 0) {
+		proc->Reg[rd] = 0;
+		return;
+	}
+
+	proc->Reg[rd] = proc->Reg[ra] / val;
+}
+
+static void XrMul(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+
+	proc->Reg[rd] = proc->Reg[ra] * XrComputeValue(proc->Reg[rb], ir);
+}
+
+static XrInstructionF XrFunctions110001[16] = {
+	[0] = &XrSys,
+	[1] = &XrBrk,
+	[2] = &XrWmb,
+	[3] = &XrMb,
+	[4] = &XrIllegalInstruction,
+	[5] = &XrIllegalInstruction,
+	[6] = &XrIllegalInstruction,
+	[7] = &XrIllegalInstruction,
+	[8] = &XrSC,
+	[9] = &XrLL,
+	[10] = &XrIllegalInstruction,
+	[11] = &XrMod,
+	[12] = &XrDivSigned,
+	[13] = &XrDiv,
+	[14] = &XrIllegalInstruction,
+	[15] = &XrMul,
+};
+
+static void XrLookup110001(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	XrFunctions110001[ir >> 28](proc, currentpc, ir);
+}
+
+static void XrRfe(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	proc->Locked = 0;
+
+	if (proc->Cr[RS] & RS_TBMISS) {
+		proc->Pc = proc->Cr[TBPC];
+	} else {
+		proc->Pc = proc->Cr[EPC];
+	}
+
+	proc->Cr[RS] = (proc->Cr[RS] & 0xF0000000) | ((proc->Cr[RS] >> 8) & 0xFFFF);
+}
+
+static void XrHlt(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	proc->Halted = true;
+}
+
+static void XrMtcr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	// Reset the NMI mask counter.
+
+	proc->NmiMaskCounter = NMI_MASK_CYCLES;
+
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+
+	switch(rb) {
+		case ICACHECTRL:
+			if (!XrSimulateCaches)
+				break;
+
+			if ((proc->Reg[ra] & 3) == 3) {
+				// Invalidate the entire Icache.
+
+				for (int i = 0; i < XR_IC_LINE_COUNT; i++) {
+					proc->IcFlags[i] = XR_LINE_INVALID;
+				}
+			} else if ((proc->Reg[ra] & 3) == 2) {
+				// Invalidate a single page frame of the
+				// Icache. We can use clever math to only
+				// search the cache lines that lines within
+				// this page frame could possibly be in.
+
+				uint32_t phys = proc->Reg[ra] & 0xFFFFF000;
+
+				uint32_t lowindex = ((phys >> XR_IC_LINE_SIZE_LOG) & (XR_IC_SETS - 1)) << XR_IC_WAY_LOG;
+				uint32_t highindex = (((phys + 4096) >> XR_IC_LINE_SIZE_LOG) & (XR_IC_SETS - 1)) << XR_IC_WAY_LOG;
+
+				for (int i = lowindex; i < highindex; i++) {
+					if ((proc->IcTags[i] & 0xFFFFF000) == phys) {
+						proc->IcFlags[i] = XR_LINE_INVALID;
+					}
+				}
+			}
+
+			// Reset the lookup hint.
+
+			proc->IcLastTag = -1;
+
+			break;
+
+		case DCACHECTRL:
+			if (!XrSimulateCaches)
+				break;
+
+			XrFlushWriteBuffer(proc);
+
+			if ((proc->Reg[ra] & 3) == 3) {
+				// Invalidate the entire Dcache.
+
+				for (int i = 0; i < XR_DC_LINE_COUNT; i++) {
+					proc->DcFlags[i] = XR_LINE_INVALID;
+				}
+			} else if ((proc->Reg[ra] & 3) == 2) {
+				// Invalidate a single page frame of the
+				// Dcache. We can use clever math to only
+				// search the cache lines that lines within
+				// this page frame could possibly be in.
+
+				uint32_t phys = proc->Reg[ra] & 0xFFFFF000;
+
+				uint32_t lowindex = ((phys >> XR_DC_LINE_SIZE_LOG) & (XR_DC_SETS - 1)) << XR_DC_WAY_LOG;
+				uint32_t highindex = (((phys + 4096) >> XR_DC_LINE_SIZE_LOG) & (XR_DC_SETS - 1)) << XR_DC_WAY_LOG;
+
+				for (int i = lowindex; i < highindex; i++) {
+					if ((proc->DcTags[i] & 0xFFFFF000) == phys) {
+						proc->DcFlags[i] = XR_LINE_INVALID;
+					}
+				}
+			}
+
+			break;
+
+		case ITBCTRL:
+			if ((proc->Reg[ra] & 3) == 3) {
+				// Invalidate the entire ITB.
+
+				for (int i = 0; i < XR_ITB_SIZE; i++) {
+					proc->Itb[i] = TB_INVALID_ENTRY;
+				}
+			} else if ((proc->Reg[ra] & 3) == 2) {
+				// Invalidate the entire ITB except for
+				// global entries.
+
+				for (int i = 0; i < XR_ITB_SIZE; i++) {
+					if ((proc->Itb[i] & PTE_GLOBAL) == 0) {
+						proc->Itb[i] = TB_INVALID_ENTRY;
+					}
+				}
+			} else if ((proc->Reg[ra] & 3) == 0) {
+				// Invalidate a single page in the ITB.
+
+				uint64_t vpn = (uint64_t)(proc->Reg[ra] >> 12) << 32;
+
+				for (int i = 0; i < XR_ITB_SIZE; i++) {
+					if ((proc->Itb[i] & 0x000FFFFF00000000) == vpn) {
+						proc->Itb[i] = TB_INVALID_ENTRY;
+					}
+				}
+
+				//printf("invl %x\n", Reg[ra] >> 12);
+
+				//Running = false;
+			}
+
+			// Reset the lookup hint.
+
+			proc->ItbLastVpn = -1;
+
+			break;
+
+		case DTBCTRL:
+			if ((proc->Reg[ra] & 3) == 3) {
+				// Invalidate the entire DTB.
+
+				for (int i = 0; i < XR_DTB_SIZE; i++) {
+					proc->Dtb[i] = TB_INVALID_ENTRY;
+				}
+			} else if ((proc->Reg[ra] & 3) == 2) {
+				// Invalidate the entire DTB except for
+				// global entries.
+
+				for (int i = 0; i < XR_DTB_SIZE; i++) {
+					if ((proc->Dtb[i] & PTE_GLOBAL) == 0) {
+						proc->Dtb[i] = TB_INVALID_ENTRY;
+					}
+				}
+			} else if ((proc->Reg[ra] & 3) == 0) {
+				// Invalidate a single page in the DTB.
+
+				uint64_t vpn = (uint64_t)(proc->Reg[ra] >> 12) << 32;
+
+				for (int i = 0; i < XR_DTB_SIZE; i++) {
+					if ((proc->Dtb[i] & 0x000FFFFF00000000) == vpn) {
+						proc->Dtb[i] = TB_INVALID_ENTRY;
+					}
+				}
+
+				//printf("invl %x\n", Reg[ra] >> 12);
+
+				//Running = false;
+			}
+
+			// Reset the lookup hint.
+
+			proc->DtbLastVpn = -1;
+
+			break;
+
+		case ITBPTE:
+			// Write an entry to the ITB at ITBINDEX, and
+			// increment it.
+
+			proc->Itb[proc->Cr[ITBINDEX]] = ((uint64_t)(proc->Cr[ITBTAG]) << 32) | proc->Reg[ra];
+
+			//printf("ITB[%d] = %llx\n", ControlReg[ITBINDEX], ITlb[ControlReg[ITBINDEX]]);
+
+			proc->Cr[ITBINDEX] += 1;
+
+			if (proc->Cr[ITBINDEX] == XR_ITB_SIZE) {
+				// Roll over to index four.
+
+				proc->Cr[ITBINDEX] = 4;
+			}
+
+			break;
+
+		case DTBPTE:
+			// Write an entry to the DTB at DTBINDEX, and
+			// increment it.
+
+			proc->Dtb[proc->Cr[DTBINDEX]] = ((uint64_t)(proc->Cr[DTBTAG]) << 32) | proc->Reg[ra];
+
+			//printf("DTB[%d] = %llx\n", ControlReg[DTBINDEX], DTlb[ControlReg[DTBINDEX]]);
+
+			proc->Cr[DTBINDEX] += 1;
+
+			if (proc->Cr[DTBINDEX] == XR_DTB_SIZE) {
+				// Roll over to index four.
+
+				proc->Cr[DTBINDEX] = 4;
+			}
+
+			break;
+
+		case ITBINDEX:
+			proc->Cr[ITBINDEX] = proc->Reg[ra] & (XR_ITB_SIZE - 1);
+			//printf("ITBX = %x\n", ControlReg[ITBINDEX]);
+			break;
+
+		case DTBINDEX:
+			proc->Cr[DTBINDEX] = proc->Reg[ra] & (XR_DTB_SIZE - 1);
+			//printf("DTBX = %x\n", ControlReg[DTBINDEX]);
+			break;
+
+		case DTBTAG:
+			proc->Cr[DTBTAG] = proc->Reg[ra];
+
+			// Reset the lookup hint.
+
+			proc->DtbLastVpn = -1;
+
+			break;
+
+		case ITBTAG:
+			proc->Cr[ITBTAG] = proc->Reg[ra];
+
+			// Reset the lookup hint.
+
+			proc->ItbLastVpn = -1;
+			
+			break;
+
+		default:
+			proc->Cr[rb] = proc->Reg[ra];
+			break;
+	}
+}
+
+static void XrMfcr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	// Reset the NMI mask counter.
+
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t rb = (ir >> 16) & 31;
+
+	proc->NmiMaskCounter = NMI_MASK_CYCLES;
+
+	proc->Reg[rd] = proc->Cr[rb];
+}
+
+static XrInstructionF XrFunctions101001[16] = {
+	[0] = &XrIllegalInstruction,
+	[1] = &XrIllegalInstruction,
+	[2] = &XrIllegalInstruction,
+	[3] = &XrIllegalInstruction,
+	[4] = &XrIllegalInstruction,
+	[5] = &XrIllegalInstruction,
+	[6] = &XrIllegalInstruction,
+	[7] = &XrIllegalInstruction,
+	[8] = &XrIllegalInstruction,
+	[9] = &XrIllegalInstruction,
+	[10] = &XrIllegalInstruction,
+	[11] = &XrRfe,
+	[12] = &XrHlt,
+	[13] = &XrIllegalInstruction,
+	[14] = &XrMtcr,
+	[15] = &XrMfcr,
+};
+
+static void XrLookup101001(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	if (proc->Cr[RS] & RS_USER) {
+		// Current mode is usermode, so cause a privilege violation
+		// exception.
+
+		XrBasicException(proc, XR_EXC_PRV);
+	}
+
+	XrFunctions101001[ir >> 28](proc, currentpc, ir);
+}
+
+static void XrBpo(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+
+	if (proc->Reg[rd] & 1) {
+		proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
+	}
+}
+
+static void XrBpe(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+
+	if ((proc->Reg[rd] & 1) == 0) {
+		proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
+	}
+}
+
+static void XrBge(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+
+	if ((int32_t) proc->Reg[rd] >= 0) {
+		proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
+	}
+}
+
+static void XrBle(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+
+	if ((int32_t) proc->Reg[rd] <= 0) {
+		proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
+	}
+}
+
+static void XrBgt(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+
+	if ((int32_t) proc->Reg[rd] > 0) {
+		proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
+	}
+}
+
+static void XrBlt(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+
+	if ((int32_t) proc->Reg[rd] < 0) {
+		proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
+	}
+}
+
+static void XrBne(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+
+	if (proc->Reg[rd] != 0) {
+		proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
+	}
+}
+
+static void XrBeq(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+
+	if (proc->Reg[rd] == 0) {
+		proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
+	}
+}
+
+static void XrLui(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+
+	proc->Reg[rd] = proc->Reg[ra] | (imm << 16);
+}
+
+static void XrOri(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+
+	proc->Reg[rd] = proc->Reg[ra] | imm;
+}
+
+static void XrXori(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+
+	proc->Reg[rd] = proc->Reg[ra] ^ imm;
+}
+
+static void XrAndi(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+
+	proc->Reg[rd] = proc->Reg[ra] & imm;
+}
+
+static void XrSltiSigned(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+
+	if ((int32_t) proc->Reg[ra] < (int32_t) SignExt16(imm)) {
+		proc->Reg[rd] = 1;
+	} else {
+		proc->Reg[rd] = 0;
+	}
+}
+
+static void XrSlti(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+
+	if (proc->Reg[ra] < imm) {
+		proc->Reg[rd] = 1;
+	} else {
+		proc->Reg[rd] = 0;
+	}
+}
+
+static void XrSubi(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+
+	proc->Reg[rd] = proc->Reg[ra] - imm;
+}
+
+static void XrAddi(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+
+	proc->Reg[rd] = proc->Reg[ra] + imm;
+}
+
+static void XrStoreLongImmOffsetImm(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+
+	XrWriteLong(proc, proc->Reg[rd] + (imm << 2), SignExt5(ra));
+}
+
+static void XrStoreIntImmOffsetImm(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+
+	XrWriteInt(proc, proc->Reg[rd] + (imm << 1), SignExt5(ra));
+}
+
+static void XrStoreByteImmOffsetImm(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+
+	XrWriteByte(proc, proc->Reg[rd] + imm, SignExt5(ra));
+}
+
+static void XrStoreLongImmOffsetReg(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+
+	XrWriteLong(proc, proc->Reg[rd] + (imm << 2), proc->Reg[ra]);
+}
+
+static void XrStoreIntImmOffsetReg(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+
+	XrWriteInt(proc, proc->Reg[rd] + (imm << 1), proc->Reg[ra]);
+}
+
+static void XrStoreByteImmOffsetReg(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+
+	XrWriteByte(proc, proc->Reg[rd] + imm, proc->Reg[ra]);
+}
+
+static void XrLoadLongImmOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+
+	XrReadLong(proc, proc->Reg[ra] + (imm << 2), &proc->Reg[rd]);
+}
+
+static void XrLoadIntImmOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+	
+	XrReadInt(proc, proc->Reg[ra] + (imm << 1), &proc->Reg[rd]);
+}
+
+static void XrLoadByteImmOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+	
+	XrReadByte(proc, proc->Reg[ra] + imm, &proc->Reg[rd]);
+}
+
+static void XrJalr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	uint32_t rd = (ir >> 6) & 31;
+	uint32_t ra = (ir >> 11) & 31;
+	uint32_t imm = ir >> 16;
+
+	proc->Reg[rd] = proc->Pc;
+	proc->Pc = proc->Reg[ra] + SignExt18(imm << 2);
+}
+
+static XrInstructionF XrLowSix[64] = {
+	[0] = &XrIllegalInstruction,
+	[1] = &XrIllegalInstruction,
+	[2] = &XrIllegalInstruction,
+	[3] = &XrIllegalInstruction,
+	[4] = &XrLui,
+	[5] = &XrBpo,
+	[6] = &XrIllegalInstruction,
+	[7] = &XrIllegalInstruction,
+	[8] = &XrIllegalInstruction,
+	[9] = &XrIllegalInstruction,
+	[10] = &XrStoreLongImmOffsetImm,
+	[11] = &XrIllegalInstruction,
+	[12] = &XrOri,
+	[13] = &XrBpe,
+	[14] = &XrIllegalInstruction,
+	[15] = &XrIllegalInstruction,
+	[16] = &XrIllegalInstruction,
+	[17] = &XrIllegalInstruction,
+	[18] = &XrStoreIntImmOffsetImm,
+	[19] = &XrIllegalInstruction,
+	[20] = &XrXori,
+	[21] = &XrBge,
+	[22] = &XrIllegalInstruction,
+	[23] = &XrIllegalInstruction,
+	[24] = &XrIllegalInstruction,
+	[25] = &XrIllegalInstruction,
+	[26] = &XrStoreByteImmOffsetImm,
+	[27] = &XrIllegalInstruction,
+	[28] = &XrAndi,
+	[29] = &XrBle,
+	[30] = &XrIllegalInstruction,
+	[31] = &XrIllegalInstruction,
+	[32] = &XrIllegalInstruction,
+	[33] = &XrIllegalInstruction,
+	[34] = &XrIllegalInstruction,
+	[35] = &XrIllegalInstruction,
+	[36] = &XrSltiSigned,
+	[37] = &XrBgt,
+	[38] = &XrIllegalInstruction,
+	[39] = &XrIllegalInstruction,
+	[40] = &XrIllegalInstruction,
+	[41] = &XrLookup101001,
+	[42] = &XrStoreLongImmOffsetReg,
+	[43] = &XrLoadLongImmOffset,
+	[44] = &XrSlti,
+	[45] = &XrBlt,
+	[46] = &XrIllegalInstruction,
+	[47] = &XrIllegalInstruction,
+	[48] = &XrIllegalInstruction,
+	[49] = &XrLookup110001,
+	[50] = &XrStoreIntImmOffsetReg,
+	[51] = &XrLoadIntImmOffset,
+	[52] = &XrSubi,
+	[53] = &XrBne,
+	[54] = &XrIllegalInstruction,
+	[55] = &XrIllegalInstruction,
+	[56] = &XrJalr,
+	[57] = &XrLookup111001,
+	[58] = &XrStoreByteImmOffsetReg,
+	[59] = &XrLoadByteImmOffset,
+	[60] = &XrAddi,
+	[61] = &XrBeq,
+	[62] = &XrIllegalInstruction,
+	[63] = &XrIllegalInstruction,
+};
+
+static void XrJal(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	proc->Reg[LR] = proc->Pc;
+	proc->Pc = (currentpc & 0x80000000) | ((ir >> 3) << 2);
+}
+
+static void XrJ(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	proc->Pc = (currentpc & 0x80000000) | ((ir >> 3) << 2);
+}
+
+static void XrLookupMajor(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	XrLowSix[ir & 63](proc, currentpc, ir);
+}
+
+static XrInstructionF XrLowThree[8] = {
+	[0] = &XrLookupMajor,
+	[1] = &XrLookupMajor,
+	[2] = &XrLookupMajor,
+	[3] = &XrLookupMajor,
+	[4] = &XrLookupMajor,
+	[5] = &XrLookupMajor,
+	[6] = &XrJ,
+	[7] = &XrJal,
+};
+
 void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 #ifdef PROFCPU
 	if (XrPrintCache) {
@@ -1416,716 +2364,6 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 		// Fetch was successful, decode the instruction word and execute the
 		// instruction.
 
-		maj = ir & 7;
-		majoropcode = ir & 63;
-
-		if (maj == 7) { // JAL
-			proc->Reg[LR] = proc->Pc;
-			proc->Pc = (currentpc & 0x80000000) | ((ir >> 3) << 2);
-		} else if (maj == 6) { // J
-			proc->Pc = (currentpc & 0x80000000) | ((ir >> 3) << 2);
-		} else if (majoropcode == 57) { // reg instructions 111001
-			funct = ir >> 28;
-
-			shifttype = (ir >> 26) & 3;
-			shift = (ir >> 21) & 31;
-
-			rd = (ir >> 6) & 31;
-			ra = (ir >> 11) & 31;
-			rb = (ir >> 16) & 31;
-
-			if (shift) {
-				switch(shifttype) {
-					case 0: // LSH
-						val = proc->Reg[rb] << shift;
-						break;
-
-					case 1: // RSH
-						val = proc->Reg[rb] >> shift;
-						break;
-
-					case 2: // ASH
-						val = (int32_t) proc->Reg[rb] >> shift;
-						break;
-
-					case 3: // ROR
-						val = RoR(proc->Reg[rb], shift);
-						break;
-				}
-			} else {
-				val = proc->Reg[rb];
-			}
-
-			switch(funct) {
-				case 0: // NOR
-					proc->Reg[rd] = ~(proc->Reg[ra] | val);
-					break;
-
-				case 1: // OR
-					proc->Reg[rd] = proc->Reg[ra] | val;
-					break;
-
-				case 2: // XOR
-					proc->Reg[rd] = proc->Reg[ra] ^ val;
-					break;
-
-				case 3: // AND
-					proc->Reg[rd] = proc->Reg[ra] & val;
-					break;
-
-				case 4: // SLT SIGNED
-					if ((int32_t) proc->Reg[ra] < (int32_t) val)
-						proc->Reg[rd] = 1;
-					else
-						proc->Reg[rd] = 0;
-					break;
-
-				case 5: // SLT
-					if (proc->Reg[ra] < val)
-						proc->Reg[rd] = 1;
-					else
-						proc->Reg[rd] = 0;
-
-					break;
-
-				case 6: // SUB
-					proc->Reg[rd] = proc->Reg[ra] - val;
-					break;
-
-				case 7: // ADD
-					proc->Reg[rd] = proc->Reg[ra] + val;
-					break;
-
-				case 8: // *SH
-					switch(shifttype) {
-						case 0: // LSH
-							if (proc->Reg[ra] >= 32) {
-								proc->Reg[rd] = 0;
-							} else {
-								proc->Reg[rd] = proc->Reg[rb] << proc->Reg[ra];
-							}
-
-							break;
-
-						case 1: // RSH
-							if (proc->Reg[ra] >= 32) {
-								proc->Reg[rd] = 0;
-							} else {
-								proc->Reg[rd] = proc->Reg[rb] >> proc->Reg[ra];
-							}
-
-							break;
-
-						case 2: // ASH
-							if (proc->Reg[ra] >= 32) {
-								if (proc->Reg[rb] & 0x80000000) {
-									proc->Reg[rd] = 0xFFFFFFFF;
-								} else {
-									proc->Reg[rd] = 0;
-								}
-							} else {
-								proc->Reg[rd] = (int32_t) proc->Reg[rb] >> proc->Reg[ra];
-							}
-
-							break;
-
-						case 3: // ROR
-							proc->Reg[rd] = RoR(proc->Reg[rb], proc->Reg[ra]);
-							break;
-					}
-					break;
-
-				case 9: // MOV LONG, RD
-					XrWriteLong(proc, proc->Reg[ra] + val, proc->Reg[rd]);
-					break;
-
-				case 10: // MOV INT, RD
-					XrWriteInt(proc, proc->Reg[ra] + val, proc->Reg[rd]);
-					break;
-
-				case 11: // MOV BYTE, RD
-					XrWriteByte(proc, proc->Reg[ra] + val, proc->Reg[rd]);
-					break;
-
-				case 12: // invalid
-					XrBasicException(proc, XR_EXC_INV);
-					break;
-
-				case 13: // MOV RD, LONG
-					XrReadLong(proc, proc->Reg[ra] + val, &proc->Reg[rd]);
-					break;
-
-				case 14: // MOV RD, INT
-					XrReadInt(proc, proc->Reg[ra] + val, &proc->Reg[rd]);
-					break;
-
-				case 15: // MOV RD, BYTE
-					XrReadByte(proc, proc->Reg[ra] + val, &proc->Reg[rd]);
-					break;
-
-				default: // unreachable
-					abort();
-			}
-		} else if (majoropcode == 49) { // reg instructions 110001
-			funct = ir >> 28;
-
-			rd = (ir >> 6) & 31;
-			ra = (ir >> 11) & 31;
-			rb = (ir >> 16) & 31;
-
-			switch(funct) {
-				case 0: // SYS
-					XrBasicInbetweenException(proc, XR_EXC_SYS);
-					break;
-
-				case 1: // BRK
-					XrBasicException(proc, XR_EXC_BRK);
-					break;
-
-				case 3: // MB
-					// fall-through
-
-				case 2: // WMB
-					if (XrSimulateCaches) {
-						// Flush the write buffer.
-
-						XrFlushWriteBuffer(proc);
-					}
-
-					break;
-
-#ifdef PROFCPU
-				case 4: // CYCLE_COUNT_START (0x40000031)
-
-					proc->CycleCounter = 0;
-
-					break;
-
-				case 5: // CYCLE_COUNT_END (0x50000031)
-
-					printf("Cycles: %d\n", proc->CycleCounter);
-
-					break;
-#endif
-
-				case 8: // SC
-					if (!proc->Locked) {
-						// Something happened on this processor that caused the
-						// lock to go away.
-
-						proc->Reg[rd] = 0;
-
-						break;
-					}
-
-					// Store the word in a way that will atomically fail if we
-					// no longer have the cache line from LL's load.
-
-					//printf("%d: SC %d\n", proc->Id, proc->Reg[rb]);
-
-					uint8_t status = XrAccess(proc, proc->Reg[ra], 0, proc->Reg[rb], 4, 1);
-
-					if (!status) {
-						break;
-					}
-
-					proc->Reg[rd] = (status == 2) ? 0 : 1;
-
-					break;
-
-				case 9: // LL
-					proc->Locked = 1;
-
-					XrReadLong(proc, proc->Reg[ra], &proc->Reg[rd]);
-
-					//printf("%d: LL %d\n", proc->Id, proc->Reg[rd]);
-
-					break;
-
-				case 11: // MOD
-					if (proc->Reg[rb] == 0) {
-						proc->Reg[rd] = 0;
-						break;
-					}
-
-					proc->Reg[rd] = proc->Reg[ra] % proc->Reg[rb];
-					break;
-
-				case 12: // DIV SIGNED
-					if (proc->Reg[rb] == 0) {
-						proc->Reg[rd] = 0;
-						break;
-					}
-
-					proc->Reg[rd] = (int32_t) proc->Reg[ra] / (int32_t) proc->Reg[rb];
-					break;
-
-				case 13: // DIV
-					if (proc->Reg[rb] == 0) {
-						proc->Reg[rd] = 0;
-						break;
-					}
-
-					proc->Reg[rd] = proc->Reg[ra] / proc->Reg[rb];
-					break;
-
-				case 15: // MUL
-					proc->Reg[rd] = proc->Reg[ra] * proc->Reg[rb];
-					break;
-
-				default:
-					// printf("inv %x 1 @ %x\n", ir, proc->Pc);
-					XrBasicException(proc, XR_EXC_INV);
-					break;
-			}
-		} else if (majoropcode == 41) { // privileged instructions 101001
-			if (proc->Cr[RS] & RS_USER) {
-				// Current mode is usermode, so cause a privilege violation
-				// exception.
-
-				XrBasicException(proc, XR_EXC_PRV);
-			} else {
-				funct = ir >> 28;
-
-				rd = (ir >> 6) & 31;
-				ra = (ir >> 11) & 31;
-				rb = (ir >> 16) & 31;
-
-				uint32_t asid;
-				uint32_t vpn;
-				uint32_t index;
-				uint64_t tlbe;
-				uint32_t pde;
-				uint32_t tbhi;
-
-				switch(funct) {
-					case 11: // RFE
-						proc->Locked = 0;
-
-						if (proc->Cr[RS] & RS_TBMISS) {
-							proc->Pc = proc->Cr[TBPC];
-						} else {
-							proc->Pc = proc->Cr[EPC];
-						}
-
-						proc->Cr[RS] = (proc->Cr[RS] & 0xF0000000) | ((proc->Cr[RS] >> 8) & 0xFFFF);
-
-						break;
-
-					case 12: // HLT
-						proc->Halted = true;
-						break;
-
-					case 14: // MTCR
-						// Reset the NMI mask counter.
-
-						proc->NmiMaskCounter = NMI_MASK_CYCLES;
-
-						switch(rb) {
-							case ICACHECTRL:
-								if (!XrSimulateCaches)
-									break;
-
-								if ((proc->Reg[ra] & 3) == 3) {
-									// Invalidate the entire Icache.
-
-									for (int i = 0; i < XR_IC_LINE_COUNT; i++) {
-										proc->IcFlags[i] = XR_LINE_INVALID;
-									}
-								} else if ((proc->Reg[ra] & 3) == 2) {
-									// Invalidate a single page frame of the
-									// Icache. We can use clever math to only
-									// search the cache lines that lines within
-									// this page frame could possibly be in.
-
-									uint32_t phys = proc->Reg[ra] & 0xFFFFF000;
-
-									uint32_t lowindex = ((phys >> XR_IC_LINE_SIZE_LOG) & (XR_IC_SETS - 1)) << XR_IC_WAY_LOG;
-									uint32_t highindex = (((phys + 4096) >> XR_IC_LINE_SIZE_LOG) & (XR_IC_SETS - 1)) << XR_IC_WAY_LOG;
-
-									for (int i = lowindex; i < highindex; i++) {
-										if ((proc->IcTags[i] & 0xFFFFF000) == phys) {
-											proc->IcFlags[i] = XR_LINE_INVALID;
-										}
-									}
-								}
-
-								// Reset the lookup hint.
-
-								proc->IcLastTag = -1;
-
-								break;
-
-							case DCACHECTRL:
-								if (!XrSimulateCaches)
-									break;
-
-								XrFlushWriteBuffer(proc);
-
-								if ((proc->Reg[ra] & 3) == 3) {
-									// Invalidate the entire Dcache.
-
-									for (int i = 0; i < XR_DC_LINE_COUNT; i++) {
-										proc->DcFlags[i] = XR_LINE_INVALID;
-									}
-								} else if ((proc->Reg[ra] & 3) == 2) {
-									// Invalidate a single page frame of the
-									// Dcache. We can use clever math to only
-									// search the cache lines that lines within
-									// this page frame could possibly be in.
-
-									uint32_t phys = proc->Reg[ra] & 0xFFFFF000;
-
-									uint32_t lowindex = ((phys >> XR_DC_LINE_SIZE_LOG) & (XR_DC_SETS - 1)) << XR_DC_WAY_LOG;
-									uint32_t highindex = (((phys + 4096) >> XR_DC_LINE_SIZE_LOG) & (XR_DC_SETS - 1)) << XR_DC_WAY_LOG;
-
-									for (int i = lowindex; i < highindex; i++) {
-										if ((proc->DcTags[i] & 0xFFFFF000) == phys) {
-											proc->DcFlags[i] = XR_LINE_INVALID;
-										}
-									}
-								}
-
-								break;
-
-							case ITBCTRL:
-								if ((proc->Reg[ra] & 3) == 3) {
-									// Invalidate the entire ITB.
-
-									for (int i = 0; i < XR_ITB_SIZE; i++) {
-										proc->Itb[i] = TB_INVALID_ENTRY;
-									}
-								} else if ((proc->Reg[ra] & 3) == 2) {
-									// Invalidate the entire ITB except for
-									// global entries.
-
-									for (int i = 0; i < XR_ITB_SIZE; i++) {
-										if ((proc->Itb[i] & PTE_GLOBAL) == 0) {
-											proc->Itb[i] = TB_INVALID_ENTRY;
-										}
-									}
-								} else if ((proc->Reg[ra] & 3) == 0) {
-									// Invalidate a single page in the ITB.
-
-									uint64_t vpn = (uint64_t)(proc->Reg[ra] >> 12) << 32;
-
-									for (int i = 0; i < XR_ITB_SIZE; i++) {
-										if ((proc->Itb[i] & 0x000FFFFF00000000) == vpn) {
-											proc->Itb[i] = TB_INVALID_ENTRY;
-										}
-									}
-
-									//printf("invl %x\n", Reg[ra] >> 12);
-
-									//Running = false;
-								}
-
-								// Reset the lookup hint.
-
-								proc->ItbLastVpn = -1;
-
-								break;
-
-							case DTBCTRL:
-								if ((proc->Reg[ra] & 3) == 3) {
-									// Invalidate the entire DTB.
-
-									for (int i = 0; i < XR_DTB_SIZE; i++) {
-										proc->Dtb[i] = TB_INVALID_ENTRY;
-									}
-								} else if ((proc->Reg[ra] & 3) == 2) {
-									// Invalidate the entire DTB except for
-									// global entries.
-
-									for (int i = 0; i < XR_DTB_SIZE; i++) {
-										if ((proc->Dtb[i] & PTE_GLOBAL) == 0) {
-											proc->Dtb[i] = TB_INVALID_ENTRY;
-										}
-									}
-								} else if ((proc->Reg[ra] & 3) == 0) {
-									// Invalidate a single page in the DTB.
-
-									uint64_t vpn = (uint64_t)(proc->Reg[ra] >> 12) << 32;
-
-									for (int i = 0; i < XR_DTB_SIZE; i++) {
-										if ((proc->Dtb[i] & 0x000FFFFF00000000) == vpn) {
-											proc->Dtb[i] = TB_INVALID_ENTRY;
-										}
-									}
-
-									//printf("invl %x\n", Reg[ra] >> 12);
-
-									//Running = false;
-								}
-
-								// Reset the lookup hint.
-
-								proc->DtbLastVpn = -1;
-
-								break;
-
-							case ITBPTE:
-								// Write an entry to the ITB at ITBINDEX, and
-								// increment it.
-
-								proc->Itb[proc->Cr[ITBINDEX]] = ((uint64_t)(proc->Cr[ITBTAG]) << 32) | proc->Reg[ra];
-
-								//printf("ITB[%d] = %llx\n", ControlReg[ITBINDEX], ITlb[ControlReg[ITBINDEX]]);
-
-								proc->Cr[ITBINDEX] += 1;
-
-								if (proc->Cr[ITBINDEX] == XR_ITB_SIZE) {
-									// Roll over to index four.
-
-									proc->Cr[ITBINDEX] = 4;
-								}
-
-								break;
-
-							case DTBPTE:
-								// Write an entry to the DTB at DTBINDEX, and
-								// increment it.
-
-								proc->Dtb[proc->Cr[DTBINDEX]] = ((uint64_t)(proc->Cr[DTBTAG]) << 32) | proc->Reg[ra];
-
-								//printf("DTB[%d] = %llx\n", ControlReg[DTBINDEX], DTlb[ControlReg[DTBINDEX]]);
-
-								proc->Cr[DTBINDEX] += 1;
-
-								if (proc->Cr[DTBINDEX] == XR_DTB_SIZE) {
-									// Roll over to index four.
-
-									proc->Cr[DTBINDEX] = 4;
-								}
-
-								break;
-
-							case ITBINDEX:
-								proc->Cr[ITBINDEX] = proc->Reg[ra] & (XR_ITB_SIZE - 1);
-								//printf("ITBX = %x\n", ControlReg[ITBINDEX]);
-								break;
-
-							case DTBINDEX:
-								proc->Cr[DTBINDEX] = proc->Reg[ra] & (XR_DTB_SIZE - 1);
-								//printf("DTBX = %x\n", ControlReg[DTBINDEX]);
-								break;
-
-							case DTBTAG:
-								proc->Cr[DTBTAG] = proc->Reg[ra];
-
-								// Reset the lookup hint.
-
-								proc->DtbLastVpn = -1;
-
-								break;
-
-							case ITBTAG:
-								proc->Cr[ITBTAG] = proc->Reg[ra];
-
-								// Reset the lookup hint.
-
-								proc->ItbLastVpn = -1;
-								
-								break;
-
-							default:
-								proc->Cr[rb] = proc->Reg[ra];
-								break;
-						}
-
-					case 15: // MFCR
-						// Reset the NMI mask counter.
-
-						proc->NmiMaskCounter = NMI_MASK_CYCLES;
-
-						proc->Reg[rd] = proc->Cr[rb];
-
-						break;
-
-					default:
-						// printf("inv %x 2 @ %x\n", ir, proc->Pc);
-						XrBasicException(proc, XR_EXC_INV);
-						break;
-				}
-			}
-		} else { // major opcodes
-			rd = (ir >> 6) & 31;
-			ra = (ir >> 11) & 31;
-			imm = ir >> 16;
-
-			switch(majoropcode) {
-				// branches
-				
-				case 61: // BEQ
-					if (proc->Reg[rd] == 0) {
-						proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
-					}
-
-					break;
-
-				case 53: // BNE
-					if (proc->Reg[rd] != 0) {
-						proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
-					}
-
-					break;
-
-				case 45: // BLT
-					if ((int32_t) proc->Reg[rd] < 0) {
-						proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
-					}
-
-					break;
-
-				case 37: // BGT
-					if ((int32_t) proc->Reg[rd] > 0) {
-						proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
-					}
-
-					break;
-
-				case 29: // BLE
-					if ((int32_t) proc->Reg[rd] <= 0) {
-						proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
-					}
-
-					break;
-
-				case 21: // BGE
-					if ((int32_t) proc->Reg[rd] >= 0) {
-						proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
-					}
-
-					break;
-
-				case 13: // BPE
-					if ((proc->Reg[rd] & 1) == 0) {
-						proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
-					}
-
-					break;
-
-				case 5: // BPO
-					if (proc->Reg[rd] & 1) {
-						proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
-					}
-
-					break;
-
-				// ALU
-
-				case 60: // ADDI
-					proc->Reg[rd] = proc->Reg[ra] + imm;
-
-					break;
-
-				case 52: // SUBI
-					proc->Reg[rd] = proc->Reg[ra] - imm;
-
-					break;
-
-				case 44: // SLTI
-					if (proc->Reg[ra] < imm) {
-						proc->Reg[rd] = 1;
-					} else {
-						proc->Reg[rd] = 0;
-					}
-
-					break;
-
-				case 36: // SLTI signed
-					if ((int32_t) proc->Reg[ra] < (int32_t) SignExt16(imm)) {
-						proc->Reg[rd] = 1;
-					} else {
-						proc->Reg[rd] = 0;
-					}
-
-					break;
-
-				case 28: // ANDI
-					proc->Reg[rd] = proc->Reg[ra] & imm;
-
-					break;
-
-				case 20: // XORI
-					proc->Reg[rd] = proc->Reg[ra] ^ imm;
-
-					break;
-
-				case 12: // ORI
-					proc->Reg[rd] = proc->Reg[ra] | imm;
-
-					break;
-
-				case 4: // LUI
-					proc->Reg[rd] = proc->Reg[ra] | (imm << 16);
-
-					break;
-
-				// LOAD with immediate offset
-
-				case 59: // MOV RD, BYTE
-					XrReadByte(proc, proc->Reg[ra] + imm, &proc->Reg[rd]);
-
-					break;
-
-				case 51: // MOV RD, INT
-					XrReadInt(proc, proc->Reg[ra] + (imm << 1), &proc->Reg[rd]);
-
-					break;
-
-				case 43: // MOV RD, LONG
-					XrReadLong(proc, proc->Reg[ra] + (imm << 2), &proc->Reg[rd]);
-
-					break;
-
-				// STORE with immediate offset
-
-				case 58: // MOV BYTE RD+IMM, RA
-					XrWriteByte(proc, proc->Reg[rd] + imm, proc->Reg[ra]);
-
-					break;
-
-				case 50: // MOV INT RD+IMM, RA
-					XrWriteInt(proc, proc->Reg[rd] + (imm << 1), proc->Reg[ra]);
-
-					break;
-
-				case 42: // MOV LONG RD+IMM, RA
-					//if (proc->Reg[rd] == 0x3000) {
-					//	printf("%d: write plain %d\n", proc->Id, proc->Reg[ra]);
-					//}
-
-					XrWriteLong(proc, proc->Reg[rd] + (imm << 2), proc->Reg[ra]);
-
-					break;
-
-				case 26: // MOV BYTE RD+IMM, IMM5
-					XrWriteByte(proc, proc->Reg[rd] + imm, SignExt5(ra));
-
-					break;
-
-				case 18: // MOV INT RD+IMM, IMM5
-					XrWriteInt(proc, proc->Reg[rd] + (imm << 1), SignExt5(ra));
-
-					break;
-
-				case 10: // MOV LONG RD+IMM, IMM5
-					XrWriteLong(proc, proc->Reg[rd] + (imm << 2), SignExt5(ra));
-
-					break;
-
-				case 56: // JALR
-					proc->Reg[rd] = proc->Pc;
-					proc->Pc = proc->Reg[ra] + SignExt18(imm << 2);
-
-					break;
-
-				default:
-					// printf("inv %x 3 @ %x\n", ir, proc->Pc);
-					XrBasicException(proc, XR_EXC_INV);
-					break;
-			}
-		}
+		XrLowThree[ir & 7](proc, currentpc, ir);
 	}
 }
