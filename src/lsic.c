@@ -195,7 +195,7 @@ int LsicWrite(int reg, uint32_t value) {
 		((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
 		((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
 
-	if (oldpending != lsic->InterruptPending) {
+	if (oldpending != lsic->InterruptPending && proc != XrIoMutexProcessor) {
 		// Poke the thread for this cpu to wake it up.
 
 		XrPokeCpu(proc);
