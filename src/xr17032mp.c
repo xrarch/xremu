@@ -1713,12 +1713,19 @@ static void XrMtcr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 				}
 			} else if ((proc->Reg[ra] & 3) == 2) {
 				// Invalidate the entire ITB except for
-				// global entries.
+				// global and reserved entries.
 
-				for (int i = 0; i < XR_ITB_SIZE; i++) {
+				for (int i = 4; i < XR_ITB_SIZE; i++) {
 					if ((proc->Itb[i] & PTE_GLOBAL) == 0) {
 						proc->Itb[i] = TB_INVALID_ENTRY;
 					}
+				}
+			} else if ((proc->Reg[ra] & 3) == 1) {
+				// Invalidate the entire ITB except for
+				// reserved entries.
+
+				for (int i = 4; i < XR_ITB_SIZE; i++) {
+					proc->Itb[i] = TB_INVALID_ENTRY;
 				}
 			} else if ((proc->Reg[ra] & 3) == 0) {
 				// Invalidate a single page in the ITB.
@@ -1751,12 +1758,19 @@ static void XrMtcr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 				}
 			} else if ((proc->Reg[ra] & 3) == 2) {
 				// Invalidate the entire DTB except for
-				// global entries.
+				// global and reserved entries.
 
-				for (int i = 0; i < XR_DTB_SIZE; i++) {
+				for (int i = 4; i < XR_DTB_SIZE; i++) {
 					if ((proc->Dtb[i] & PTE_GLOBAL) == 0) {
 						proc->Dtb[i] = TB_INVALID_ENTRY;
 					}
+				}
+			} else if ((proc->Reg[ra] & 3) == 1) {
+				// Invalidate the entire DTB except for
+				// reserved entries.
+
+				for (int i = 4; i < XR_DTB_SIZE; i++) {
+					proc->Dtb[i] = TB_INVALID_ENTRY;
 				}
 			} else if ((proc->Reg[ra] & 3) == 0) {
 				// Invalidate a single page in the DTB.
