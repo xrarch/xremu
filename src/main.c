@@ -49,7 +49,7 @@ void UnlockIoMutex() {
 
 void XrPokeCpu(XrProcessor *proc) {
 	if (!proc->Poked) {
-		proc->Poked = true;
+		proc->Poked = 1;
 		SDL_SemPost(proc->LoopSemaphore);
 	}
 }
@@ -85,6 +85,7 @@ int CpuLoop(void *context) {
 	XrProcessor *proc = (XrProcessor *)context;
 
 	int last_tick = SDL_GetTicks();
+	int final_tick = last_tick;
 
 	int cyclespertick = SimulatorHz/1000;
 	int extracycles = SimulatorHz%1000; // squeeze in the sub-millisecond cycles
@@ -97,6 +98,12 @@ int CpuLoop(void *context) {
 		last_tick = this_tick;
 
 		proc->Progress = XR_POLL_MAX;
+
+		proc->Poked = 0;
+
+		if (dt > CPUSTEPMS + 10) {
+			dt = CPUSTEPMS;
+		}
 
 		if (reason == 0 && dt == 0) {
 			// Execute a tiny amount of CPU time to handle this interrupt.
