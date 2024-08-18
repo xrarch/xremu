@@ -19,7 +19,7 @@ uint8_t XrScacheExclusiveIds[XR_SC_LINE_COUNT];
 
 #if DBG
 
-#define DBGPRINT(...) printf(_VA_ARGS_)
+#define DBGPRINT(...) printf(__VA_ARGS__)
 
 #else
 
@@ -437,7 +437,7 @@ static inline uint8_t XrIcacheAccess(XrProcessor *proc, uint32_t address, uint32
 		return 1;
 	}
 
-	uint32_t setnumber = (address >> XR_IC_LINE_SIZE_LOG) & (XR_IC_SETS - 1);
+	uint32_t setnumber = XR_IC_SET_NUMBER(address);
 	uint32_t cacheindex = setnumber << XR_IC_WAY_LOG;
 
 	for (int i = 0; i < XR_IC_WAYS; i++) {
@@ -545,7 +545,7 @@ static inline void XrFlushWriteBuffer(XrProcessor *proc) {
 static inline uint32_t XrFindInScache(uint32_t tag) {
 	// Find a tag in the Scache.
 
-	uint32_t setnumber = (tag >> XR_SC_LINE_SIZE_LOG) & (XR_SC_SETS - 1);
+	uint32_t setnumber = XR_SC_SET_NUMBER(tag);
 	uint32_t cacheindex = setnumber << XR_SC_WAY_LOG;
 
 	for (int i = 0; i < XR_SC_WAYS; i++) {
@@ -566,7 +566,7 @@ static inline uint32_t XrFindInScache(uint32_t tag) {
 static inline void XrDowngradeLine(XrProcessor *proc, uint32_t tag, uint32_t newstate) {
 	// Invalidate a line if found in the given processor's Dcache.
 
-	uint32_t setnumber = (tag >> XR_DC_LINE_SIZE_LOG) & (XR_DC_SETS - 1);
+	uint32_t setnumber = XR_DC_SET_NUMBER(tag);
 	uint32_t cacheindex = setnumber << XR_DC_WAY_LOG;
 
 	XrLockCache(proc, tag);
@@ -583,25 +583,23 @@ static inline void XrDowngradeLine(XrProcessor *proc, uint32_t tag, uint32_t new
 
 			DBGPRINT("found to inval %x %d %d\n", tag, proc->DcFlags[cacheindex + i], cacheindex + i);
 
-			if (proc->DcFlags[index] == XR_LINE_EXCLUSIVE) {
-				// Find it in the writebuffer.
+			// Find it in the writebuffer.
 
-				uint32_t wbindex = proc->DcIndexToWbIndex[index];
+			uint32_t wbindex = proc->DcIndexToWbIndex[index];
 
-				if (wbindex != XR_WB_INDEX_INVALID) {
-					// Force a write out.
+			if (wbindex != XR_WB_INDEX_INVALID) {
+				// Force a write out.
 
-					DBGPRINT("forced wb write %x from cacheindex %d\n", tag, index);
+				DBGPRINT("forced wb write %x from cacheindex %d\n", tag, index);
 
-					XrLockIoMutex(proc, tag);
-					EBusWrite(tag, &proc->Dc[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE);
-					XrUnlockIoMutex(tag);
+				XrLockIoMutex(proc, tag);
+				EBusWrite(tag, &proc->Dc[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE);
+				XrUnlockIoMutex(tag);
 
-					// Invalidate.
+				// Invalidate.
 
-					proc->WbIndices[wbindex] = XR_CACHE_INDEX_INVALID;
-					proc->DcIndexToWbIndex[index] = XR_WB_INDEX_INVALID;
-				}
+				proc->WbIndices[wbindex] = XR_CACHE_INDEX_INVALID;
+				proc->DcIndexToWbIndex[index] = XR_WB_INDEX_INVALID;
 			}
 
 			proc->DcFlags[index] = newstate;
@@ -632,7 +630,7 @@ static inline uint32_t XrFindOrReplaceInScache(XrProcessor *thisproc, uint32_t t
 
 	*created = 0;
 
-	uint32_t setnumber = (tag >> XR_SC_LINE_SIZE_LOG) & (XR_SC_SETS - 1);
+	uint32_t setnumber = XR_SC_SET_NUMBER(tag);
 	uint32_t cacheindex = setnumber << XR_SC_WAY_LOG;
 
 	for (int i = 0; i < XR_SC_WAYS; i++) {
@@ -647,41 +645,10 @@ static inline uint32_t XrFindOrReplaceInScache(XrProcessor *thisproc, uint32_t t
 		}
 	}
 
-	// Didn't find it so drop locks and select one to replace.
-
-	XrUnlockScache(tag);
-
-	// Grab the global Scache replacement lock.
-
-	XrLockScacheReplacement(setnumber);
-
-	// In the meantime someone might have filled it so we have to re-check with
-	// both the replacement lock and the tag lock.
-
-	XrLockScache(tag);
-
-	for (int i = 0; i < XR_SC_WAYS; i++) {
-		uint32_t index = cacheindex + i;
-
-		if (XrScacheFlags[index] && XrScacheTags[index] == tag) {
-			// Found it!
-
-			XrUnlockScacheReplacement(setnumber);
-
-			DBGPRINT("scache retry hit %x\n", tag);
-
-			return index;
-		}
-	}
-
-	XrUnlockScache(tag);
-
-	// Still not there, so, we really are gonna replace one.
+	// Didn't find it so select one to replace.
 
 	cacheindex += XrScacheReplacementIndex & (XR_SC_WAYS - 1);
 	XrScacheReplacementIndex += 1;
-
-restart:
 
 	if (XrScacheFlags[cacheindex] == XR_LINE_INVALID) {
 		// It's invalid, we can just take it.
@@ -691,30 +658,7 @@ restart:
 
 		uint32_t oldtag = XrScacheTags[cacheindex];
 
-		DBGPRINT("scache take %x\n", tag);
-
-		XrLockScache(oldtag);
-
-		// Check if state changed. We'll have to restart if it did.
-
-		// Impossible for tag to have changed since that implies a new line was
-		// added, which is blocked out by the replacement lock.
-
-#if 0
-		if (XrScacheTags[cacheindex] != oldtag) {
-			XrUnlockScache(oldtag);
-
-			goto restart;
-		}
-#endif
-
-		if (XrScacheFlags[cacheindex] == XR_LINE_INVALID) {
-			XrUnlockScache(oldtag);
-
-			DBGPRINT("scache retry invalid %x\n", oldtag);
-
-			goto restart;
-		}
+		DBGPRINT("scache take %x\n", oldtag);
 
 		if (XrScacheFlags[cacheindex] == XR_LINE_SHARED) {
 			// We have to remove it from everyone's Dcache, including mine.
@@ -734,19 +678,13 @@ restart:
 		// Mark invalid for the time where we have no tags locked.
 
 		XrScacheFlags[cacheindex] = XR_LINE_INVALID;
-
-		XrUnlockScache(oldtag);
 	}
-
-	XrLockScache(tag);
 
 	XrScacheFlags[cacheindex] = newstate;
 	XrScacheTags[cacheindex] = tag;
 	XrScacheExclusiveIds[cacheindex] = thisproc->Id;
 
 	DBGPRINT("scache fill %x\n", tag);
-
-	XrUnlockScacheReplacement(setnumber);
 
 	*created = 1;
 
@@ -760,7 +698,7 @@ static inline uint8_t XrDcacheAccess(XrProcessor *proc, uint32_t address, uint32
 
 	uint32_t tag = address & ~(XR_DC_LINE_SIZE - 1);
 	uint32_t lineoffset = address & (XR_DC_LINE_SIZE - 1);
-	uint32_t setnumber = (tag >> XR_DC_LINE_SIZE_LOG) & (XR_DC_SETS - 1);
+	uint32_t setnumber = XR_DC_SET_NUMBER(address);
 	uint32_t cacheindex = setnumber << XR_DC_WAY_LOG;
 	uint32_t freewbindex = -1;
 
@@ -915,7 +853,7 @@ restart:
 			// since our cache is maintained as a subset of the Scache.
 
 			if (scacheindex == -1) {
-				fprintf(stderr, "Not found in scache %08x\n", address);
+				fprintf(stderr, "Not found in scache %08x %d %d\n", address, index, proc->DcFlags[index]);
 				abort();
 			}
 
@@ -1020,12 +958,12 @@ restart:
 	// The line is now in the desired state in the Scache (and in everyone
 	// else's Dcache).
 
+	XrLockCache(proc, tag);
+
 	// We have to select a Dcache line to replace now.
 
 	uint32_t index = cacheindex + (proc->DcReplacementIndex & (XR_DC_WAYS - 1));
 	proc->DcReplacementIndex += 1;
-
-recheck:
 
 	if (proc->DcFlags[index] == XR_LINE_INVALID) {
 		// It's invalid, we can just take it.
@@ -1035,50 +973,32 @@ recheck:
 
 		uint32_t oldtag = proc->DcTags[index];
 
-		XrLockCache(proc, oldtag);
-
-		// Check if state changed. We'll have to restart if it did.
-
-		if (proc->DcFlags[index] == XR_LINE_INVALID) {
-			XrUnlockCache(proc, oldtag);
-
-			goto recheck;
-		}
-
 		DBGPRINT("reclaim %x after miss\n", oldtag);
 
-		if (proc->DcFlags[index] == XR_LINE_EXCLUSIVE) {
-			// See if it's in the writebuffer. If so we'll have to force a
-			// write.
+		// See if it's in the writebuffer. If so we'll have to force a
+		// write.
 
-			// Find it in the writebuffer.
+		uint32_t wbindex = proc->DcIndexToWbIndex[index];
 
-			uint32_t wbindex = proc->DcIndexToWbIndex[index];
+		if (wbindex != XR_WB_INDEX_INVALID) {
+			// Force a write out.
 
-			if (wbindex != XR_WB_INDEX_INVALID) {
-				// Force a write out.
+			DBGPRINT("forced self wb write %x from cacheindex %d\n", tag, index);
 
-				DBGPRINT("forced self wb write %x from cacheindex %d\n", tag, index);
+			XrLockIoMutex(proc, tag);
+			EBusWrite(oldtag, &proc->Dc[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE);
+			XrUnlockIoMutex(tag);
 
-				XrLockIoMutex(proc, tag);
-				EBusWrite(oldtag, &proc->Dc[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE);
-				XrUnlockIoMutex(tag);
+			// Invalidate.
 
-				// Invalidate.
-
-				proc->WbIndices[wbindex] = XR_CACHE_INDEX_INVALID;
-				proc->DcIndexToWbIndex[index] = XR_WB_INDEX_INVALID;
-			}
+			proc->WbIndices[wbindex] = XR_CACHE_INDEX_INVALID;
+			proc->DcIndexToWbIndex[index] = XR_WB_INDEX_INVALID;
 		}
 
 		// Mark invalid for the time where we have no tags locked.
 
 		proc->DcFlags[index] = XR_LINE_INVALID;
-
-		XrUnlockCache(proc, oldtag);
 	}
-
-	XrLockCache(proc, tag);
 
 	// Initialize the cache line.
 

@@ -14,6 +14,10 @@ ifdef PROFCPU
 	CFLAGS += -DPROFCPU
 endif
 
+ifdef DBG
+	CFLAGS += -DDBG
+endif
+
 CFILES = src/main.c \
 	src/ebus.c src/ebus.h \
 	src/ram256.c src/ram256.h \

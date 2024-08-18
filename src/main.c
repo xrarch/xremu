@@ -32,30 +32,28 @@ XrProcessor *XrIoMutexProcessor;
 
 #ifndef EMSCRIPTEN
 
-SDL_mutex *ScacheMutexes[XR_CACHE_MUTEXES];
-SDL_mutex *ScacheReplacementMutexes[XR_CACHE_MUTEXES];
+SDL_SpinLock ScacheMutexes[XR_CACHE_MUTEXES];
 
-SDL_mutex *IoMutex;
-SDL_sem* CpuSemaphore;
+SDL_SpinLock IoMutex;
 
 void LockIoMutex() {
-	SDL_LockMutex(IoMutex);
+	SDL_AtomicLock(&IoMutex);
 	XrIoMutexProcessor = 0;
 }
 
 void UnlockIoMutex() {
-	SDL_UnlockMutex(IoMutex);
+	SDL_AtomicUnlock(&IoMutex);
 }
 
 void XrPokeCpu(XrProcessor *proc) {
-	SDL_LockMutex(proc->PokeMutex);
+	SDL_AtomicLock(&proc->PokeMutex);
 
 	if (!proc->Poked) {
 		proc->Poked = 1;
 		SDL_SemPost(proc->LoopSemaphore);
 	}
 
-	SDL_UnlockMutex(proc->PokeMutex);
+	SDL_AtomicUnlock(&proc->PokeMutex);
 }
 
 #else
@@ -156,12 +154,7 @@ void CpuCreate(int id) {
 
 #ifndef EMSCRIPTEN
 	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
-		proc->CacheMutexes[i] = SDL_CreateMutex();
-
-		if (!proc->CacheMutexes[i]) {
-			fprintf(stderr, "Unable to allocate cache mutex: %s", SDL_GetError());
-			exit(1);
-		}
+		proc->CacheMutexes[i] = 0;
 	}
 
 	proc->LoopSemaphore = SDL_CreateSemaphore(0);
@@ -171,12 +164,7 @@ void CpuCreate(int id) {
 		exit(1);
 	}
 
-	proc->PokeMutex = SDL_CreateMutex();
-
-	if (!proc->PokeMutex) {
-		fprintf(stderr, "Unable to allocate poke mutex: %s", SDL_GetError());
-		exit(1);
-	}
+	proc->PokeMutex = 0;
 
 	SDL_CreateThread(&CpuLoop, "CpuLoop", proc);
 #endif
@@ -199,30 +187,7 @@ int main(int argc, char *argv[]) {
 	uint32_t memsize = 4 * 1024 * 1024;
 
 #ifndef EMSCRIPTEN
-	IoMutex = SDL_CreateMutex();
-
-	if (!IoMutex) {
-		fprintf(stderr, "Unable to allocate IoMutex: %s", SDL_GetError());
-		return 1;
-	}
-
-	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
-		ScacheMutexes[i] = SDL_CreateMutex();
-
-		if (!ScacheMutexes[i]) {
-			fprintf(stderr, "Unable to allocate ScacheMutex: %s", SDL_GetError());
-			return 1;
-		}
-	}
-
-	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
-		ScacheReplacementMutexes[i] = SDL_CreateMutex();
-
-		if (!ScacheReplacementMutexes[i]) {
-			fprintf(stderr, "Unable to allocate ScacheReplacementMutex: %s", SDL_GetError());
-			return 1;
-		}
-	}
+	IoMutex = 0;
 
 	for (int i = 1; i < argc; i++) {
 		// shut up this is beautiful...

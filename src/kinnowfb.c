@@ -150,8 +150,6 @@ void KinnowDraw(struct Screen *screen) {
 		.h = height,
 	};
 
-	SDL_UpdateTexture(texture, &rect, PixelBuffer, rect.w * 4);
-
 	DirtyRectX1 = -1;
 	DirtyRectX2 = 0;
 	DirtyRectY1 = -1;
@@ -160,6 +158,8 @@ void KinnowDraw(struct Screen *screen) {
 	IsDirty = false;
 
 	UnlockIoMutex();
+
+	SDL_UpdateTexture(texture, &rect, PixelBuffer, rect.w * 4);
 }
 
 int KinnowInit() {

@@ -90,11 +90,11 @@
 
 #define XR_CACHE_MUTEXES 256
 
-// Take 1 uppermost and 7 low bits from cache index. Tries to divide the cache
-// in half between memory and I/O.
+#define XR_IC_SET_NUMBER(tag) ((tag >> XR_IC_LINE_SIZE_LOG) & (XR_IC_SETS - 1))
+#define XR_DC_SET_NUMBER(tag) ((tag >> XR_DC_LINE_SIZE_LOG) & (XR_DC_SETS - 1))
+#define XR_SC_SET_NUMBER(tag) ((tag >> XR_SC_LINE_SIZE_LOG) & (XR_SC_SETS - 1))
 
-#define XR_CACHE_INDEX(tag) (((tag >> 31) << 7) | ((tag >> XR_DC_LINE_COUNT_LOG) & 127))
-#define XR_SCACHE_INDEX(tag) (tag & 127)
+#define XR_MUTEX_INDEX(setnumber) (setnumber & 255)
 
 #define XR_WB_INDEX_INVALID 255
 #define XR_CACHE_INDEX_INVALID 0xFFFFFFFF
@@ -106,9 +106,9 @@ typedef struct _XrProcessor {
 	uint64_t ItbLastResult;
 	uint64_t DtbLastResult;
 
-	void *CacheMutexes[XR_CACHE_MUTEXES];
+	SDL_SpinLock CacheMutexes[XR_CACHE_MUTEXES];
 	void *LoopSemaphore;
-	void *PokeMutex;
+	SDL_SpinLock PokeMutex;
 
 	uint32_t IcTags[XR_IC_LINE_COUNT];
 	uint32_t DcTags[XR_DC_LINE_COUNT];
@@ -182,15 +182,14 @@ extern void XrPokeCpu(XrProcessor *proc);
 
 #ifndef EMSCRIPTEN
 
-extern SDL_mutex *ScacheReplacementMutexes[XR_CACHE_MUTEXES];
-extern SDL_mutex *ScacheMutexes[XR_CACHE_MUTEXES];
+extern SDL_SpinLock ScacheMutexes[XR_CACHE_MUTEXES];
 
-extern SDL_mutex *IoMutex;
+extern SDL_SpinLock IoMutex;
 extern SDL_sem* CpuSemaphore;
 
 static inline void XrLockIoMutex(XrProcessor *proc, uint32_t address) {
 	if (address >= XR_NONCACHED_PHYS_BASE) {
-		SDL_LockMutex(IoMutex);
+		SDL_AtomicLock(&IoMutex);
 		XrIoMutexProcessor = proc;
 	}
 }
@@ -198,32 +197,24 @@ static inline void XrLockIoMutex(XrProcessor *proc, uint32_t address) {
 static inline void XrUnlockIoMutex(uint32_t address) {
 	if (address >= XR_NONCACHED_PHYS_BASE) {
 		XrIoMutexProcessor = 0;
-		SDL_UnlockMutex(IoMutex);
+		SDL_AtomicUnlock(&IoMutex);
 	}
 }
 
 static inline void XrLockCache(XrProcessor *proc, uint32_t tag) {
-	SDL_LockMutex((SDL_mutex *)(proc->CacheMutexes[XR_CACHE_INDEX(tag)]));
+	SDL_AtomicLock(&proc->CacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 static inline void XrUnlockCache(XrProcessor *proc, uint32_t tag) {
-	SDL_UnlockMutex((SDL_mutex *)(proc->CacheMutexes[XR_CACHE_INDEX(tag)]));
+	SDL_AtomicUnlock(&proc->CacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 static inline void XrLockScache(uint32_t tag) {
-	SDL_LockMutex(ScacheMutexes[XR_CACHE_INDEX(tag)]);
+	SDL_AtomicLock(&ScacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 static inline void XrUnlockScache(uint32_t tag) {
-	SDL_UnlockMutex(ScacheMutexes[XR_CACHE_INDEX(tag)]);
-}
-
-static inline void XrLockScacheReplacement(uint32_t setnumber) {
-	SDL_LockMutex(ScacheReplacementMutexes[XR_SCACHE_INDEX(setnumber)]);
-}
-
-static inline void XrUnlockScacheReplacement(uint32_t setnumber) {
-	SDL_UnlockMutex(ScacheReplacementMutexes[XR_SCACHE_INDEX(setnumber)]);
+	SDL_AtomicUnlock(&ScacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 #else
