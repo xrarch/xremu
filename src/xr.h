@@ -107,6 +107,7 @@ typedef struct _XrProcessor {
 
 	void *CacheMutexes[XR_CACHE_MUTEXES];
 	void *LoopSemaphore;
+	void *PokeMutex;
 
 	uint32_t IcTags[XR_IC_LINE_COUNT];
 	uint32_t DcTags[XR_DC_LINE_COUNT];

@@ -48,10 +48,14 @@ void UnlockIoMutex() {
 }
 
 void XrPokeCpu(XrProcessor *proc) {
+	SDL_LockMutex(proc->PokeMutex);
+
 	if (!proc->Poked) {
 		proc->Poked = 1;
 		SDL_SemPost(proc->LoopSemaphore);
 	}
+
+	SDL_UnlockMutex(proc->PokeMutex);
 }
 
 #else
@@ -84,38 +88,15 @@ void MainLoop(void);
 int CpuLoop(void *context) {
 	XrProcessor *proc = (XrProcessor *)context;
 
-	int last_tick = SDL_GetTicks();
-	int final_tick = last_tick;
-
 	int cyclespertick = SimulatorHz/1000;
 	int extracycles = SimulatorHz%1000; // squeeze in the sub-millisecond cycles
 
 	int reason = -1;
 
 	while (1) {
-		int this_tick = SDL_GetTicks();
-		int dt = this_tick - last_tick;
-		last_tick = this_tick;
-
 		proc->Progress = XR_POLL_MAX;
 
-		proc->Poked = 0;
-
-		if (dt > CPUSTEPMS + 10) {
-			dt = CPUSTEPMS;
-		}
-
-		if (reason == 0 && dt == 0) {
-			// Execute a tiny amount of CPU time to handle this interrupt.
-
-			XrExecute(proc, 2000, 1);
-
-			proc->Poked = 0;
-		}
-
-		// printf("delta time=%d\n", dt);
-
-		for (int i = 0; i < dt; i++) {
+		for (int i = 0; i < CPUSTEPMS; i++) {
 			if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
 				// Send self the interrupt.
 
@@ -126,8 +107,9 @@ int CpuLoop(void *context) {
 
 			int cyclesleft = cyclespertick;
 
-			if (i == dt-1)
+			if (i == CPUSTEPMS-1) {
 				cyclesleft += extracycles;
+			}
 
 			XrExecute(proc, cyclesleft, 1);
 
@@ -141,13 +123,18 @@ int CpuLoop(void *context) {
 			proc->TimerInterruptCounter += 1;
 		}
 
-		int final_tick = SDL_GetTicks();
-		int this_tick_duration = final_tick - this_tick;
+		proc->Poked = 0;
 
-		// printf("duration=%d, delay=%d\n", this_tick_duration, CPUSTEPMS - this_tick_duration);
+		SDL_SemWait(proc->LoopSemaphore);
+	}
+}
 
-		if (this_tick_duration < CPUSTEPMS) {
-			reason = SDL_SemWaitTimeout(proc->LoopSemaphore, CPUSTEPMS - this_tick_duration);
+int MasterLoop(void *context) {
+	while (1) {
+		SDL_Delay(CPUSTEPMS);
+
+		for (int i = 0; i < XrProcessorCount; i++) {
+			XrPokeCpu(CpuTable[i]);
 		}
 	}
 }
@@ -181,6 +168,13 @@ void CpuCreate(int id) {
 
 	if (!proc->LoopSemaphore) {
 		fprintf(stderr, "Unable to allocate loop semaphore: %s", SDL_GetError());
+		exit(1);
+	}
+
+	proc->PokeMutex = SDL_CreateMutex();
+
+	if (!proc->PokeMutex) {
+		fprintf(stderr, "Unable to allocate poke mutex: %s", SDL_GetError());
 		exit(1);
 	}
 
@@ -375,6 +369,8 @@ int main(int argc, char *argv[]) {
 	}
 
 #ifndef EMSCRIPTEN
+	SDL_CreateThread(&MasterLoop, "MasterLoop", 0);
+
 	int tick_end = 0;
 	int tick_start = 0;
 
