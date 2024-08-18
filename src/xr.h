@@ -108,7 +108,6 @@ typedef struct _XrProcessor {
 
 	SDL_SpinLock CacheMutexes[XR_CACHE_MUTEXES];
 	void *LoopSemaphore;
-	SDL_SpinLock PokeMutex;
 
 	uint32_t IcTags[XR_IC_LINE_COUNT];
 	uint32_t DcTags[XR_DC_LINE_COUNT];
@@ -163,7 +162,6 @@ typedef struct _XrProcessor {
 	uint8_t UserBreak;
 	uint8_t Halted;
 	uint8_t Running;
-	uint8_t Poked;
 } XrProcessor;
 
 extern uint8_t XrSimulateCaches;
@@ -178,7 +176,6 @@ extern XrProcessor *XrIoMutexProcessor;
 extern void XrReset(XrProcessor *proc);
 extern void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt);
 
-extern void XrPokeCpu(XrProcessor *proc);
 
 #ifndef EMSCRIPTEN
 

@@ -63,20 +63,6 @@ void LsicInterruptTargeted(void *proc, int intsrc) {
 	lsic->InterruptPending =
 		((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
 		((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
-
-	if (intsrc == 2) {
-		// HACK: Don't poke if this is the RTC interrupt. Each processor sends
-		//       that to itself from its own thread to avoid excessive wakeups
-		//       and improve accuracy.
-
-		return;
-	}
-
-	if (oldpending != lsic->InterruptPending) {
-		// Poke the thread for this cpu to wake it up.
-
-		XrPokeCpu(rproc);
-	}
 }
 
 void LsicInterrupt(int intsrc) {
@@ -194,12 +180,6 @@ int LsicWrite(int reg, uint32_t value) {
 	lsic->InterruptPending =
 		((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
 		((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
-
-	if (oldpending != lsic->InterruptPending && proc != XrIoMutexProcessor) {
-		// Poke the thread for this cpu to wake it up.
-
-		XrPokeCpu(proc);
-	}
 
 	return EBUSSUCCESS;
 }

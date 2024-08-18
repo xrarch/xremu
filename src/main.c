@@ -45,22 +45,10 @@ void UnlockIoMutex() {
 	SDL_AtomicUnlock(&IoMutex);
 }
 
-void XrPokeCpu(XrProcessor *proc) {
-	SDL_AtomicLock(&proc->PokeMutex);
-
-	if (!proc->Poked) {
-		proc->Poked = 1;
-		SDL_SemPost(proc->LoopSemaphore);
-	}
-
-	SDL_AtomicUnlock(&proc->PokeMutex);
-}
-
 #else
 
 void LockIoMutex() {}
 void UnlockIoMutex() {}
-void XrPokeCpu(XrProcessor *proc) {}
 
 uint32_t emscripten_last_tick = 0;
 
@@ -81,7 +69,7 @@ bool Headless = false;
 void MainLoop(void);
 #endif
 
-#define CPUSTEPMS 40
+#define CPUSTEPMS 17 // 60Hz rounded up
 
 int CpuLoop(void *context) {
 	XrProcessor *proc = (XrProcessor *)context;
@@ -121,19 +109,7 @@ int CpuLoop(void *context) {
 			proc->TimerInterruptCounter += 1;
 		}
 
-		proc->Poked = 0;
-
 		SDL_SemWait(proc->LoopSemaphore);
-	}
-}
-
-int MasterLoop(void *context) {
-	while (1) {
-		SDL_Delay(CPUSTEPMS);
-
-		for (int i = 0; i < XrProcessorCount; i++) {
-			XrPokeCpu(CpuTable[i]);
-		}
 	}
 }
 
@@ -148,7 +124,6 @@ void CpuCreate(int id) {
 	CpuTable[id] = proc;
 	proc->Id = id;
 	proc->TimerInterruptCounter = 0;
-	proc->Poked = 0;
 
 	XrReset(proc);
 
@@ -163,8 +138,6 @@ void CpuCreate(int id) {
 		fprintf(stderr, "Unable to allocate loop semaphore: %s", SDL_GetError());
 		exit(1);
 	}
-
-	proc->PokeMutex = 0;
 
 	SDL_CreateThread(&CpuLoop, "CpuLoop", proc);
 #endif
@@ -336,8 +309,6 @@ int main(int argc, char *argv[]) {
 	}
 
 #ifndef EMSCRIPTEN
-	SDL_CreateThread(&MasterLoop, "MasterLoop", 0);
-
 	int tick_end = 0;
 	int tick_start = 0;
 
@@ -353,6 +324,12 @@ int main(int argc, char *argv[]) {
 		DKSInterval(tick_after_draw - tick_end);
 		SerialInterval(tick_after_draw - tick_end);
 		UnlockIoMutex();
+
+		// Kick all the CPUs.
+
+		for (int i = 0; i < XrProcessorCount; i++) {
+			SDL_SemPost(CpuTable[i]->LoopSemaphore);
+		}
 
 		tick_end = SDL_GetTicks();
 		int delay = 1000/FPS - (tick_end - tick_start);
