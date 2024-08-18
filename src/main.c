@@ -32,8 +32,8 @@ XrProcessor *XrIoMutexProcessor;
 
 #ifndef EMSCRIPTEN
 
-SDL_mutex *ScacheReplacementMutex;
 SDL_mutex *ScacheMutexes[XR_CACHE_MUTEXES];
+SDL_mutex *ScacheReplacementMutexes[XR_CACHE_MUTEXES];
 
 SDL_mutex *IoMutex;
 SDL_sem* CpuSemaphore;
@@ -215,11 +215,13 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	ScacheReplacementMutex = SDL_CreateMutex();
+	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
+		ScacheReplacementMutexes[i] = SDL_CreateMutex();
 
-	if (!ScacheReplacementMutex) {
-		fprintf(stderr, "Unable to allocate ScacheReplacementMutex: %s", SDL_GetError());
-		return 1;
+		if (!ScacheReplacementMutexes[i]) {
+			fprintf(stderr, "Unable to allocate ScacheReplacementMutex: %s", SDL_GetError());
+			return 1;
+		}
 	}
 
 	for (int i = 1; i < argc; i++) {

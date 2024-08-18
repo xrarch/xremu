@@ -653,7 +653,7 @@ static inline uint32_t XrFindOrReplaceInScache(XrProcessor *thisproc, uint32_t t
 
 	// Grab the global Scache replacement lock.
 
-	XrLockScacheReplacement();
+	XrLockScacheReplacement(setnumber);
 
 	// In the meantime someone might have filled it so we have to re-check with
 	// both the replacement lock and the tag lock.
@@ -666,7 +666,7 @@ static inline uint32_t XrFindOrReplaceInScache(XrProcessor *thisproc, uint32_t t
 		if (XrScacheFlags[index] && XrScacheTags[index] == tag) {
 			// Found it!
 
-			XrUnlockScacheReplacement();
+			XrUnlockScacheReplacement(setnumber);
 
 			DBGPRINT("scache retry hit %x\n", tag);
 
@@ -746,7 +746,7 @@ restart:
 
 	DBGPRINT("scache fill %x\n", tag);
 
-	XrUnlockScacheReplacement();
+	XrUnlockScacheReplacement(setnumber);
 
 	*created = 1;
 

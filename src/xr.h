@@ -88,12 +88,13 @@
 
 #define XR_POLL_MAX 8
 
-#define XR_CACHE_MUTEXES 64
+#define XR_CACHE_MUTEXES 256
 
-// Take 1 uppermost and 5 low bits from cache index. Tries to divide the cache
+// Take 1 uppermost and 7 low bits from cache index. Tries to divide the cache
 // in half between memory and I/O.
 
-#define XR_CACHE_INDEX(tag) (((tag >> 31) << 5) | ((tag >> XR_DC_LINE_COUNT_LOG) & 31))
+#define XR_CACHE_INDEX(tag) (((tag >> 31) << 7) | ((tag >> XR_DC_LINE_COUNT_LOG) & 127))
+#define XR_SCACHE_INDEX(tag) (tag & 127)
 
 #define XR_WB_INDEX_INVALID 255
 #define XR_CACHE_INDEX_INVALID 0xFFFFFFFF
@@ -181,7 +182,7 @@ extern void XrPokeCpu(XrProcessor *proc);
 
 #ifndef EMSCRIPTEN
 
-extern SDL_mutex *ScacheReplacementMutex;
+extern SDL_mutex *ScacheReplacementMutexes[XR_CACHE_MUTEXES];
 extern SDL_mutex *ScacheMutexes[XR_CACHE_MUTEXES];
 
 extern SDL_mutex *IoMutex;
@@ -217,12 +218,12 @@ static inline void XrUnlockScache(uint32_t tag) {
 	SDL_UnlockMutex(ScacheMutexes[XR_CACHE_INDEX(tag)]);
 }
 
-static inline void XrLockScacheReplacement() {
-	SDL_LockMutex(ScacheReplacementMutex);
+static inline void XrLockScacheReplacement(uint32_t setnumber) {
+	SDL_LockMutex(ScacheReplacementMutexes[XR_SCACHE_INDEX(setnumber)]);
 }
 
-static inline void XrUnlockScacheReplacement() {
-	SDL_UnlockMutex(ScacheReplacementMutex);
+static inline void XrUnlockScacheReplacement(uint32_t setnumber) {
+	SDL_UnlockMutex(ScacheReplacementMutexes[XR_SCACHE_INDEX(setnumber)]);
 }
 
 #else
