@@ -96,21 +96,29 @@ void DKSCompleteTransfer(DKSDisk *disk) {
 		printf("dks%d: %s %d @ %08x\n", disk->ID, disk->IoType == DKS_READ ? "read" : "write", disk->TransferSector, disk->TransferAddress);
 	}
 
+	UnlockIoMutex();
+
 	fseek(disk->DiskImage, disk->TransferSector*512, SEEK_SET);
 
 	for (int i = 0; i < disk->TransferCount; i++) {
 		if (disk->IoType == DKS_READ) {
 			fread(&disk->TemporaryBuffer[0], 512, 1, disk->DiskImage);
 
+			LockIoMutex();
 			EBusWrite(disk->TransferAddress, &disk->TemporaryBuffer[0], 512);
+			UnlockIoMutex();
 		} else {
+			LockIoMutex();
 			EBusRead(disk->TransferAddress, &disk->TemporaryBuffer[0], 512);
+			UnlockIoMutex();
 
 			fwrite(&disk->TemporaryBuffer[0], 512, 1, disk->DiskImage);
 		}
 
 		disk->TransferAddress += 512;
 	}
+
+	LockIoMutex();
 
 	// Set parameters and send interrupt.
 
