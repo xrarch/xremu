@@ -51,6 +51,8 @@ void LsicReset() {
 void LsicInterruptTargeted(void *proc, int intsrc) {
 	XrProcessor *rproc = proc;
 
+	XrLockInterrupt(rproc);
+
 	Lsic *lsic = &LsicTable[rproc->Id];
 
 	int srcbmp = intsrc/32;
@@ -58,11 +60,11 @@ void LsicInterruptTargeted(void *proc, int intsrc) {
 
 	lsic->Registers[LSIC_PENDING_0 + srcbmp] |= (1 << srcbmpoff);
 
-	uint8_t oldpending = lsic->InterruptPending;
-
 	lsic->InterruptPending =
 		((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
 		((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
+
+	XrUnlockInterrupt(rproc);
 }
 
 void LsicInterrupt(int intsrc) {
@@ -96,6 +98,8 @@ int LsicWrite(int reg, uint32_t value) {
 		return EBUSERROR;
 	}
 
+	XrLockInterrupt(proc);
+
 	switch(reg) {
 		case LSIC_MASK_0:
 		case LSIC_MASK_1:
@@ -116,8 +120,12 @@ int LsicWrite(int reg, uint32_t value) {
 			// Writes to the pending registers atomically OR into the pending
 			// interrupt bits. This is useful for IPIs and stuff.
 
+			uint32_t oldpend = lsic->Registers[LSIC_PENDING_0];
+
 			value &= ~1; // Make sure interrupt zero can't be triggered.
 			lsic->Registers[LSIC_PENDING_0] |= value;
+
+			// printf("ipi %d -> %d (%x -> %x)\n", XrIoMutexProcessor->Id, id, oldpend, lsic->Registers[LSIC_PENDING_0]);
 
 			break;
 
@@ -143,10 +151,16 @@ int LsicWrite(int reg, uint32_t value) {
 			// Complete. Atomically clear a pending interrupt bit.
 
 			if (value >= 64) {
+				XrUnlockInterrupt(proc);
+
 				return EBUSERROR;
 			}
 
 			lsic->Registers[LSIC_PENDING_0 + (value >> 5)] &= ~(1 << (value & 31));
+
+			// if (value == 1) {
+			// 	printf("complete %d on %d from %d\n", value, proc->Id, XrIoMutexProcessor->Id);
+			// }
 
 			break;
 
@@ -156,6 +170,8 @@ int LsicWrite(int reg, uint32_t value) {
 			// enables all.
 
 			if (value >= 64) {
+				XrUnlockInterrupt(proc);
+
 				return EBUSERROR;
 			}
 
@@ -172,14 +188,17 @@ int LsicWrite(int reg, uint32_t value) {
 			break;
 
 		default:
+
+			XrUnlockInterrupt(proc);
+
 			return EBUSERROR;
 	}
-
-	uint8_t oldpending = lsic->InterruptPending;
 
 	lsic->InterruptPending =
 		((~lsic->Registers[LSIC_MASK_0]) & lsic->Registers[LSIC_PENDING_0] & lsic->LowIplMask) ||
 		((~lsic->Registers[LSIC_MASK_1]) & lsic->Registers[LSIC_PENDING_1] & lsic->HighIplMask);
+
+	XrUnlockInterrupt(proc);
 
 	return EBUSSUCCESS;
 }
@@ -196,6 +215,8 @@ int LsicRead(int reg, uint32_t *value) {
 		return EBUSERROR;
 	}
 
+	XrLockInterrupt(proc);
+
 	switch(reg) {
 		case LSIC_MASK_0:
 		case LSIC_MASK_1:
@@ -205,6 +226,8 @@ int LsicRead(int reg, uint32_t *value) {
 			// Reads from most LSIC registers just return their value.
 
 			*value = lsic->Registers[reg];
+
+			XrUnlockInterrupt(proc);
 
 			return EBUSSUCCESS;
 
@@ -220,17 +243,26 @@ int LsicRead(int reg, uint32_t *value) {
 				if ((((~lsic->Registers[LSIC_MASK_0 + bmp]) & lsic->Registers[LSIC_PENDING_0 + bmp]) >> bmpoff) & 1) {
 					*value = i;
 
+					XrUnlockInterrupt(proc);
+
 					return EBUSSUCCESS;
 				}
 			}
 
 			*value = 0;
 
+			XrUnlockInterrupt(proc);
+
 			return EBUSSUCCESS;
 
 		default:
+
+			XrUnlockInterrupt(proc);
+
 			return EBUSERROR;
 	}
+
+	XrUnlockInterrupt(proc);
 
 	return EBUSERROR;
 }

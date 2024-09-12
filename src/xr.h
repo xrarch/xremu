@@ -108,6 +108,7 @@ typedef struct _XrProcessor {
 
 	SDL_SpinLock CacheMutexes[XR_CACHE_MUTEXES];
 	void *LoopSemaphore;
+	SDL_SpinLock InterruptLock;
 
 	uint32_t IcTags[XR_IC_LINE_COUNT];
 	uint32_t DcTags[XR_DC_LINE_COUNT];
@@ -212,6 +213,14 @@ static inline void XrLockScache(uint32_t tag) {
 
 static inline void XrUnlockScache(uint32_t tag) {
 	SDL_AtomicUnlock(&ScacheMutexes[XR_MUTEX_INDEX(tag)]);
+}
+
+static inline void XrLockInterrupt(XrProcessor *proc) {
+	SDL_AtomicLock(&proc->InterruptLock);
+}
+
+static inline void XrUnlockInterrupt(XrProcessor *proc) {
+	SDL_AtomicUnlock(&proc->InterruptLock);
 }
 
 #else

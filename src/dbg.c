@@ -147,6 +147,21 @@ void DbgCommandReg() {
 	DbgPutString(&printbuf[0]);
 }
 
+void DbgCommandLsic() {
+	Lsic *lsic = &LsicTable[DbgSelectedCpu];
+
+	sprintf(&printbuf[0], "PEND0=%08x PEND1=%08x MASK0=%08x MASK1=%08x IPL=%08x LOMASK=%08x HIMASK=%08x\n",
+		lsic->Registers[LSIC_PENDING_0],
+		lsic->Registers[LSIC_PENDING_1],
+		lsic->Registers[LSIC_MASK_0],
+		lsic->Registers[LSIC_MASK_1],
+		lsic->Registers[LSIC_IPL],
+		lsic->LowIplMask,
+		lsic->HighIplMask);
+
+	DbgPutString(&printbuf[0]);
+}
+
 void DbgCommandCr() {
 	XrProcessor *proc = CpuTable[DbgSelectedCpu];
 
@@ -255,6 +270,8 @@ void DbgCommandResume() {
 	DbgPutString("Resumed\n");
 }
 
+
+
 struct DbgCommand DbgCommands[] = {
 	{
 		.command = &DbgCommandHelp,
@@ -270,6 +287,11 @@ struct DbgCommand DbgCommands[] = {
 		.command = &DbgCommandReg,
 		.name = "reg",
 		.help = "Dump register contents.",
+	},
+	{
+		.command = &DbgCommandLsic,
+		.name = "lsic",
+		.help = "Dump LSIC state for the CPU.",
 	},
 	{
 		.command = &DbgCommandCr,

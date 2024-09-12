@@ -139,6 +139,8 @@ void CpuCreate(int id) {
 		exit(1);
 	}
 
+	proc->InterruptLock = 0;
+
 	SDL_CreateThread(&CpuLoop, "CpuLoop", proc);
 #endif
 }
