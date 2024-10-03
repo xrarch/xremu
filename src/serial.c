@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <errno.h>
+#include <unistd.h>
 
 #include "xr.h"
 
