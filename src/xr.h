@@ -106,9 +106,9 @@ typedef struct _XrProcessor {
 	uint64_t ItbLastResult;
 	uint64_t DtbLastResult;
 
-	SDL_SpinLock CacheMutexes[XR_CACHE_MUTEXES];
+	void *CacheMutexes[XR_CACHE_MUTEXES];
 	void *LoopSemaphore;
-	SDL_SpinLock InterruptLock;
+	void *InterruptLock;
 
 	uint32_t IcTags[XR_IC_LINE_COUNT];
 	uint32_t DcTags[XR_DC_LINE_COUNT];
@@ -180,14 +180,14 @@ extern void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt);
 
 #ifndef EMSCRIPTEN
 
-extern SDL_SpinLock ScacheMutexes[XR_CACHE_MUTEXES];
+extern SDL_mutex *ScacheMutexes[XR_CACHE_MUTEXES];
 
-extern SDL_SpinLock IoMutex;
+extern SDL_mutex *IoMutex;
 extern SDL_sem* CpuSemaphore;
 
 static inline void XrLockIoMutex(XrProcessor *proc, uint32_t address) {
 	if (address >= XR_NONCACHED_PHYS_BASE) {
-		SDL_AtomicLock(&IoMutex);
+		SDL_LockMutex(IoMutex);
 		XrIoMutexProcessor = proc;
 	}
 }
@@ -195,32 +195,32 @@ static inline void XrLockIoMutex(XrProcessor *proc, uint32_t address) {
 static inline void XrUnlockIoMutex(uint32_t address) {
 	if (address >= XR_NONCACHED_PHYS_BASE) {
 		XrIoMutexProcessor = 0;
-		SDL_AtomicUnlock(&IoMutex);
+		SDL_UnlockMutex(IoMutex);
 	}
 }
 
 static inline void XrLockCache(XrProcessor *proc, uint32_t tag) {
-	SDL_AtomicLock(&proc->CacheMutexes[XR_MUTEX_INDEX(tag)]);
+	SDL_LockMutex(proc->CacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 static inline void XrUnlockCache(XrProcessor *proc, uint32_t tag) {
-	SDL_AtomicUnlock(&proc->CacheMutexes[XR_MUTEX_INDEX(tag)]);
+	SDL_UnlockMutex(proc->CacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 static inline void XrLockScache(uint32_t tag) {
-	SDL_AtomicLock(&ScacheMutexes[XR_MUTEX_INDEX(tag)]);
+	SDL_LockMutex(ScacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 static inline void XrUnlockScache(uint32_t tag) {
-	SDL_AtomicUnlock(&ScacheMutexes[XR_MUTEX_INDEX(tag)]);
+	SDL_UnlockMutex(ScacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 static inline void XrLockInterrupt(XrProcessor *proc) {
-	SDL_AtomicLock(&proc->InterruptLock);
+	SDL_LockMutex(proc->InterruptLock);
 }
 
 static inline void XrUnlockInterrupt(XrProcessor *proc) {
-	SDL_AtomicUnlock(&proc->InterruptLock);
+	SDL_UnlockMutex(proc->InterruptLock);
 }
 
 #else

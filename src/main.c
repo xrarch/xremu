@@ -32,17 +32,17 @@ XrProcessor *XrIoMutexProcessor;
 
 #ifndef EMSCRIPTEN
 
-SDL_SpinLock ScacheMutexes[XR_CACHE_MUTEXES];
+SDL_mutex *ScacheMutexes[XR_CACHE_MUTEXES];
 
-SDL_SpinLock IoMutex;
+SDL_mutex *IoMutex;
 
 void LockIoMutex() {
-	SDL_AtomicLock(&IoMutex);
+	SDL_LockMutex(IoMutex);
 	XrIoMutexProcessor = 0;
 }
 
 void UnlockIoMutex() {
-	SDL_AtomicUnlock(&IoMutex);
+	SDL_UnlockMutex(IoMutex);
 }
 
 #else
@@ -84,7 +84,9 @@ int CpuLoop(void *context) {
 
 		for (int i = 0; i < CPUSTEPMS; i++) {
 			if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
-				// Send self the interrupt.
+				// Interval timer ran down, send self the interrupt.
+				// We do this from the context of each cpu thread so that we get
+				// accurate amounts of CPU time between each tick.
 
 				LsicInterruptTargeted(proc, 2);
 
@@ -129,7 +131,21 @@ void CpuCreate(int id) {
 
 #ifndef EMSCRIPTEN
 	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
-		proc->CacheMutexes[i] = 0;
+		proc->CacheMutexes[i] = SDL_CreateMutex();
+
+		if (!proc->CacheMutexes[i]) {
+			fprintf(stderr, "Failed to create cache mutex\n");
+			exit(1);
+		}
+	}
+
+	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
+		ScacheMutexes[i] = SDL_CreateMutex();
+
+		if (!ScacheMutexes[i]) {
+			fprintf(stderr, "Failed to create Scache mutex\n");
+			exit(1);
+		}
 	}
 
 	proc->LoopSemaphore = SDL_CreateSemaphore(0);
@@ -139,7 +155,12 @@ void CpuCreate(int id) {
 		exit(1);
 	}
 
-	proc->InterruptLock = 0;
+	proc->InterruptLock = SDL_CreateMutex();
+
+	if (!proc->InterruptLock) {
+		fprintf(stderr, "Failed to create interrupt mutex\n");
+		exit(1);
+	}
 
 	SDL_CreateThread(&CpuLoop, "CpuLoop", proc);
 #endif
@@ -162,11 +183,14 @@ int main(int argc, char *argv[]) {
 	uint32_t memsize = 4 * 1024 * 1024;
 
 #ifndef EMSCRIPTEN
-	IoMutex = 0;
+	IoMutex = SDL_CreateMutex();
+
+	if (!IoMutex) {
+		fprintf(stderr, "Failed to create IO mutex\n");
+		return 1;
+	}
 
 	for (int i = 1; i < argc; i++) {
-		// shut up this is beautiful...
-
 		if (strcmp(argv[i], "-dks") == 0) {
 			if (i+1 < argc) {
 				if (!DKSAttachImage(argv[i+1]))
@@ -176,8 +200,10 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "no disk image specified\n");
 				return 1;
 			}
+
 		} else if (strcmp(argv[i], "-headless") == 0) {
 			Headless = true;
+
 		} else if (strcmp(argv[i], "-nvram") == 0) {
 			if (i+1 < argc) {
 				if (!NVRAMLoadFile(argv[i+1]))
@@ -187,6 +213,7 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "no nvram image specified\n");
 				return 1;
 			}
+
 		} else if (strcmp(argv[i], "-rom") == 0) {
 			if (i+1 < argc) {
 				if (!ROMLoadFile(argv[i+1]))
@@ -196,14 +223,19 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "no rom image specified\n");
 				return 1;
 			}
+
 		} else if (strcmp(argv[i], "-dumpram") == 0) {
 			RAMDumpOnExit = true;
+
 		} else if (strcmp(argv[i], "-dumpfb") == 0) {
 			KinnowDumpOnExit = true;
+
 		} else if (strcmp(argv[i], "-asyncdisk") == 0) {
 			DKSAsynchronous = true;
+
 		} else if (strcmp(argv[i], "-asyncserial") == 0) {
 			SerialAsynchronous = true;
+
 		} else if (strcmp(argv[i], "-ramsize") == 0) {
 			if (i+1 < argc) {
 				memsize = atoi(argv[i+1]);
@@ -212,6 +244,7 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "no ram size specified\n");
 				return 1;
 			}
+
 		} else if (strcmp(argv[i], "-cpuhz") == 0) {
 			if (i+1 < argc) {
 				SimulatorHz = atoi(argv[i+1]);
@@ -220,6 +253,7 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "no frequency specified\n");
 				return 1;
 			}
+
 		} else if (strcmp(argv[i], "-serialrx") == 0) {
 			if (i+1 < argc) {
 				if (!SerialSetRXFile(argv[i+1]))
@@ -229,6 +263,7 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "no file name specified\n");
 				return 1;
 			}
+
 		} else if (strcmp(argv[i], "-serialtx") == 0) {
 			if (i+1 < argc) {
 				if (!SerialSetTXFile(argv[i+1]))
@@ -238,16 +273,22 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "no file name specified\n");
 				return 1;
 			}
+
 		} else if (strcmp(argv[i], "-nocachesim") == 0) {
 			XrSimulateCaches = false;
+
 		} else if (strcmp(argv[i], "-cachemiss") == 0) {
 			XrSimulateCacheStalls = true;
+
 		} else if (strcmp(argv[i], "-cacheprint") == 0) {
 			XrPrintCache = true;
+
 		} else if (strcmp(argv[i], "-diskprint") == 0) {
 			DKSPrint = true;
+
 		} else if (strcmp(argv[i], "-132column") == 0) {
 			TTY132ColumnMode = true;
+
 		} else if (strcmp(argv[i], "-cpus") == 0) {
 			if (i+1 < argc) {
 				XrProcessorCount = atoi(argv[i+1]);
@@ -256,6 +297,7 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "no processor count specified\n");
 				return 1;
 			}
+
 		} else {
 			fprintf(stderr, "don't recognize option %s\n", argv[i]);
 			return 1;
@@ -327,7 +369,16 @@ int main(int argc, char *argv[]) {
 		SerialInterval(tick_after_draw - tick_end);
 		UnlockIoMutex();
 
-		// Kick all the CPUs.
+		// Kick all the CPU threads to get them to execute a frame time worth of
+		// CPU simulation. We do this from the frame update thread (the main
+		// thread) so that the execution of all CPUs is synchronized with frame
+		// updates, which makes vblank interrupts useful. It also makes it so
+		// that the CPU threads are (hopefully, assuming the host OS scheduler
+		// is willing) running at around the same time. This is extremely
+		// important for IPI response and spinlocks. It would suck for a
+		// simulated CPU to spend its entire timeslice spinning for IPI
+		// completion or spinlock release just because the other CPU's host
+		// thread is asleep waiting for its next timeslice.
 
 		for (int i = 0; i < XrProcessorCount; i++) {
 			SDL_SemPost(CpuTable[i]->LoopSemaphore);
