@@ -126,29 +126,10 @@ void KinnowDraw(struct Screen *screen) {
 		return;
 	}
 
-	SDL_Texture *texture = ScreenGetTexture(screen);
-
-	uint32_t dirtyaddr = (DirtyRectY1*KINNOW_FRAMEBUFFER_WIDTH)+DirtyRectX1;
-
-	uint32_t pixbufindex = 0;
-
-	int width = DirtyRectX2-DirtyRectX1+1;
-	int height = DirtyRectY2-DirtyRectY1+1;
-
-	for (int y = 0; y < height; y++) {
-		for (int x = 0; x < width; x++) {
-			PixelBuffer[pixbufindex++] = KinnowPalette[((uint8_t*)KinnowFB)[dirtyaddr+x]];
-		}
-
-		dirtyaddr += KINNOW_FRAMEBUFFER_WIDTH;
-	}
-
-	SDL_Rect rect = {
-		.x = DirtyRectX1,
-		.y = DirtyRectY1,
-		.w = width,
-		.h = height,
-	};
+	int capturedx1 = DirtyRectX1;
+	int capturedx2 = DirtyRectX2;
+	int capturedy1 = DirtyRectY1;
+	int capturedy2 = DirtyRectY2;
 
 	DirtyRectX1 = -1;
 	DirtyRectX2 = 0;
@@ -158,6 +139,30 @@ void KinnowDraw(struct Screen *screen) {
 	IsDirty = false;
 
 	UnlockIoMutex();
+
+	int width = capturedx2-capturedx1+1;
+	int height = capturedy2-capturedy1+1;
+
+	SDL_Rect rect = {
+		.x = capturedx1,
+		.y = capturedy1,
+		.w = width,
+		.h = height,
+	};
+
+	SDL_Texture *texture = ScreenGetTexture(screen);
+
+	uint32_t dirtyaddr = (capturedy1*KINNOW_FRAMEBUFFER_WIDTH)+capturedx1;
+
+	uint32_t pixbufindex = 0;
+
+	for (int y = 0; y < height; y++) {
+		for (int x = 0; x < width; x++) {
+			PixelBuffer[pixbufindex++] = KinnowPalette[((uint8_t*)KinnowFB)[dirtyaddr+x]];
+		}
+
+		dirtyaddr += KINNOW_FRAMEBUFFER_WIDTH;
+	}
 
 	SDL_UpdateTexture(texture, &rect, PixelBuffer, rect.w * 4);
 }
