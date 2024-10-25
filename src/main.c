@@ -417,9 +417,10 @@ void EnqueueCallback(uint32_t interval, uint32_t (*callback)(uint32_t, void*), v
 }
 
 #ifdef EMSCRIPTEN
+
 void MainLoop(void) {
-	// Dumbed down CPU driving loop for emscripten since it sucks and doesn't
-	// like SDL's threads.
+	// Dumbed down CPU driving loop for emscripten since it doesn't seem to play
+	// well with SDL's thread APIs.
 
 	ScreenDraw();
 	done = ScreenProcessEvents();
@@ -436,6 +437,13 @@ void MainLoop(void) {
 	proc->Progress = XR_POLL_MAX;
 
 	for (int i = 0; i < dt; i++) {
+		if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
+			// Interval timer ran down, send self the interrupt.
+			LsicInterruptTargeted(proc, 2);
+
+			proc->TimerInterruptCounter = 0;
+		}
+
 		int cyclesleft = cyclespertick;
 
 		if (i == dt-1)
@@ -443,12 +451,16 @@ void MainLoop(void) {
 
 		XrExecute(proc, cyclesleft, 1);
 
-		// In emscripten, the interval functions are also responsible for
+		// For emscripten, the interval functions are also responsible for
 		// driving async device activity.
 
 		DKSInterval(1);
-		RTCInterval(1);
 		SerialInterval(1);
+
+		RTCUpdateRealTime();
+
+		proc->TimerInterruptCounter += 1;
 	}
 }
+
 #endif

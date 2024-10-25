@@ -225,13 +225,13 @@ static inline void XrUnlockInterrupt(XrProcessor *proc) {
 
 #else
 
-static inline void XrLockIoMutex(XrProcessor *proc) {}
-static inline void XrUnlockIoMutex() {}
+static inline void XrLockIoMutex(XrProcessor *proc, uint32_t address) {}
+static inline void XrUnlockIoMutex(uint32_t address) {}
 static inline void XrLockCache(XrProcessor *proc, uint32_t tag) {}
 static inline void XrUnlockCache(XrProcessor *proc, uint32_t tag) {}
 static inline void XrLockScache(uint32_t tag) {}
 static inline void XrUnlockScache(uint32_t tag) {}
-static inline void XrLockScacheReplacement() {}
-static inline void XrUnlockScacheReplacement() {}
+static inline void XrLockInterrupt(XrProcessor *proc) {}
+static inline void XrUnlockInterrupt(XrProcessor *proc) {}
 
 #endif
