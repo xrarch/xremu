@@ -200,16 +200,16 @@ void KinnowDump() {
 
 	FILE *dumpfile = fopen("kinnowfb.raw", "wb");
 
-	uint32_t *tempbuffer = malloc(FBSize * 4);
-
 	if (dumpfile) {
+		uint32_t *tempbuffer = malloc(FBSize * 4);
+
 		for (int i = 0; i < FBSize; i++) {
 			tempbuffer[i] = KinnowPalette[KinnowFB[i]];
 		}
 
 		fwrite(tempbuffer, 1, FBSize * 4, dumpfile);
 		fclose(dumpfile);
-	}
 
-	free(tempbuffer);
+		free(tempbuffer);
+	}
 }

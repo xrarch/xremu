@@ -86,7 +86,7 @@
 // the rest of its tick. Reset before each 20ms tick and also when an interrupt
 // is received.
 
-#define XR_POLL_MAX 8
+#define XR_POLL_MAX 32
 
 #define XR_CACHE_MUTEXES 256
 
@@ -94,7 +94,7 @@
 #define XR_DC_SET_NUMBER(tag) ((tag >> XR_DC_LINE_SIZE_LOG) & (XR_DC_SETS - 1))
 #define XR_SC_SET_NUMBER(tag) ((tag >> XR_SC_LINE_SIZE_LOG) & (XR_SC_SETS - 1))
 
-#define XR_MUTEX_INDEX(setnumber) (setnumber & 255)
+#define XR_MUTEX_INDEX(setnumber) (setnumber & (XR_CACHE_MUTEXES - 1))
 
 #define XR_WB_INDEX_INVALID 255
 #define XR_CACHE_INDEX_INVALID 0xFFFFFFFF
@@ -131,6 +131,7 @@ typedef struct _XrProcessor {
 	uint32_t Id;
 	int32_t Progress;
 	uint32_t CycleCounter;
+	uint32_t PauseCalls;
 
 	uint32_t IcReplacementIndex;
 	uint32_t DcReplacementIndex;

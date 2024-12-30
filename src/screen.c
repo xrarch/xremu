@@ -50,7 +50,7 @@ void ScreenInit() {
 										SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
 										(int)(WindowWidth * ScreenZoom),
 										(int)(WindowHeight * ScreenZoom),
-										SDL_WINDOW_HIDDEN);
+										SDL_WINDOW_HIDDEN | SDL_WINDOW_ALLOW_HIGHDPI);
 
 	if (!ScreenWindow) {
 		fprintf(stderr, "failed to create window\n");

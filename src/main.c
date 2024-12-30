@@ -81,6 +81,7 @@ int CpuLoop(void *context) {
 
 	while (1) {
 		proc->Progress = XR_POLL_MAX;
+		proc->PauseCalls = 0;
 
 		for (int i = 0; i < CPUSTEPMS; i++) {
 			if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
@@ -170,9 +171,10 @@ extern void TLBDump(void);
 extern void DbgInit(void);
 
 int main(int argc, char *argv[]) {
-	SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "0", SDL_HINT_OVERRIDE);
-	SDL_SetHintWithPriority(SDL_HINT_VIDEO_HIGHDPI_DISABLED, "1", SDL_HINT_OVERRIDE);
-
+	SDL_SetHint(SDL_HINT_VIDEO_HIGHDPI_DISABLED, "1");
+	SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitor");
+	SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "1");
+	
 	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
 		fprintf(stderr, "Unable to initialize SDL: %s", SDL_GetError());
 		return 1;

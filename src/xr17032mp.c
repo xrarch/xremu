@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 #include "xr.h"
 #include "lsic.h"
@@ -145,6 +146,7 @@ void XrReset(XrProcessor *proc) {
 	}
 
 	proc->StallCycles = 0;
+	proc->PauseCalls = 0;
 
 	proc->NmiMaskCounter = NMI_MASK_CYCLES;
 	proc->LastTbMissWasWrite = 0;
@@ -1420,6 +1422,16 @@ static void XrMb(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 	XrWmb(proc, currentpc, ir);
 }
 
+static void XrPause(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+	if (proc->PauseCalls++ == 256) {
+		// Processor is spin-waiting. Yield.
+
+		proc->PauseCalls = 0;
+
+		pthread_yield_np();
+	}
+}
+
 static void XrSC(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 	uint32_t rd = (ir >> 6) & 31;
 	uint32_t ra = (ir >> 11) & 31;
@@ -1517,7 +1529,7 @@ static XrInstructionF XrFunctions110001[16] = {
 	[3] = &XrMb,
 	[4] = &XrIllegalInstruction,
 	[5] = &XrIllegalInstruction,
-	[6] = &XrIllegalInstruction,
+	[6] = &XrPause,
 	[7] = &XrIllegalInstruction,
 	[8] = &XrSC,
 	[9] = &XrLL,
@@ -2206,6 +2218,8 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 		return;
 	}
 
+	proc->PauseCalls = 0;
+
 	uint32_t cyclesdone = 0;
 
 	uint32_t currentpc;
@@ -2276,9 +2290,14 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 
 			// N.B. There's an assumption here that the host platform will make
 			// writes by other host cores to the interrupt pending flag visible
-			// to us in a timely manner, without needing any locking.
+			// to us in a timely manner, without needing any barriers.
 
 			XrBasicInbetweenException(proc, XR_EXC_INT);
+
+			// Reset the poll counter so as not to penalize the processor for
+			// handling the interrupt.
+
+			proc->Progress = XR_POLL_MAX;
 		}
 
 		currentpc = proc->Pc;
