@@ -64,6 +64,8 @@ void ScreenInit() {
 		exit(1);
 	}
 
+	SDL_RenderSetLogicalSize(ScreenRenderer, WindowWidth, WindowHeight);
+
 	WindowRect = (SDL_Rect){
 		.w = WindowWidth,
 		.h = WindowHeight,
@@ -83,8 +85,8 @@ void ScreenDraw() {
 	};
 
 	SDL_Rect winrect = {
-		.w = ScreenCurrent->Width*ScreenZoom,
-		.h = ScreenCurrent->Height*ScreenZoom,
+		.w = ScreenCurrent->Width,
+		.h = ScreenCurrent->Height,
 		.x = 0,
 		.y = 0
 	};
@@ -103,6 +105,8 @@ void ScreenDraw() {
 
 		WindowRect.w = screenrect.w;
 		WindowRect.h = screenrect.h;
+
+		SDL_RenderSetLogicalSize(ScreenRenderer, WindowRect.w, WindowRect.h);
 	}
 
 	SDL_RenderClear(ScreenRenderer);
@@ -229,8 +233,6 @@ struct SDL_Texture *ScreenGetTexture(struct Screen *screen) {
 										SDL_TEXTUREACCESS_STREAMING,
 										screen->Width,
 										screen->Height);
-
-	SDL_SetTextureScaleMode(screen->Texture, SDL_ScaleModeNearest);
 
 	return screen->Texture;
 }

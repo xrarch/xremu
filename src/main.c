@@ -171,10 +171,10 @@ extern void TLBDump(void);
 extern void DbgInit(void);
 
 int main(int argc, char *argv[]) {
-	SDL_SetHint(SDL_HINT_VIDEO_HIGHDPI_DISABLED, "1");
 	SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitor");
 	SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "1");
-	
+	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0"); // 0: point, 1 = linear
+
 	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
 		fprintf(stderr, "Unable to initialize SDL: %s", SDL_GetError());
 		return 1;
