@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <sched.h>
 
 #include "xr.h"
 #include "lsic.h"
@@ -1428,7 +1429,7 @@ static void XrPause(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 
 		proc->PauseCalls = 0;
 
-		pthread_yield_np();
+		sched_yield();
 	}
 }
 
