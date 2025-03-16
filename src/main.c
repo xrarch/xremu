@@ -116,7 +116,7 @@ int CpuLoop(void *context) {
 	}
 }
 
-void CpuCreate(int id) {
+void CpuInitialize(int id) {
 	XrProcessor *proc = malloc(sizeof(XrProcessor));
 
 	if (!proc) {
@@ -162,8 +162,12 @@ void CpuCreate(int id) {
 		fprintf(stderr, "Failed to create interrupt mutex\n");
 		exit(1);
 	}
+#endif
+}
 
-	SDL_CreateThread(&CpuLoop, "CpuLoop", proc);
+void CpuCreate(int id) {
+#ifndef EMSCRIPTEN
+	SDL_CreateThread(&CpuLoop, "CpuLoop", CpuTable[id]);
 #endif
 }
 
@@ -349,6 +353,10 @@ int main(int argc, char *argv[]) {
 	ScreenDraw();
 
 	done = false;
+
+	for (int i = 0; i < XrProcessorCount; i++) {
+		CpuInitialize(i);
+	}
 
 	for (int i = 0; i < XrProcessorCount; i++) {
 		CpuCreate(i);
