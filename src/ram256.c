@@ -43,7 +43,7 @@ void RAMDump() {
 	}
 }
 
-int RAMWrite(uint32_t address, void *src, uint32_t length) {
+int RAMWrite(uint32_t address, void *src, uint32_t length, void *proc) {
 	int slot = address >> 25;
 	int offset = address & (RAMSLOTSIZE-1);
 
@@ -55,7 +55,7 @@ int RAMWrite(uint32_t address, void *src, uint32_t length) {
 	return EBUSSUCCESS;
 }
 
-int RAMRead(uint32_t address, void *dest, uint32_t length) {
+int RAMRead(uint32_t address, void *dest, uint32_t length, void *proc) {
 	int slot = address >> 25;
 	int offset = address & (RAMSLOTSIZE-1);
 
@@ -67,7 +67,7 @@ int RAMRead(uint32_t address, void *dest, uint32_t length) {
 	return EBUSSUCCESS;
 }
 
-int RAMWriteExt(uint32_t address, void *src, uint32_t length) {
+int RAMWriteExt(uint32_t address, void *src, uint32_t length, void *proc) {
 	address += EBUSBRANCHSIZE;
 
 	int slot = address >> 25;
@@ -82,7 +82,7 @@ int RAMWriteExt(uint32_t address, void *src, uint32_t length) {
 	return EBUSSUCCESS;
 }
 
-int RAMReadExt(uint32_t address, void *dest, uint32_t length) {
+int RAMReadExt(uint32_t address, void *dest, uint32_t length, void *proc) {
 	address += EBUSBRANCHSIZE;
 
 	int slot = address >> 25;

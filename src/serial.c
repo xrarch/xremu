@@ -1,3 +1,4 @@
+#include <SDL.h>
 #include <getopt.h>
 #include <math.h>
 #include <stdarg.h>
@@ -121,7 +122,7 @@ uint8_t SerialTimerEnqueued = 0;
 uint32_t SerialCallback(uint32_t interval, void *param) {
 	SerialPort *thisport = param;
 
-	LockIoMutex();
+	SDL_LockMutex(thisport->Tty->Mutex);
 
 	SerialTimerEnqueued = 0;
 
@@ -149,7 +150,7 @@ uint32_t SerialCallback(uint32_t interval, void *param) {
 		}
 	}
 
-	UnlockIoMutex();
+	SDL_UnlockMutex(thisport->Tty->Mutex);
 
 	return 0;
 }
@@ -159,6 +160,8 @@ void SerialInterval(uint32_t dt) {
 		SerialPort *thisport = &SerialPorts[port];
 
 #ifndef EMSCRIPTEN
+		SDL_LockMutex(thisport->Tty->Mutex);
+
 		if ((thisport->RXFile != -1) && (thisport->DoInterrupts)) {
 			struct pollfd rxpoll = { 0 };
 
@@ -166,11 +169,11 @@ void SerialInterval(uint32_t dt) {
 			rxpoll.events = POLLIN;
 
 			if (poll(&rxpoll, 1, 0) > 0) {
-				LockIoMutex();
 				LsicInterrupt(0x4 + port);
-				UnlockIoMutex();
 			}
 		}
+
+		SDL_UnlockMutex(thisport->Tty->Mutex);
 #endif
 
 #ifdef EMSCRIPTEN
@@ -182,7 +185,7 @@ void SerialInterval(uint32_t dt) {
 	}
 }
 
-int SerialWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
+int SerialWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 	SerialPort *thisport;
 
 	if (port == 0x10) {
@@ -192,6 +195,8 @@ int SerialWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 	} else {
 		return EBUSERROR;
 	}
+
+	SDL_LockMutex(thisport->Tty->Mutex);
 
 	switch(value) {
 		case SERIALCMDDOINT:
@@ -203,10 +208,12 @@ int SerialWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 			break;
 	}
 
+	SDL_UnlockMutex(thisport->Tty->Mutex);
+
 	return EBUSSUCCESS;
 }
 
-int SerialReadCMD(uint32_t port, uint32_t type, uint32_t *value) {
+int SerialReadCMD(uint32_t port, uint32_t type, uint32_t *value, void *proc) {
 	SerialPort *thisport;
 
 	if (port == 0x10) {
@@ -222,8 +229,10 @@ int SerialReadCMD(uint32_t port, uint32_t type, uint32_t *value) {
 	return EBUSSUCCESS;
 }
 
-int SerialWriteData(uint32_t port, uint32_t type, uint32_t value) {
+int SerialWriteData(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 	SerialPort *thisport;
+
+	int status;
 
 	if (port == 0x11) {
 		thisport = &SerialPorts[0];
@@ -233,15 +242,20 @@ int SerialWriteData(uint32_t port, uint32_t type, uint32_t value) {
 		return EBUSERROR;
 	}
 
+	SDL_LockMutex(thisport->Tty->Mutex);
+
 	thisport->Cost += 1;
 
 	if ((!SerialAsynchronous || thisport->Cost < ACCUMULATED_COST) && !thisport->TransmitBufferIndex) {
 		SerialPutCharacter(thisport, value&0xFF);
-		return EBUSSUCCESS;
+		
+		status = EBUSSUCCESS;
+		goto exit;
 	}
 
 	if (thisport->TransmitBufferIndex == TRANSMIT_BUFFER_SIZE) {
-		return EBUSSUCCESS;
+		status = EBUSSUCCESS;
+		goto exit;
 	}
 	
 	thisport->TransmitBuffer[thisport->TransmitBufferIndex++] = value;
@@ -258,10 +272,13 @@ int SerialWriteData(uint32_t port, uint32_t type, uint32_t value) {
 	}
 #endif
 
-	return EBUSSUCCESS;
+exit:
+
+	SDL_UnlockMutex(thisport->Tty->Mutex);
+	return status;
 }
 
-int SerialReadData(uint32_t port, uint32_t length, uint32_t *value) {
+int SerialReadData(uint32_t port, uint32_t length, uint32_t *value, void *proc) {
 	SerialPort *thisport;
 
 	if (port == 0x11) {
@@ -272,28 +289,38 @@ int SerialReadData(uint32_t port, uint32_t length, uint32_t *value) {
 		return EBUSERROR;
 	}
 
+	int status;
+
+	SDL_LockMutex(thisport->Tty->Mutex);
+
 #ifndef EMSCRIPTEN
 	if (thisport->RXFile != -1) {
 		uint8_t nextchar;
 
 		if (read(thisport->RXFile, &nextchar, 1) > 0) {
 			*value = nextchar;
-			return EBUSSUCCESS;
+
+			status = EBUSSUCCESS;
+			goto exit;
 		}
 	}
 #endif
 
 	if ((thisport->ReceiveBufferIndex - thisport->ReceiveIndex) == 0) {
-		XrIoMutexProcessor->Progress--;
+		((XrProcessor *)(proc))->Progress--;
 		*value = 0xFFFF;
 
-		return EBUSSUCCESS;
+		status = EBUSSUCCESS;
+		goto exit;
 	}
 
 	*value = thisport->ReceiveBuffer[thisport->ReceiveIndex++ % RECEIVE_BUFFER_SIZE];
 	thisport->ReceiveRemaining++;
 
-	return EBUSSUCCESS;
+exit:
+
+	SDL_UnlockMutex(thisport->Tty->Mutex);
+	return status;
 }
 
 void SerialInput(struct TTY *tty, uint16_t c) {
@@ -328,7 +355,6 @@ int SerialInit(int num) {
 	CitronPorts[0x11+citronoffset].ReadPort = SerialReadData;
 
 	SerialPorts[num].ReceiveRemaining = RECEIVE_BUFFER_SIZE;
-
 	SerialPorts[num].Number = num;
 
 #ifndef EMSCRIPTEN

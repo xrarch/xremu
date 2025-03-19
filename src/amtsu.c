@@ -1,3 +1,5 @@
+#include <SDL.h>
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,11 +13,11 @@
 
 struct AmtsuDevice AmtsuDevices[AMTSUDEVICES];
 
-int CurrentDevice = 0;
+int CurrentDevice = AMTSU_CONTROLLER;
 
 extern bool Headless;
 
-int AmtsuWrite30(uint32_t port, uint32_t type, uint32_t value) {
+int AmtsuWrite30(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 	if (value < AMTSUDEVICES) {
 		CurrentDevice = value;
 		return EBUSSUCCESS;
@@ -24,21 +26,21 @@ int AmtsuWrite30(uint32_t port, uint32_t type, uint32_t value) {
 	return EBUSERROR;
 }
 
-int AmtsuRead30(uint32_t port, uint32_t type, uint32_t *value) {
+int AmtsuRead30(uint32_t port, uint32_t type, uint32_t *value, void *proc) {
 	*value = CurrentDevice;
 	return EBUSSUCCESS;
 }
 
-int AmtsuWriteMID(uint32_t port, uint32_t type, uint32_t value) {
+int AmtsuWriteMID(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 	return EBUSERROR;
 }
 
-int AmtsuReadMID(uint32_t port, uint32_t type, uint32_t *value) {
+int AmtsuReadMID(uint32_t port, uint32_t type, uint32_t *value, void *proc) {
 	*value = AmtsuDevices[CurrentDevice].MID;
 	return EBUSSUCCESS;
 }
 
-int AmtsuWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
+int AmtsuWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 	struct AmtsuDevice *dev = &AmtsuDevices[CurrentDevice];
 
 	if (!dev->Present)
@@ -47,10 +49,14 @@ int AmtsuWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 	if (!dev->Action)
 		return EBUSSUCCESS;
 
-	return dev->Action(dev, value);
+	SDL_LockMutex(dev->Mutex);
+	int retval = dev->Action(dev, value, proc);
+	SDL_UnlockMutex(dev->Mutex);
+
+	return retval;
 }
 
-int AmtsuReadCMD(uint32_t port, uint32_t type, uint32_t *value) {
+int AmtsuReadCMD(uint32_t port, uint32_t type, uint32_t *value, void *proc) {
 	struct AmtsuDevice *dev = &AmtsuDevices[CurrentDevice];
 
 	if (!dev->Present)
@@ -61,20 +67,27 @@ int AmtsuReadCMD(uint32_t port, uint32_t type, uint32_t *value) {
 		return EBUSSUCCESS;
 	}
 
-	return dev->IsBusy(dev, value);
+	SDL_LockMutex(dev->Mutex);
+	int retval = dev->IsBusy(dev, value, proc);
+	SDL_UnlockMutex(dev->Mutex);
+
+	return retval;
 }
 
-int AmtsuWritePortA(uint32_t port, uint32_t type, uint32_t value) {
+int AmtsuWritePortA(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 	struct AmtsuDevice *dev = &AmtsuDevices[CurrentDevice];
 
 	if (!dev->Present)
 		return EBUSERROR;
 
+	SDL_LockMutex(dev->Mutex);
 	dev->PortAValue = value;
+	SDL_UnlockMutex(dev->Mutex);
+
 	return EBUSSUCCESS;
 }
 
-int AmtsuReadPortA(uint32_t port, uint32_t type, uint32_t *value) {
+int AmtsuReadPortA(uint32_t port, uint32_t type, uint32_t *value, void *proc) {
 	struct AmtsuDevice *dev = &AmtsuDevices[CurrentDevice];
 
 	if (!dev->Present)
@@ -84,17 +97,20 @@ int AmtsuReadPortA(uint32_t port, uint32_t type, uint32_t *value) {
 	return EBUSSUCCESS;
 }
 
-int AmtsuWritePortB(uint32_t port, uint32_t type, uint32_t value) {
+int AmtsuWritePortB(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 	struct AmtsuDevice *dev = &AmtsuDevices[CurrentDevice];
 
 	if (!dev->Present)
 		return EBUSERROR;
 
+	SDL_LockMutex(dev->Mutex);
 	dev->PortBValue = value;
+	SDL_UnlockMutex(dev->Mutex);
+
 	return EBUSSUCCESS;
 }
 
-int AmtsuReadPortB(uint32_t port, uint32_t type, uint32_t *value) {
+int AmtsuReadPortB(uint32_t port, uint32_t type, uint32_t *value, void *proc) {
 	struct AmtsuDevice *dev = &AmtsuDevices[CurrentDevice];
 
 	if (!dev->Present)
@@ -115,12 +131,14 @@ void AmtsuReset() {
 	}
 }
 
-int AmtsuControllerAction(struct AmtsuDevice *dev, uint32_t value) {
+int AmtsuControllerAction(struct AmtsuDevice *dev, uint32_t value, void *proc) {
 	switch(value) {
 		case 1:
 			// enable interrupts on device
+			SDL_LockMutex(dev->Mutex);
 			if (dev->PortBValue < AMTSUDEVICES)
 				AmtsuDevices[dev->PortBValue].InterruptNumber = 48+dev->PortBValue;
+			SDL_UnlockMutex(dev->Mutex);
 			break;
 
 		case 2:
@@ -130,8 +148,10 @@ int AmtsuControllerAction(struct AmtsuDevice *dev, uint32_t value) {
 
 		case 3:
 			// disable interrupts on device
+			SDL_LockMutex(dev->Mutex);
 			if (dev->PortBValue < AMTSUDEVICES)
 				AmtsuDevices[dev->PortBValue].InterruptNumber = 0;
+			SDL_UnlockMutex(dev->Mutex);
 			break;
 	}
 
@@ -159,8 +179,16 @@ void AmtsuInit() {
 	CitronPorts[0x34].ReadPort = AmtsuReadPortB;
 	CitronPorts[0x34].WritePort = AmtsuWritePortB;
 
-	AmtsuDevices[0].Present = 1;
-	AmtsuDevices[0].Action = AmtsuControllerAction;
+	AmtsuDevices[AMTSU_CONTROLLER].Present = 1;
+	AmtsuDevices[AMTSU_CONTROLLER].Action = AmtsuControllerAction;
+
+	for (int i = 0; i < AMTSUDEVICES; i++) {
+		AmtsuDevices[i].Mutex = SDL_CreateMutex();
+
+		if (!AmtsuDevices[i].Mutex) {
+			abort();
+		}
+	}
 
 	if (!Headless) {
 		KeyboardInit();

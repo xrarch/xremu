@@ -110,19 +110,17 @@ void TTYMoveCursor(struct TTY *tty, int x, int y) {
 static uint32_t PixelBufferTty[1024 * 768];
 
 void TTYDraw(struct Screen *screen) {
-	LockIoMutex();
-
 	struct TTY *tty = screen->Context1;
 
 	if (!tty->IsDirty) {
-		UnlockIoMutex();
-
 		return;
 	}
 
 	SDL_Texture *texture = ScreenGetTexture(screen);
 
 	uint16_t *textbuffer = tty->TextBuffer;
+
+	SDL_LockMutex(tty->Mutex);
 
 	uint32_t dirtyaddr = (tty->DirtyY1*tty->Width)+tty->DirtyX1;
 
@@ -172,6 +170,10 @@ void TTYDraw(struct Screen *screen) {
 		dirtyaddr += tty->Width;
 	}
 
+	tty->IsDirty = 0;
+
+	SDL_UnlockMutex(tty->Mutex);
+
 	SDL_Rect rect = {
 		.x = (tty->DirtyX1 + TTYMARGINCHARSIDE) * tty->FontWidth,
 		.y = (tty->DirtyY1 + TTYMARGINCHARTOP) * tty->FontHeight,
@@ -180,63 +182,53 @@ void TTYDraw(struct Screen *screen) {
 	};
 
 	SDL_UpdateTexture(texture, &rect, PixelBufferTty, rect.w * 4);
-
-	tty->IsDirty = 0;
-
-	UnlockIoMutex();
 }
 
 void TTYKeyPressed(struct Screen *screen, int sdlscancode) {
-	LockIoMutex();
-
 	struct TTY *tty = (struct TTY *)(screen->Context1);
+
+	SDL_LockMutex(tty->Mutex);
 
 	switch (sdlscancode) {
 		case SDL_SCANCODE_LCTRL:
 		case SDL_SCANCODE_RCTRL:
 			tty->IsCtrl = 1;
 
-			UnlockIoMutex();
-			return;
+			goto exit;
 
 		case SDL_SCANCODE_LSHIFT:
 		case SDL_SCANCODE_RSHIFT:
 			tty->IsShift = 1;
 
-			UnlockIoMutex();
-			return;
+			goto exit;
 
 		case SDL_SCANCODE_LEFT:
 			tty->Input(tty, 0x1B);
 			tty->Input(tty, '[');
 			tty->Input(tty, 'D');
 			
-			UnlockIoMutex();
-			return;
+			goto exit;
 
 		case SDL_SCANCODE_RIGHT:
 			tty->Input(tty, 0x1B);
 			tty->Input(tty, '[');
 			tty->Input(tty, 'C');
 			
-			UnlockIoMutex();
-			return;
+			goto exit;
 
 		case SDL_SCANCODE_UP:
 			tty->Input(tty, 0x1B);
 			tty->Input(tty, '[');
 			tty->Input(tty, 'A');
 			
-			UnlockIoMutex();
-			return;
+			goto exit;
 
 		case SDL_SCANCODE_DOWN:
 			tty->Input(tty, 0x1B);
 			tty->Input(tty, '[');
 			tty->Input(tty, 'B');
 			
-			UnlockIoMutex();
-			return;
+			goto exit;
 	}
 
 	char c;
@@ -252,13 +244,14 @@ void TTYKeyPressed(struct Screen *screen, int sdlscancode) {
 	if (c != -1)
 		tty->Input(tty, c);
 
-	UnlockIoMutex();
+exit:
+	SDL_UnlockMutex(tty->Mutex);
 }
 
 void TTYKeyReleased(struct Screen *screen, int sdlscancode) {
 	struct TTY *tty = (struct TTY *)(screen->Context1);
 
-	LockIoMutex();
+	SDL_LockMutex(tty->Mutex);
 
 	if (sdlscancode == SDL_SCANCODE_LCTRL || sdlscancode == SDL_SCANCODE_RCTRL) {
 		tty->IsCtrl = 0;
@@ -266,7 +259,7 @@ void TTYKeyReleased(struct Screen *screen, int sdlscancode) {
 		tty->IsShift = 0;
 	}
 
-	UnlockIoMutex();
+	SDL_UnlockMutex(tty->Mutex);
 }
 
 void TTYScrollUp(struct TTY *tty) {
@@ -614,14 +607,19 @@ struct TTY *TTYCreate(int width, int height, char *title, TTYInputF input) {
 	struct TTY *tty = malloc(sizeof(struct TTY));
 
 	if (!tty) {
-		return 0;
+		abort();
+	}
+
+	tty->Mutex = SDL_CreateMutex();
+
+	if (!tty->Mutex) {
+		abort();
 	}
 
 	tty->TextBuffer = malloc(width*height*2);
 
 	if (!tty->TextBuffer) {
-		free(tty);
-		return 0;
+		abort();
 	}
 
 	for (int i = 0; i < width*height; i++) {
@@ -674,9 +672,7 @@ struct TTY *TTYCreate(int width, int height, char *title, TTYInputF input) {
 							0);
 
 	if (!tty->Screen) {
-		free(tty->TextBuffer);
-		free(tty);
-		return 0;
+		abort();
 	}
 
 	tty->Screen->Context1 = tty;

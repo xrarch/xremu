@@ -43,6 +43,8 @@ struct TTY {
 	TTYInputF Input;
 
 	struct Screen *Screen;
+
+	void *Mutex;
 };
 
 struct TTY *TTYCreate(int width, int height, char *title, TTYInputF input);

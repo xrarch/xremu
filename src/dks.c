@@ -1,3 +1,4 @@
+#include <SDL.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,12 +10,14 @@
 
 #include "lsic.h"
 
+SDL_mutex *ControllerMutex;
+
 typedef struct _DKSDisk {
 	FILE *DiskImage;
 	int ID;
 	int Present;
 	bool Spinning;
-	uint8_t TemporaryBuffer[512];
+	uint8_t TemporaryBuffer[4096];
 	uint32_t TransferAddress;
 	uint32_t TransferSector;
 	uint32_t TransferCount;
@@ -56,8 +59,6 @@ typedef struct _DKSDisk {
 
 DKSDisk DKSDisks[DKSDISKS];
 
-int DKSInfoWhat = 0;
-
 DKSDisk *DKSSelectedDrive = 0;
 
 uint32_t DKSStatus = 0;
@@ -73,9 +74,7 @@ bool DKSDoInterrupt = false;
 bool DKSAsynchronous = false;
 bool DKSPrint = false;
 
-void DKSInfo(int what) {
-	DKSInfoWhat = what;
-
+static inline void DKSInfo() {
 	if (DKSDoInterrupt)
 		LsicInterrupt(0x3);
 }
@@ -96,31 +95,26 @@ void DKSCompleteTransfer(DKSDisk *disk) {
 		printf("dks%d: %s %d @ %08x\n", disk->ID, disk->IoType == DKS_READ ? "read" : "write", disk->TransferSector, disk->TransferAddress);
 	}
 
-	UnlockIoMutex();
+	// Unlock the IO mutex across the file system calls,
+	// which could take a lot of time. We don't want to hold up CPU threads
+	// while doing this - that would defeat the whole point of dispatching
+	// this work to another thread.
 
 	fseek(disk->DiskImage, disk->TransferSector*512, SEEK_SET);
 
-	for (int i = 0; i < disk->TransferCount; i++) {
-		if (disk->IoType == DKS_READ) {
-			fread(&disk->TemporaryBuffer[0], 512, 1, disk->DiskImage);
+	if (disk->IoType == DKS_READ) {
+		fread(&disk->TemporaryBuffer[0], disk->TransferCount*512, 1, disk->DiskImage);
 
-			LockIoMutex();
-			EBusWrite(disk->TransferAddress, &disk->TemporaryBuffer[0], 512);
-			UnlockIoMutex();
-		} else {
-			LockIoMutex();
-			EBusRead(disk->TransferAddress, &disk->TemporaryBuffer[0], 512);
-			UnlockIoMutex();
+		EBusWrite(disk->TransferAddress, &disk->TemporaryBuffer[0], disk->TransferCount*512, 0);
+	} else {
+		EBusRead(disk->TransferAddress, &disk->TemporaryBuffer[0], disk->TransferCount*512, 0);
 
-			fwrite(&disk->TemporaryBuffer[0], 512, 1, disk->DiskImage);
-		}
-
-		disk->TransferAddress += 512;
+		fwrite(&disk->TemporaryBuffer[0], disk->TransferCount*512, 1, disk->DiskImage);
 	}
 
-	LockIoMutex();
-
 	// Set parameters and send interrupt.
+
+	SDL_LockMutex(ControllerMutex);
 
 	DKSStatus &= ~(1 << disk->ID);
 	DKSCompleted |= 1 << disk->ID;
@@ -128,33 +122,27 @@ void DKSCompleteTransfer(DKSDisk *disk) {
 	disk->PlatterLocation = LBA_TO_SECTOR(disk, disk->SeekTo);
 	disk->HeadLocation = LBA_TO_CYLINDER(disk, disk->SeekTo);
 
-	DKSInfo(0);
+	DKSInfo();
+
+	SDL_UnlockMutex(ControllerMutex);
 }
 
 uint32_t DKSCallback(uint32_t interval, void *param) {
 	DKSDisk *disk = param;
 
-	LockIoMutex();
-
-	if ((DKSStatus & (1 << disk->ID)) != 0) {
 #ifdef EMSCRIPTEN
-		if (interval < disk->OperationInterval) {
-			// There's still more left.
+	if (interval < disk->OperationInterval) {
+		// There's still more left.
 
-			disk->OperationInterval -= interval;
+		disk->OperationInterval -= interval;
 
-			UnlockIoMutex();
-
-			return 0;
-		}
+		return 0;
+	}
 #endif
 
-		DKSCompleteTransfer(disk);
+	disk->OperationInterval = 0;
 
-		disk->OperationInterval = 0;
-	}
-
-	UnlockIoMutex();
+	DKSCompleteTransfer(disk);
 
 	return 0;
 }
@@ -166,6 +154,8 @@ void DKSInterval(uint32_t dt) {
 		if (!disk->Present)
 			break;
 
+		SDL_LockMutex(ControllerMutex);
+
 		if ((DKSStatus & (1 << i)) == 0) {
 			if (disk->Spinning) {
 				disk->PlatterLocation += SECTOR_PER_MS(disk);
@@ -176,6 +166,8 @@ void DKSInterval(uint32_t dt) {
 			DKSCallback(dt, disk);
 #endif
 		}
+
+		SDL_UnlockMutex(ControllerMutex);
 	}
 }
 
@@ -300,8 +292,10 @@ int DKSDispatchIO(uint32_t type) {
 	return EBUSSUCCESS;
 }
 
-int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
+int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 	int status;
+
+	SDL_LockMutex(ControllerMutex);
 
 	switch(value) {
 		case 1:
@@ -312,27 +306,31 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 			else
 				DKSSelectedDrive = 0;
 
-			return EBUSSUCCESS;
+			status = EBUSSUCCESS;
+			break;
 
 		case 2:
 			// read sectors
 
-			return DKSDispatchIO(DKS_READ);
+			status = DKSDispatchIO(DKS_READ);
+			break;
 
 		case 3:
 			// write sectors
 
-			return DKSDispatchIO(DKS_WRITE);
+			status = DKSDispatchIO(DKS_WRITE);
+			break;
 
 		case 4:
 			// read info
 
-			DKSPortA = DKSInfoWhat;
-			DKSPortB = DKSCompleted;
+			DKSPortA = 0;
 
+			DKSPortB = DKSCompleted;
 			DKSCompleted = 0;
 
-			return EBUSSUCCESS;
+			status = EBUSSUCCESS;
+			break;
 
 		case 5:
 			// poll drive
@@ -345,21 +343,24 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 				DKSPortB = 0;
 			}
 
-			return EBUSSUCCESS;
+			status = EBUSSUCCESS;
+			break;
 
 		case 6:
 			// enable interrupts
 
 			DKSDoInterrupt = true;
 
-			return EBUSSUCCESS;
+			status = EBUSSUCCESS;
+			break;
 
 		case 7:
 			// disable interrupts
 
 			DKSDoInterrupt = false;
 
-			return EBUSSUCCESS;
+			status = EBUSSUCCESS;
+			break;
 
 		case 8:
 			// set transfer count
@@ -367,49 +368,58 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 			if (DKSPortA == 0 || DKSPortA > 8) {
 				// Zero length and greater than 8 sectors are both forbidden
 
-				return EBUSERROR;
+				status = EBUSERROR;
+				break;
 			}
 
 			DKSTransferCount = DKSPortA;
 
-			return EBUSSUCCESS;
+			status = EBUSSUCCESS;
+			break;
 
 		case 9:
 			// set transfer address
 
 			DKSTransferAddress = DKSPortA & ~511;
 
-			return EBUSSUCCESS;
+			status = EBUSSUCCESS;
+			break;
 	}
 
-	return EBUSERROR;
+	SDL_UnlockMutex(ControllerMutex);
+
+	return status;
 }
 
-int DKSReadCMD(uint32_t port, uint32_t type, uint32_t *value) {
+int DKSReadCMD(uint32_t port, uint32_t type, uint32_t *value, void *proc) {
 	*value = DKSStatus;
 
 	return EBUSSUCCESS;
 }
 
-int DKSWritePortA(uint32_t port, uint32_t type, uint32_t value) {
+int DKSWritePortA(uint32_t port, uint32_t type, uint32_t value, void *proc) {
+	SDL_LockMutex(ControllerMutex);
 	DKSPortA = value;
+	SDL_UnlockMutex(ControllerMutex);
 
 	return EBUSSUCCESS;
 }
 
-int DKSReadPortA(uint32_t port, uint32_t type, uint32_t *value) {
+int DKSReadPortA(uint32_t port, uint32_t type, uint32_t *value, void *proc) {
 	*value = DKSPortA;
 
 	return EBUSSUCCESS;
 }
 
-int DKSWritePortB(uint32_t port, uint32_t type, uint32_t value) {
+int DKSWritePortB(uint32_t port, uint32_t type, uint32_t value, void *proc) {
+	SDL_LockMutex(ControllerMutex);
 	DKSPortB = value;
+	SDL_UnlockMutex(ControllerMutex);
 
 	return EBUSSUCCESS;
 }
 
-int DKSReadPortB(uint32_t port, uint32_t type, uint32_t *value) {
+int DKSReadPortB(uint32_t port, uint32_t type, uint32_t *value, void *proc) {
 	*value = DKSPortB;
 
 	return EBUSSUCCESS;
@@ -504,6 +514,12 @@ int DKSAttachImage(char *path) {
 void DKSInit() {
 	for (int i = 0; i < DKSDISKS; i++) {
 		DKSDisks[i].ID = i;
+	}
+
+	ControllerMutex = SDL_CreateMutex();
+
+	if (!ControllerMutex) {
+		abort();
 	}
 
 	CitronPorts[0x19].Present = 1;

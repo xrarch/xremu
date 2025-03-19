@@ -22,14 +22,14 @@ struct CitronPort CitronPorts[CITRONPORTS];
 
 bool NVRAMDirty = false;
 
-int PBoardWrite(uint32_t address, void *src, uint32_t length) {
+int PBoardWrite(uint32_t address, void *src, uint32_t length, void *proc) {
 	if (address < 0x400) {
 		// citron
 
 		uint32_t port = address/4;
 
 		if (CitronPorts[port].Present)
-			return CitronPorts[port].WritePort(port, length, *(uint32_t*)src);
+			return CitronPorts[port].WritePort(port, length, *(uint32_t*)src, proc);
 		else {
 			return EBUSERROR;
 		}
@@ -82,14 +82,14 @@ int PBoardWrite(uint32_t address, void *src, uint32_t length) {
 	return EBUSERROR;
 }
 
-int PBoardRead(uint32_t address, void *dest, uint32_t length) {
+int PBoardRead(uint32_t address, void *dest, uint32_t length, void *proc) {
 	if (address < 0x400) {
 		// citron
 
 		uint32_t port = address/4;
 
 		if (CitronPorts[port].Present)
-			return CitronPorts[port].ReadPort(port, length, dest);
+			return CitronPorts[port].ReadPort(port, length, dest, proc);
 		else {
 			return EBUSERROR;
 		}

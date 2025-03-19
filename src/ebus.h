@@ -10,12 +10,10 @@ enum EBusSuccess {
 	EBUSERROR
 };
 
-extern void LockIoMutex();
-extern void UnlockIoMutex();
 extern void EnqueueCallback(uint32_t interval, uint32_t (*callback)(uint32_t, void*), void *param);
 
-typedef int (*EBusWriteF)(uint32_t address, void *src, uint32_t length);
-typedef int (*EBusReadF)(uint32_t address, void *dest, uint32_t length);
+typedef int (*EBusWriteF)(uint32_t address, void *src, uint32_t length, void *proc);
+typedef int (*EBusReadF)(uint32_t address, void *dest, uint32_t length, void *proc);
 typedef void (*EBusResetF)();
 
 struct EBusBranch {
@@ -27,11 +25,11 @@ struct EBusBranch {
 
 extern struct EBusBranch EBusBranches[EBUSBRANCHES];
 
-static inline int EBusRead(uint32_t address, void *dest, uint32_t length) {
+static inline int EBusRead(uint32_t address, void *dest, uint32_t length, void *proc) {
 	int branch = address >> 27;
 
 	if (EBusBranches[branch].Present) {
-		return EBusBranches[branch].Read(address & 0x7FFFFFF, dest, length);
+		return EBusBranches[branch].Read(address & 0x7FFFFFF, dest, length, proc);
 	} else if (branch >= 24) {
 		*(uint32_t*)dest = 0;
 		return EBUSSUCCESS;
@@ -40,11 +38,11 @@ static inline int EBusRead(uint32_t address, void *dest, uint32_t length) {
 	return EBUSERROR;
 }
 
-static inline int EBusWrite(uint32_t address, void *src, uint32_t length) {
+static inline int EBusWrite(uint32_t address, void *src, uint32_t length, void *proc) {
 	int branch = address >> 27;
 
 	if (EBusBranches[branch].Present) {
-		return EBusBranches[branch].Write(address & 0x7FFFFFF, src, length);
+		return EBusBranches[branch].Write(address & 0x7FFFFFF, src, length, proc);
 	} else if (branch >= 24) {
 		return EBUSSUCCESS;
 	}

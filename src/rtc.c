@@ -25,7 +25,7 @@ void RTCUpdateRealTime() {
 	gettimeofday(&RTCCurrentTime, 0);
 }
 
-int RTCWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
+int RTCWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 	switch(value) {
 		case 1:
 			// set interval
@@ -59,23 +59,23 @@ int RTCWriteCMD(uint32_t port, uint32_t type, uint32_t value) {
 	return EBUSERROR;
 }
 
-int RTCReadCMD(uint32_t port, uint32_t type, uint32_t *value) {
+int RTCReadCMD(uint32_t port, uint32_t type, uint32_t *value, void *proc) {
 	*value = 0;
 
 	return EBUSSUCCESS;
 }
 
-int RTCWritePortA(uint32_t port, uint32_t type, uint32_t value) {
+int RTCWritePortA(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 	RTCPortA = value;
 
 	return EBUSSUCCESS;
 }
 
-int RTCReadPortA(uint32_t port, uint32_t type, uint32_t *value) {
+int RTCReadPortA(uint32_t port, uint32_t type, uint32_t *value, void *proc) {
 	// Decrement the progress count on the current processor. Note that
 	// the firmware uses this to idle w/o consuming too much host cpu.
 
-	XrIoMutexProcessor->Progress--;
+	((XrProcessor *)(proc))->Progress--;
 
 	*value = RTCPortA;
 

@@ -30,7 +30,7 @@ void MouseReset(struct AmtsuDevice *dev) {
 	MouseDY = 0;
 }
 
-int MouseAction(struct AmtsuDevice *dev, uint32_t value) {
+int MouseAction(struct AmtsuDevice *dev, uint32_t value, void *proc) {
 	switch(value) {
 		case 1: // read info
 			if (MousePressedButton) {
@@ -52,7 +52,7 @@ int MouseAction(struct AmtsuDevice *dev, uint32_t value) {
 				return EBUSSUCCESS;
 			}
 
-			XrIoMutexProcessor->Progress--;
+			((XrProcessor *)(proc))->Progress--;
 			dev->PortAValue = 0;
 			break;
 
@@ -71,13 +71,13 @@ void MousePressed(struct Screen *screen, int button) {
 		else if (button == 2)
 			button = 3;
 
-		LockIoMutex();
+		SDL_LockMutex(AmtsuDevices[AMTSU_MOUSE].Mutex);
 
 		MousePressedButton = button;
-		if (AmtsuDevices[2].InterruptNumber)
-			LsicInterrupt(AmtsuDevices[2].InterruptNumber);
+		if (AmtsuDevices[AMTSU_MOUSE].InterruptNumber)
+			LsicInterrupt(AmtsuDevices[AMTSU_MOUSE].InterruptNumber);
 
-		UnlockIoMutex();
+		SDL_UnlockMutex(AmtsuDevices[AMTSU_MOUSE].Mutex);
 	}
 }
 
@@ -88,34 +88,34 @@ void MouseReleased(struct Screen *screen, int button) {
 		else if (button == 2)
 			button = 3;
 
-		LockIoMutex();
+		SDL_LockMutex(AmtsuDevices[AMTSU_MOUSE].Mutex);
 
 		MouseReleasedButton = button;
-		if (AmtsuDevices[2].InterruptNumber)
-			LsicInterrupt(AmtsuDevices[2].InterruptNumber);
+		if (AmtsuDevices[AMTSU_MOUSE].InterruptNumber)
+			LsicInterrupt(AmtsuDevices[AMTSU_MOUSE].InterruptNumber);
 
-		UnlockIoMutex();
+		SDL_UnlockMutex(AmtsuDevices[AMTSU_MOUSE].Mutex);
 	}
 }
 
 void MouseMoved(struct Screen *screen, int dx, int dy) {
-	LockIoMutex();
+	SDL_LockMutex(AmtsuDevices[AMTSU_MOUSE].Mutex);
 
 	MouseDX += dx;
 	MouseDY += dy;
 
 	MouseMovedV = ((MouseDX&0xFFFF)<<16)|(MouseDY&0xFFFF);
 
-	if (AmtsuDevices[2].InterruptNumber)
-		LsicInterrupt(AmtsuDevices[2].InterruptNumber);
+	if (AmtsuDevices[AMTSU_MOUSE].InterruptNumber)
+		LsicInterrupt(AmtsuDevices[AMTSU_MOUSE].InterruptNumber);
 
-	UnlockIoMutex();
+	SDL_UnlockMutex(AmtsuDevices[AMTSU_MOUSE].Mutex);
 }
 
 void MouseInit() {
-	AmtsuDevices[2].Present = 1;
-	AmtsuDevices[2].MID = 0x4D4F5553; // mouse
-	AmtsuDevices[2].PortAValue = 0;
-	AmtsuDevices[2].Action = MouseAction;
-	AmtsuDevices[2].Reset = MouseReset;
+	AmtsuDevices[AMTSU_MOUSE].Present = 1;
+	AmtsuDevices[AMTSU_MOUSE].MID = 0x4D4F5553; // mouse
+	AmtsuDevices[AMTSU_MOUSE].PortAValue = 0;
+	AmtsuDevices[AMTSU_MOUSE].Action = MouseAction;
+	AmtsuDevices[AMTSU_MOUSE].Reset = MouseReset;
 }

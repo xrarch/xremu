@@ -30,7 +30,7 @@ void KeyboardReset(struct AmtsuDevice *dev) {
 	memset(&Pressed, false, sizeof(Pressed));
 }
 
-int KeyboardAction(struct AmtsuDevice *dev, uint32_t value) {
+int KeyboardAction(struct AmtsuDevice *dev, uint32_t value, void *proc) {
 	switch(value) {
 		case 1: // pop scancode
 			for (int i = 0; i <= KEYBDMAXCODE; i++) {
@@ -46,7 +46,7 @@ int KeyboardAction(struct AmtsuDevice *dev, uint32_t value) {
 				}
 			}
 
-			XrIoMutexProcessor->Progress--;
+			((XrProcessor *)(proc))->Progress--;
 			dev->PortAValue = 0xFFFF;
 			break;
 
@@ -59,7 +59,7 @@ int KeyboardAction(struct AmtsuDevice *dev, uint32_t value) {
 				if (Pressed[dev->PortAValue]){
 					dev->PortAValue = 1;
 				} else {
-					XrIoMutexProcessor->Progress--;
+					((XrProcessor *)(proc))->Progress--;
 					dev->PortAValue = 0;
 				}
 			} else {
@@ -75,14 +75,14 @@ void KeyboardPressed(struct Screen *screen, int sdlscancode) {
 	int code = KeyMap[sdlscancode].code;
 
 	if (code) {
-		LockIoMutex();
+		SDL_LockMutex(AmtsuDevices[AMTSU_KEYBOARD].Mutex);
 
 		OutstandingPressed[code-1] = true;
 		Pressed[code-1] = true;
-		if (AmtsuDevices[1].InterruptNumber)
-			LsicInterrupt(AmtsuDevices[1].InterruptNumber);
+		if (AmtsuDevices[AMTSU_KEYBOARD].InterruptNumber)
+			LsicInterrupt(AmtsuDevices[AMTSU_KEYBOARD].InterruptNumber);
 
-		UnlockIoMutex();
+		SDL_UnlockMutex(AmtsuDevices[AMTSU_KEYBOARD].Mutex);
 	}
 }
 
@@ -90,23 +90,23 @@ void KeyboardReleased(struct Screen *screen, int sdlscancode) {
 	int code = KeyMap[sdlscancode].code;
 
 	if (code) {
-		LockIoMutex();
+		SDL_LockMutex(AmtsuDevices[AMTSU_KEYBOARD].Mutex);
 
 		OutstandingReleased[code-1] = true;
 		Pressed[code-1] = false;
-		if (AmtsuDevices[1].InterruptNumber)
-			LsicInterrupt(AmtsuDevices[1].InterruptNumber);
+		if (AmtsuDevices[AMTSU_KEYBOARD].InterruptNumber)
+			LsicInterrupt(AmtsuDevices[AMTSU_KEYBOARD].InterruptNumber);
 
-		UnlockIoMutex();
+		SDL_UnlockMutex(AmtsuDevices[AMTSU_KEYBOARD].Mutex);
 	}
 }
 
 void KeyboardInit() {
-	AmtsuDevices[1].Present = 1;
-	AmtsuDevices[1].MID = 0x8FC48FC4; // keyboard
-	AmtsuDevices[1].PortAValue = 0xFFFF;
-	AmtsuDevices[1].Action = KeyboardAction;
-	AmtsuDevices[1].Reset = KeyboardReset;
+	AmtsuDevices[AMTSU_KEYBOARD].Present = 1;
+	AmtsuDevices[AMTSU_KEYBOARD].MID = 0x8FC48FC4; // keyboard
+	AmtsuDevices[AMTSU_KEYBOARD].PortAValue = 0xFFFF;
+	AmtsuDevices[AMTSU_KEYBOARD].Action = KeyboardAction;
+	AmtsuDevices[AMTSU_KEYBOARD].Reset = KeyboardReset;
 }
 
 static struct KeyInfo KeyMap[SDL_NUM_SCANCODES] = {

@@ -28,27 +28,12 @@
 #include "lsic.h"
 
 XrProcessor *CpuTable[XR_PROC_MAX];
-XrProcessor *XrIoMutexProcessor;
 
 #ifndef EMSCRIPTEN
 
 SDL_mutex *ScacheMutexes[XR_CACHE_MUTEXES];
 
-SDL_mutex *IoMutex;
-
-void LockIoMutex() {
-	SDL_LockMutex(IoMutex);
-	XrIoMutexProcessor = 0;
-}
-
-void UnlockIoMutex() {
-	SDL_UnlockMutex(IoMutex);
-}
-
 #else
-
-void LockIoMutex() {}
-void UnlockIoMutex() {}
 
 uint32_t emscripten_last_tick = 0;
 
@@ -189,13 +174,6 @@ int main(int argc, char *argv[]) {
 	uint32_t memsize = 4 * 1024 * 1024;
 
 #ifndef EMSCRIPTEN
-	IoMutex = SDL_CreateMutex();
-
-	if (!IoMutex) {
-		fprintf(stderr, "Failed to create IO mutex\n");
-		return 1;
-	}
-
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-dks") == 0) {
 			if (i+1 < argc) {
@@ -374,10 +352,8 @@ int main(int argc, char *argv[]) {
 
 		int tick_after_draw = SDL_GetTicks();
 
-		LockIoMutex();
 		DKSInterval(tick_after_draw - tick_end);
 		SerialInterval(tick_after_draw - tick_end);
-		UnlockIoMutex();
 
 		// Kick all the CPU threads to get them to execute a frame time worth of
 		// CPU simulation. We do this from the frame update thread (the main
@@ -402,7 +378,6 @@ int main(int argc, char *argv[]) {
 		}
 	}
 #else
-	XrIoMutexProcessor = CpuTable[0];
 	emscripten_last_tick = SDL_GetTicks();
 	emscripten_set_main_loop(MainLoop, FPS, 0);
 #endif

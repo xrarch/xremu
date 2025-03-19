@@ -396,15 +396,11 @@ static inline uint8_t XrNoncachedAccess(XrProcessor *proc, uint32_t address, uin
 
 	int result;
 
-	XrLockIoMutex(proc, address);
-
 	if (dest) {
-		result = EBusRead(address, dest, length);
+		result = EBusRead(address, dest, length, proc);
 	} else {
-		result = EBusWrite(address, &srcvalue, length);
+		result = EBusWrite(address, &srcvalue, length, proc);
 	}
-
-	XrUnlockIoMutex(address);
 
 	if (result == EBUSERROR) {
 		proc->Cr[EBADADDR] = address;
@@ -477,9 +473,7 @@ static inline uint8_t XrIcacheAccess(XrProcessor *proc, uint32_t address, uint32
 
 	uint32_t cacheoff = newindex << XR_IC_LINE_SIZE_LOG;
 
-	XrLockIoMutex(proc, tag);
-	int result = EBusRead(tag, &proc->Ic[cacheoff], XR_IC_LINE_SIZE);
-	XrUnlockIoMutex(tag);
+	int result = EBusRead(tag, &proc->Ic[cacheoff], XR_IC_LINE_SIZE, proc);
 
 	if (result == EBUSERROR) {
 		proc->IcFlags[newindex] = XR_LINE_INVALID;
@@ -529,9 +523,7 @@ static inline void XrFlushWriteBuffer(XrProcessor *proc) {
 
 			DBGPRINT("flush wb write %x from cacheindex %d\n", tag, index);
 
-			XrLockIoMutex(proc, tag);
-			EBusWrite(tag, &proc->Dc[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE);
-			XrUnlockIoMutex(tag);
+			EBusWrite(tag, &proc->Dc[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE, proc);
 
 			// Invalidate it.
 
@@ -595,9 +587,7 @@ static inline void XrDowngradeLine(XrProcessor *proc, uint32_t tag, uint32_t new
 
 				DBGPRINT("forced wb write %x from cacheindex %d\n", tag, index);
 
-				XrLockIoMutex(proc, tag);
-				EBusWrite(tag, &proc->Dc[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE);
-				XrUnlockIoMutex(tag);
+				EBusWrite(tag, &proc->Dc[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE, proc);
 
 				// Invalidate.
 
@@ -988,9 +978,7 @@ restart:
 
 			DBGPRINT("forced self wb write %x from cacheindex %d\n", tag, index);
 
-			XrLockIoMutex(proc, tag);
-			EBusWrite(oldtag, &proc->Dc[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE);
-			XrUnlockIoMutex(tag);
+			EBusWrite(oldtag, &proc->Dc[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE, proc);
 
 			// Invalidate.
 
@@ -1018,9 +1006,7 @@ restart:
 
 	uint32_t cacheoff = index << XR_DC_LINE_SIZE_LOG;
 
-	XrLockIoMutex(proc, tag);
-	int result = EBusRead(tag, &proc->Dc[cacheoff], XR_DC_LINE_SIZE);
-	XrUnlockIoMutex(tag);
+	int result = EBusRead(tag, &proc->Dc[cacheoff], XR_DC_LINE_SIZE, proc);
 
 	if (result == EBUSERROR) {
 		// We failed. Back out.
@@ -1146,9 +1132,7 @@ static inline void XrWriteWbEntry(XrProcessor *proc) {
 
 			DBGPRINT("timed wb write %x from cacheindex %d\n", tag, index);
 
-			XrLockIoMutex(proc, tag);
-			EBusWrite(tag, &proc->Dc[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE);
-			XrUnlockIoMutex(tag);
+			EBusWrite(tag, &proc->Dc[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE, proc);
 
 			// Invalidate it.
 

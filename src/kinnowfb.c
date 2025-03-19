@@ -16,6 +16,8 @@
 
 #include "screen.h"
 
+SDL_mutex *KinnowMutex;
+
 uint8_t *KinnowFB = 0;
 
 uint32_t FBSize;
@@ -39,27 +41,7 @@ uint32_t DirtyRectY2 = 0;
 
 bool IsDirty = false;
 
-static inline void MakeDirty(uint32_t x1, uint32_t y1, uint32_t x2, uint32_t y2) {
-	IsDirty = true;
-
-	if (x1 < DirtyRectX1) {
-		DirtyRectX1 = x1;
-	}
-
-	if (y1 < DirtyRectY1) {
-		DirtyRectY1 = y1;
-	}
-
-	if (x2 > DirtyRectX2) {
-		DirtyRectX2 = x2;
-	}
-
-	if (y2 > DirtyRectY2) {
-		DirtyRectY2 = y2;
-	}
-}
-
-int KinnowWrite(uint32_t address, void *src, uint32_t length) {
+int KinnowWrite(uint32_t address, void *src, uint32_t length, void *proc) {
 	if ((address >= 0x3000) && (address < 0x3100)) {
 		address -= 0x3000;
 
@@ -80,7 +62,27 @@ int KinnowWrite(uint32_t address, void *src, uint32_t length) {
 		uint32_t x1 = pix1%KINNOW_FRAMEBUFFER_WIDTH;
 		uint32_t y1 = pix1/KINNOW_FRAMEBUFFER_WIDTH;
 
-		MakeDirty(x, y, x1, y1);
+		SDL_LockMutex(KinnowMutex);
+
+		IsDirty = true;
+
+		if (x < DirtyRectX1) {
+			DirtyRectX1 = x;
+		}
+
+		if (y < DirtyRectY1) {
+			DirtyRectY1 = y;
+		}
+
+		if (x1 > DirtyRectX2) {
+			DirtyRectX2 = x1;
+		}
+
+		if (y1 > DirtyRectY2) {
+			DirtyRectY2 = y1;
+		}
+
+		SDL_UnlockMutex(KinnowMutex);
 
 		CopyWithLength(&KinnowFB[address], src, length);
 
@@ -90,7 +92,7 @@ int KinnowWrite(uint32_t address, void *src, uint32_t length) {
 	return EBUSERROR;
 }
 
-int KinnowRead(uint32_t address, void *dest, uint32_t length) {
+int KinnowRead(uint32_t address, void *dest, uint32_t length, void *proc) {
 	if (address < 0x100) { // SlotInfo
 		CopyWithLength(dest, &((char*)SlotInfo)[address], length);
 
@@ -118,13 +120,11 @@ int KinnowRead(uint32_t address, void *dest, uint32_t length) {
 uint32_t PixelBuffer[KINNOW_FRAMEBUFFER_WIDTH*KINNOW_FRAMEBUFFER_HEIGHT];
 
 void KinnowDraw(struct Screen *screen) {
-	LockIoMutex();
-
 	if (!IsDirty) {
-		UnlockIoMutex();
-
 		return;
 	}
+
+	SDL_LockMutex(KinnowMutex);
 
 	int capturedx1 = DirtyRectX1;
 	int capturedx2 = DirtyRectX2;
@@ -138,7 +138,7 @@ void KinnowDraw(struct Screen *screen) {
 
 	IsDirty = false;
 
-	UnlockIoMutex();
+	SDL_UnlockMutex(KinnowMutex);
 
 	int width = capturedx2-capturedx1+1;
 	int height = capturedy2-capturedy1+1;
@@ -173,6 +173,11 @@ int KinnowInit() {
 	KinnowFB = malloc(FBSize);
 
 	if (KinnowFB == 0)
+		return -1;
+
+	KinnowMutex = SDL_CreateMutex();
+
+	if (KinnowMutex == 0)
 		return -1;
 
 	memset(KinnowFB, 0, FBSize);
