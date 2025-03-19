@@ -12,9 +12,37 @@ struct EBusBranch EBusBranches[EBUSBRANCHES];
 
 extern bool Headless;
 
+int EmptyRead(uint32_t address, void *dest, uint32_t length, void *proc) {
+	memset(dest, 0, length);
+
+	return EBUSSUCCESS;
+}
+
+int EmptyWrite(uint32_t address, void *dest, uint32_t length, void *proc) {
+	return EBUSSUCCESS;
+}
+
+int EmptyMemRead(uint32_t address, void *dest, uint32_t length, void *proc) {
+	return EBUSERROR;
+}
+
+int EmptyMemWrite(uint32_t address, void *dest, uint32_t length, void *proc) {
+	return EBUSERROR;
+}
+
 int EBusInit(uint32_t memsize) {
-	for (int i = 0; i < EBUSBRANCHES; i++) {
+	for (int i = 0; i < 24; i++) {
 		EBusBranches[i].Present = 0;
+		EBusBranches[i].Read = EmptyMemRead;
+		EBusBranches[i].Write = EmptyMemWrite;
+		EBusBranches[i].Reset = 0;
+	}
+
+	for (int i = 24; i < EBUSBRANCHES; i++) {
+		EBusBranches[i].Present = 0;
+		EBusBranches[i].Read = EmptyRead;
+		EBusBranches[i].Write = EmptyWrite;
+		EBusBranches[i].Reset = 0;
 	}
 
 	if (RAMInit(memsize))

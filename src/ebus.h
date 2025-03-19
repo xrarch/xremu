@@ -26,28 +26,11 @@ struct EBusBranch {
 extern struct EBusBranch EBusBranches[EBUSBRANCHES];
 
 static inline int EBusRead(uint32_t address, void *dest, uint32_t length, void *proc) {
-	int branch = address >> 27;
-
-	if (EBusBranches[branch].Present) {
-		return EBusBranches[branch].Read(address & 0x7FFFFFF, dest, length, proc);
-	} else if (branch >= 24) {
-		*(uint32_t*)dest = 0;
-		return EBUSSUCCESS;
-	}
-
-	return EBUSERROR;
+	return EBusBranches[address >> 27].Read(address & 0x7FFFFFF, dest, length, proc);
 }
 
 static inline int EBusWrite(uint32_t address, void *src, uint32_t length, void *proc) {
-	int branch = address >> 27;
-
-	if (EBusBranches[branch].Present) {
-		return EBusBranches[branch].Write(address & 0x7FFFFFF, src, length, proc);
-	} else if (branch >= 24) {
-		return EBUSSUCCESS;
-	}
-
-	return EBUSERROR;
+	return EBusBranches[address >> 27].Write(address & 0x7FFFFFF, src, length, proc);
 }
 
 static inline void CopyWithLength(void *dest, void *src, uint32_t length) {
