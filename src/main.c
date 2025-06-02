@@ -92,38 +92,42 @@ int CpuLoop(void *context) {
 				continue;
 			}
 
-			if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
-				// Interval timer ran down, send self the interrupt.
-				// We do this from the context of each cpu thread so that we get
-				// accurate amounts of CPU time between each tick.
-
-				LsicInterruptTargeted(proc, 2);
-
-				proc->TimerInterruptCounter = 0;
-			}
-
-			XrExecute(proc, cyclesperms, 1);
-
-			proc->Timeslice -= 1;
-			proc->TimerInterruptCounter += 1;
-
-			if (proc->PauseCalls >= XR_PAUSE_MAX || proc->Halted) {
-				// Halted or paused. Advance to next CPU.
-
-				procid = (procid + 1) % XrProcessorCount;
-				proc->PauseCalls = 0;
-			}
-
 			failures = 0;
 
-			SDL_UnlockMutex(proc->RunLock);
+			while (proc->Timeslice != 0) {
+				if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
+					// Interval timer ran down, send self the interrupt.
+					// We do this from the context of each cpu thread so that we get
+					// accurate amounts of CPU time between each tick.
 
-			if (id == 0) {
-				// The zeroth thread also does the RTC intervals, once per
-				// millisecond of CPU time. 
+					LsicInterruptTargeted(proc, 2);
 
-				RTCUpdateRealTime();
+					proc->TimerInterruptCounter = 0;
+				}
+
+				if (proc->Id == 0) {
+					// The zeroth thread also does the RTC intervals, once per
+					// millisecond of CPU time. 
+
+					RTCUpdateRealTime();
+				}
+
+				XrExecute(proc, cyclesperms, 1);
+
+				proc->Timeslice -= 1;
+				proc->TimerInterruptCounter += 1;
+
+				if (proc->PauseCalls >= XR_PAUSE_MAX || proc->Halted) {
+					// Halted or paused. Advance to next CPU.
+
+					procid = (procid + 1) % XrProcessorCount;
+					proc->PauseCalls = 0;
+
+					break;
+				}
 			}
+
+			SDL_UnlockMutex(proc->RunLock);
 		}
 	}
 }
