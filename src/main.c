@@ -380,7 +380,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	if (CpuThreadCount > XrProcessorCount || CpuThreadCount == 0) {
-		CpuThreadCount = XrProcessorCount;
+		CpuThreadCount = (XrProcessorCount + 1) / 2;
 	}
 
 	for (int i = 0; i < CpuThreadCount; i++) {

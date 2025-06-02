@@ -36,7 +36,7 @@ Striking the right ALT key will switch the display between the framebuffer and t
         Specify how many XR/17032 processors to simulate. Default is 1.
 
     -threads [count]
-        Specify how many host threads to spread simulated CPU load across. Default is same as CPU count.
+        Specify how many host threads to spread simulated CPU load across. Default is half of CPU count.
 
     -asyncdisk
         Simulate disk seek times.
