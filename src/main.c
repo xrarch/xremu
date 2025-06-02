@@ -45,6 +45,7 @@ bool RAMDumpOnExit = false;
 bool KinnowDumpOnExit = false;
 
 uint32_t XrProcessorCount = 1;
+uint32_t CpuThreadCount = 1;
 
 bool done = false;
 
@@ -57,18 +58,40 @@ void MainLoop(void);
 #define CPUSTEPMS 17 // 60Hz rounded up
 
 int CpuLoop(void *context) {
-	XrProcessor *proc = (XrProcessor *)context;
+	uintptr_t id = (uintptr_t)context;
 
-	int cyclespertick = SimulatorHz/1000;
-	int extracycles = SimulatorHz%1000; // squeeze in the sub-millisecond cycles
+	// Execute CPU time from each CPU in sequence, a millisecond at a time,
+	// until all timeslices have run down.
 
-	int reason = -1;
+	int procid = 0;
+
+	int cyclesperms = (SimulatorHz+999)/1000;
 
 	while (1) {
-		proc->Progress = XR_POLL_MAX;
-		proc->PauseCalls = 0;
+		SDL_SemWait(CpuTable[id]->LoopSemaphore);
 
-		for (int i = 0; i < CPUSTEPMS; i++) {
+		for (int failures = 0; failures < XrProcessorCount;) {
+			XrProcessor *proc = CpuTable[procid];
+
+			// Trylock the processor's run lock.
+
+			if (SDL_TryLockMutex(proc->RunLock) == SDL_MUTEX_TIMEDOUT) {
+				// Failed to lock it.
+
+				procid = (procid + 1) % XrProcessorCount;
+				continue;
+			}
+
+			if (proc->Timeslice == 0) {
+				// Timeslice already up.
+
+				SDL_UnlockMutex(proc->RunLock);
+
+				failures += 1;
+				procid = (procid + 1) % XrProcessorCount;
+				continue;
+			}
+
 			if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
 				// Interval timer ran down, send self the interrupt.
 				// We do this from the context of each cpu thread so that we get
@@ -79,25 +102,29 @@ int CpuLoop(void *context) {
 				proc->TimerInterruptCounter = 0;
 			}
 
-			int cyclesleft = cyclespertick;
+			int realcycles = XrExecute(proc, cyclesperms, 1);
 
-			if (i == CPUSTEPMS-1) {
-				cyclesleft += extracycles;
+			proc->Timeslice -= 1;
+			proc->TimerInterruptCounter += 1;
+
+			if (proc->PauseCalls >= XR_PAUSE_MAX || realcycles == 0) {
+				// Halted or paused. Advance to next CPU.
+
+				procid = (procid + 1) % XrProcessorCount;
+				proc->PauseCalls = 0;
 			}
 
-			XrExecute(proc, cyclesleft, 1);
+			failures = 0;
 
-			if (proc->Id == 0) {
-				// The thread for CPU 0 also does the RTC intervals, once per
+			SDL_UnlockMutex(proc->RunLock);
+
+			if (id == 0) {
+				// The zeroth thread also does the RTC intervals, once per
 				// millisecond of CPU time. 
 
 				RTCUpdateRealTime();
 			}
-
-			proc->TimerInterruptCounter += 1;
 		}
-
-		SDL_SemWait(proc->LoopSemaphore);
 	}
 }
 
@@ -147,12 +174,19 @@ void CpuInitialize(int id) {
 		fprintf(stderr, "Failed to create interrupt mutex\n");
 		exit(1);
 	}
+
+	proc->RunLock = SDL_CreateMutex();
+
+	if (!proc->RunLock) {
+		fprintf(stderr, "Failed to create run mutex\n");
+		exit(1);
+	}
 #endif
 }
 
-void CpuCreate(int id) {
+void CpuCreate(uintptr_t id) {
 #ifndef EMSCRIPTEN
-	SDL_CreateThread(&CpuLoop, "CpuLoop", CpuTable[id]);
+	SDL_CreateThread(&CpuLoop, "CpuLoop", (void *)id);
 #endif
 }
 
@@ -170,6 +204,8 @@ int main(int argc, char *argv[]) {
 	}
 
 	SDL_EnableScreenSaver();
+
+	uint32_t cpusperthread = 1;
 
 	uint32_t memsize = 4 * 1024 * 1024;
 
@@ -282,6 +318,15 @@ int main(int argc, char *argv[]) {
 				return 1;
 			}
 
+		} else if (strcmp(argv[i], "-cpusperthread") == 0) {
+			if (i+1 < argc) {
+				cpusperthread = atoi(argv[i+1]);
+				i++;
+			} else {
+				fprintf(stderr, "no processor count specified\n");
+				return 1;
+			}
+
 		} else {
 			fprintf(stderr, "don't recognize option %s\n", argv[i]);
 			return 1;
@@ -336,7 +381,13 @@ int main(int argc, char *argv[]) {
 		CpuInitialize(i);
 	}
 
-	for (int i = 0; i < XrProcessorCount; i++) {
+	CpuThreadCount = XrProcessorCount / cpusperthread;
+
+	if (CpuThreadCount < 1) {
+		CpuThreadCount = 1;
+	}
+
+	for (int i = 0; i < CpuThreadCount; i++) {
 		CpuCreate(i);
 	}
 
@@ -367,6 +418,16 @@ int main(int argc, char *argv[]) {
 		// thread is asleep waiting for its next timeslice.
 
 		for (int i = 0; i < XrProcessorCount; i++) {
+			SDL_LockMutex(CpuTable[i]->RunLock);
+
+			CpuTable[i]->Timeslice = CPUSTEPMS;
+			CpuTable[i]->Progress = XR_POLL_MAX;
+			CpuTable[i]->PauseCalls = 0;
+
+			SDL_UnlockMutex(CpuTable[i]->RunLock);
+		}
+
+		for (int i = 0; i < CpuThreadCount; i++) {
 			SDL_SemPost(CpuTable[i]->LoopSemaphore);
 		}
 

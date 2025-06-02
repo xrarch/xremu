@@ -88,6 +88,11 @@
 
 #define XR_POLL_MAX 32
 
+// Number of times the PAUSE instruction can be executed before the timeslice is
+// yielded to another CPU.
+
+#define XR_PAUSE_MAX 256
+
 #define XR_CACHE_MUTEXES 256
 
 #define XR_IC_SET_NUMBER(tag) ((tag >> XR_IC_LINE_SIZE_LOG) & (XR_IC_SETS - 1))
@@ -109,6 +114,7 @@ typedef struct _XrProcessor {
 	void *CacheMutexes[XR_CACHE_MUTEXES];
 	void *LoopSemaphore;
 	void *InterruptLock;
+	void *RunLock;
 
 	uint32_t IcTags[XR_IC_LINE_COUNT];
 	uint32_t DcTags[XR_DC_LINE_COUNT];
@@ -132,6 +138,7 @@ typedef struct _XrProcessor {
 	int32_t Progress;
 	uint32_t CycleCounter;
 	uint32_t PauseCalls;
+	uint32_t Timeslice;
 
 	uint32_t IcReplacementIndex;
 	uint32_t DcReplacementIndex;
@@ -175,7 +182,7 @@ extern uint32_t XrProcessorCount;
 extern XrProcessor *CpuTable[XR_PROC_MAX];
 
 extern void XrReset(XrProcessor *proc);
-extern void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt);
+extern uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt);
 
 #ifndef EMSCRIPTEN
 

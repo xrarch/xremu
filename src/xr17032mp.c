@@ -958,10 +958,7 @@ restart:
 	uint32_t index = cacheindex + (proc->DcReplacementIndex & (XR_DC_WAYS - 1));
 	proc->DcReplacementIndex += 1;
 
-	if (proc->DcFlags[index] == XR_LINE_INVALID) {
-		// It's invalid, we can just take it.
-
-	} else {
+	if (proc->DcFlags[index] != XR_LINE_INVALID) {
 		// Lock the tag in this selected entry.
 
 		uint32_t oldtag = proc->DcTags[index];
@@ -1408,13 +1405,7 @@ static void XrMb(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 }
 
 static void XrPause(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	if (proc->PauseCalls++ == 256) {
-		// Processor is spin-waiting. Yield.
-
-		proc->PauseCalls = 0;
-
-		sched_yield();
-	}
+	proc->PauseCalls++;
 }
 
 static void XrSC(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
@@ -2130,7 +2121,7 @@ static XrInstructionF XrLowThree[8] = {
 	[7] = &XrJal,
 };
 
-void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
+uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 #ifdef PROFCPU
 	if (XrPrintCache) {
 		proc->TimeToNextPrint -= dt;
@@ -2186,7 +2177,7 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 			// writes by other host cores to the interrupt pending flag visible
 			// to us in a timely manner, without needing any locking.
 
-			return;
+			return 0;
 		}
 
 		// Interrupts are enabled and there is an interrupt pending.
@@ -2200,7 +2191,7 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 		// tick. Skip the rest of the tick so as not to eat up too much of
 		// the host's CPU.
 
-		return;
+		return 0;
 	}
 
 	proc->PauseCalls = 0;
@@ -2222,7 +2213,7 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 
 	int status;
 
-	for (; cyclesdone < cycles && !proc->Halted && proc->Running; cyclesdone++) {
+	for (; cyclesdone < cycles && !proc->Halted && proc->Running && proc->PauseCalls < XR_PAUSE_MAX; cyclesdone++) {
 		if (proc->NmiMaskCounter) {
 			// Decrement the NMI mask cycle counter.
 
@@ -2304,4 +2295,6 @@ void XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 
 		XrLowThree[ir & 7](proc, currentpc, ir);
 	}
+
+	return cyclesdone;
 }
