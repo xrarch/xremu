@@ -102,12 +102,12 @@ int CpuLoop(void *context) {
 				proc->TimerInterruptCounter = 0;
 			}
 
-			int realcycles = XrExecute(proc, cyclesperms, 1);
+			XrExecute(proc, cyclesperms, 1);
 
 			proc->Timeslice -= 1;
 			proc->TimerInterruptCounter += 1;
 
-			if (proc->PauseCalls >= XR_PAUSE_MAX || realcycles == 0) {
+			if (proc->PauseCalls >= XR_PAUSE_MAX || proc->Halted) {
 				// Halted or paused. Advance to next CPU.
 
 				procid = (procid + 1) % XrProcessorCount;
