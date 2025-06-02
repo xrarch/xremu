@@ -139,6 +139,7 @@ typedef struct _XrProcessor {
 	uint32_t CycleCounter;
 	uint32_t PauseCalls;
 	uint32_t Timeslice;
+	uint32_t PauseReward;
 
 	uint32_t IcReplacementIndex;
 	uint32_t DcReplacementIndex;

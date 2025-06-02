@@ -112,13 +112,25 @@ int CpuLoop(void *context) {
 					RTCUpdateRealTime();
 				}
 
-				XrExecute(proc, cyclesperms, 1);
+				int realcycles = XrExecute(proc, cyclesperms, 1);
 
 				proc->Timeslice -= 1;
 				proc->TimerInterruptCounter += 1;
 
 				if (proc->PauseCalls >= XR_PAUSE_MAX || proc->Halted) {
 					// Halted or paused. Advance to next CPU.
+
+					if (proc->PauseCalls >= XR_PAUSE_MAX) {
+						proc->PauseReward += cyclesperms - realcycles;
+
+						if (proc->PauseReward >= cyclesperms) {
+							// A full millisecond has been robbed from this CPU due
+							// to pauses, so give it back.
+
+							proc->Timeslice += 1;
+							proc->PauseReward -= cyclesperms;
+						}
+					}
 
 					procid = (procid + 1) % XrProcessorCount;
 					proc->PauseCalls = 0;
@@ -143,6 +155,8 @@ void CpuInitialize(int id) {
 	CpuTable[id] = proc;
 	proc->Id = id;
 	proc->TimerInterruptCounter = 0;
+	proc->PauseReward = 0;
+	proc->Timeslice = 0;
 
 	XrReset(proc);
 
