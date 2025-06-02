@@ -45,7 +45,7 @@ bool RAMDumpOnExit = false;
 bool KinnowDumpOnExit = false;
 
 uint32_t XrProcessorCount = 1;
-uint32_t CpuThreadCount = 1;
+uint32_t CpuThreadCount = 0;
 
 bool done = false;
 
@@ -205,8 +205,6 @@ int main(int argc, char *argv[]) {
 
 	SDL_EnableScreenSaver();
 
-	uint32_t cpusperthread = 1;
-
 	uint32_t memsize = 4 * 1024 * 1024;
 
 #ifndef EMSCRIPTEN
@@ -318,12 +316,12 @@ int main(int argc, char *argv[]) {
 				return 1;
 			}
 
-		} else if (strcmp(argv[i], "-cpusperthread") == 0) {
+		} else if (strcmp(argv[i], "-threads") == 0) {
 			if (i+1 < argc) {
-				cpusperthread = atoi(argv[i+1]);
+				CpuThreadCount = atoi(argv[i+1]);
 				i++;
 			} else {
-				fprintf(stderr, "no processor count specified\n");
+				fprintf(stderr, "no thread count specified\n");
 				return 1;
 			}
 
@@ -381,10 +379,8 @@ int main(int argc, char *argv[]) {
 		CpuInitialize(i);
 	}
 
-	CpuThreadCount = XrProcessorCount / cpusperthread;
-
-	if (CpuThreadCount < 1) {
-		CpuThreadCount = 1;
+	if (CpuThreadCount > XrProcessorCount || CpuThreadCount == 0) {
+		CpuThreadCount = XrProcessorCount;
 	}
 
 	for (int i = 0; i < CpuThreadCount; i++) {
