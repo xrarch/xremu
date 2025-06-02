@@ -66,6 +66,7 @@ int CpuLoop(void *context) {
 	int procid = 0;
 
 	int cyclesperms = (SimulatorHz+999)/1000;
+	int pausemargin = cyclesperms * 2;
 
 	while (1) {
 		SDL_SemWait(CpuTable[id]->LoopSemaphore);
@@ -112,7 +113,13 @@ int CpuLoop(void *context) {
 					RTCUpdateRealTime();
 				}
 
-				int realcycles = XrExecute(proc, cyclesperms, 1);
+				int realcycles = XrExecute(proc, cyclesperms + proc->PauseReward, 1);
+
+				if (realcycles > cyclesperms) {
+					// Used some of the reward cycles, decrement them.
+
+					proc->PauseReward -= realcycles - cyclesperms;
+				}
 
 				proc->Timeslice -= 1;
 				proc->TimerInterruptCounter += 1;
@@ -121,14 +128,17 @@ int CpuLoop(void *context) {
 					// Halted or paused. Advance to next CPU.
 
 					if (proc->PauseCalls >= XR_PAUSE_MAX) {
-						proc->PauseReward += cyclesperms - realcycles;
+						if (realcycles < cyclesperms) {
+							// The CPU voluntarily paused. Reward it with extra
+							// cycles for next time.
 
-						if (proc->PauseReward >= cyclesperms) {
-							// A full millisecond has been robbed from this CPU due
-							// to pauses, so give it back.
+							proc->PauseReward += cyclesperms - realcycles;
 
-							proc->Timeslice += 1;
-							proc->PauseReward -= cyclesperms;
+							if (proc->PauseReward >= pausemargin) {
+								// Never reward with more than 2ms worth of cycles.
+
+								proc->PauseReward = pausemargin;
+							}
 						}
 					}
 
