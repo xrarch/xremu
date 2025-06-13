@@ -74,10 +74,15 @@ int CpuLoop(void *context) {
 		SDL_SemWait(CpuTable[id]->LoopSemaphore);
 
 		// Iterate over the CPUs in a cycle until all of the virtual CPU time
-		// for this frame (~17ms worth) has been executed. Multiple threads may
-		// execute this work loop simultaneously, to distribute guest workload
-		// over host cores (the default, as of writing, is half as many host
-		// threads as guest CPUs).
+		// for this frame, of which each CPU gets ~17ms worth, has been
+		// executed. For example, at 20MHz each CPU will get 20MHz * 17ms =
+		// 340,000 simulated cycles each frame. The CPU execution is aligned to
+		// frames in order to give meaning to the vblank interrupt and make user
+		// input feel smooth.
+		//
+		// Multiple threads may execute this work loop simultaneously, to
+		// distribute guest workload over host cores (the default, as of
+		// writing, is half as many host threads as guest CPUs).
 		//
 		// We increment the "done" count when a CPU's timeslice has dropped to
 		// zero and break out of the loop when all of the CPUs are done.
