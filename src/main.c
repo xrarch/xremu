@@ -60,8 +60,8 @@ void MainLoop(void);
 int CpuLoop(void *context) {
 	uintptr_t id = (uintptr_t)context;
 
-	// Execute CPU time from each CPU in sequence, a millisecond at a time,
-	// until all timeslices have run down.
+	// Execute CPU time from each CPU in sequence, until all timeslices have run
+	// down.
 
 	int procid = 0;
 
@@ -69,31 +69,51 @@ int CpuLoop(void *context) {
 	int pausemargin = cyclesperms * 2;
 
 	while (1) {
+		// Wait until the next frame.
+
 		SDL_SemWait(CpuTable[id]->LoopSemaphore);
 
-		for (int failures = 0; failures < XrProcessorCount;) {
+		// Iterate over the CPUs in a cycle until all of the virtual CPU time
+		// for this frame (~17ms worth) has been executed. Multiple threads may
+		// execute this work loop simultaneously, to distribute guest workload
+		// over host cores (the default, as of writing, is half as many host
+		// threads as guest CPUs).
+		//
+		// We increment the "done" count when a CPU's timeslice has dropped to
+		// zero and break out of the loop when all of the CPUs are done.
+		//
+		// We skip to the next CPU early, without incrementing the done count,
+		// if a CPU executes the HLT instruction or many PAUSE instructions.
+		//
+		// If it executes HLT, it gives up the remainder of its virtual
+		// millisecond because it has reached an idle point and has no work to
+		// do. It will still be iterated over for each remaining millisecond in
+		// its timeslice in case the timer interrupt needs to be handled (which
+		// would un-halt it) or an IPI is received from another CPU.
+		//
+		// If it executes many PAUSE instructions, it does not give up the
+		// remainder of its virtual millisecond; the remaining cycles are
+		// credited to it for the next iteration. This is because it does have
+		// work to do, it's just spin-waiting for another CPU to do something
+		// (i.e. unlock a spinlock, acknowledge an IPI, etc...) before it can
+		// proceed. We skip to the next CPU early, in the hopes that happens
+		// and it can be freed from its spin-wait by the time the next iteration
+		// rolls around.
+
+		for (int done = 0; done < XrProcessorCount; procid = (procid + 1) % XrProcessorCount) {
 			XrProcessor *proc = CpuTable[procid];
 
-			// Trylock the processor's run lock.
+			// Trylock the CPU's run lock.
 
 			if (SDL_TryLockMutex(proc->RunLock) == SDL_MUTEX_TIMEDOUT) {
-				// Failed to lock it.
+				// Failed to lock it. This means another thread is executing
+				// this CPU. Don't increment the done count because there's
+				// an invariant that thread count <= cpu count, so we're
+				// guaranteed to be able to grab one eventually if we just keep
+				// looping.
 
-				procid = (procid + 1) % XrProcessorCount;
 				continue;
 			}
-
-			if (proc->Timeslice == 0) {
-				// Timeslice already up.
-
-				SDL_UnlockMutex(proc->RunLock);
-
-				failures += 1;
-				procid = (procid + 1) % XrProcessorCount;
-				continue;
-			}
-
-			failures = 0;
 
 			while (proc->Timeslice != 0) {
 				if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
@@ -142,11 +162,13 @@ int CpuLoop(void *context) {
 						}
 					}
 
-					procid = (procid + 1) % XrProcessorCount;
 					proc->PauseCalls = 0;
-
 					break;
 				}
+			}
+
+			if (proc->Timeslice == 0) {
+				done++;
 			}
 
 			SDL_UnlockMutex(proc->RunLock);

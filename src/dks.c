@@ -92,7 +92,7 @@ void DKSCompleteTransfer(DKSDisk *disk) {
 	// Complete the transfer.
 
 	if (DKSPrint) {
-		printf("dks%d: %s %d @ %08x\n", disk->ID, disk->IoType == DKS_READ ? "read" : "write", disk->TransferSector, disk->TransferAddress);
+		printf("dks%d: %s %d (%d sectors) @ %08x\n", disk->ID, disk->IoType == DKS_READ ? "read" : "write", disk->TransferSector, disk->TransferCount, disk->TransferAddress);
 	}
 
 	// Unlock the IO mutex across the file system calls,
