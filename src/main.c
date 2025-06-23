@@ -60,6 +60,11 @@ void MainLoop(void);
 int CpuLoop(void *context) {
 	uintptr_t id = (uintptr_t)context;
 
+	// Set my own thread to LOW priority so that the UI thread (which has NORMAL
+	// priority) gets precedence.
+
+	SDL_SetThreadPriority(SDL_THREAD_PRIORITY_LOW);
+
 	// Execute CPU time from each CPU in sequence, until all timeslices have run
 	// down.
 
@@ -471,9 +476,25 @@ int main(int argc, char *argv[]) {
 		for (int i = 0; i < XrProcessorCount; i++) {
 			SDL_LockMutex(CpuTable[i]->RunLock);
 
-			CpuTable[i]->Timeslice = CPUSTEPMS;
+			CpuTable[i]->Timeslice += CPUSTEPMS;
 			CpuTable[i]->Progress = XR_POLL_MAX;
 			CpuTable[i]->PauseCalls = 0;
+
+			if (CpuTable[i]->Timeslice >= CPUSTEPMS * 50) {
+				// The CPU has too much pending time. The threads are running
+				// behind; they can't keep up with the simulated workload. Reset
+				// the timeslice to avoid the threads running infinitely and
+				// burning someone's lap.
+
+#if 0
+				if (print_warning) {
+					print_warning = 0;
+					printf("The CPU threads are running very far behind. Decrease cpuhz and/or increase threads.\n");
+				}
+#endif
+
+				CpuTable[i]->Timeslice = CPUSTEPMS;
+			}
 
 			SDL_UnlockMutex(CpuTable[i]->RunLock);
 		}
