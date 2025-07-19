@@ -30,7 +30,8 @@ uint8_t XrScacheExclusiveIds[XR_SC_LINE_COUNT];
 #endif
 
 static inline uint32_t RoR(uint32_t x, uint32_t n) {
-    return (x >> n & 31) | (x << (32-n) & 31);
+	n &= 31;
+	return (x >> n) | (x << (32-n));
 }
 
 #define NMI_MASK_CYCLES 64
