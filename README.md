@@ -12,7 +12,7 @@ Note, if you fear binary blobs, that the emulator ships with a pre-built [boot R
 
 ## Running
 
-Make sure you have SDL2 installed.
+Make sure you have `SDL2` installed.
 
 Building the emulator should be as simple as typing `make`.
 
