@@ -1,3 +1,8 @@
+#ifndef XR_AMTSU_H
+#define XR_AMTSU_H
+
+#include <stdint.h>
+
 struct AmtsuDevice;
 
 typedef int (*AmtsuActionF)(struct AmtsuDevice *dev, uint32_t value, void *proc);
@@ -28,3 +33,5 @@ void AmtsuReset();
 void AmtsuInit();
 
 extern struct AmtsuDevice AmtsuDevices[AMTSUDEVICES];
+
+#endif // XR_AMTSU_H

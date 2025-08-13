@@ -1,3 +1,7 @@
+#ifndef XR_EBUS_H
+#define XR_EBUS_H
+
+#include <stdint.h>
 #include <string.h>
 
 int EBusInit(uint32_t memsize);
@@ -110,3 +114,5 @@ static inline void CopyWithLengthZext(void *dest, void *src, uint32_t length) {
 void EBusReset();
 
 #define EBUSSLOTSTART 24
+
+#endif // XR_EBUS_H

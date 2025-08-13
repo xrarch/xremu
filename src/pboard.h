@@ -1,3 +1,9 @@
+#ifndef XR_PBOARD_H
+#define XR_PBOARD_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
 int PBoardInit();
 
 #define PBOARDREGISTERS 32
@@ -44,3 +50,4 @@ bool ROMLoadFile(char *romname);
 
 bool NVRAMLoadFile(char *nvramname);
 
+#endif // XR_PBOARD_H

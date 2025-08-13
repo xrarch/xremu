@@ -1,6 +1,5 @@
-#ifndef _SCREENH_
-
-#define _SCREENH_
+#ifndef XR_SCREEN_H
+#define XR_SCREEN_H
 
 #include <SDL.h>
 
@@ -53,4 +52,4 @@ struct Screen *ScreenCreate(int w, int h, char *title,
 							ScreenMouseReleasedF mousereleased,
 							ScreenMouseMovedF mousemoved);
 
-#endif
+#endif // XR_SCREEN_H

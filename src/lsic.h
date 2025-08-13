@@ -1,3 +1,8 @@
+#ifndef XR_LSIC_H
+#define XR_LSIC_H
+
+#include <stdint.h>
+
 #define LSIC_MASK_0 0
 #define LSIC_MASK_1 1
 #define LSIC_PENDING_0 2
@@ -22,3 +27,5 @@ extern void LsicReset();
 extern void LsicInterrupt(int intsrc);
 extern void LsicEnable(int id);
 extern void LsicInterruptTargeted(void *proc, int intsrc);
+
+#endif // XR_LSIC
