@@ -190,7 +190,7 @@ void CpuInitialize(int id) {
 	XrProcessor *proc = malloc(sizeof(XrProcessor));
 
 	if (!proc) {
-		fprintf(stderr, "failed to allocate cpu %d", id);
+		fprintf(stderr, "failed to allocate cpu %d\n", id);
 		exit(1);
 	}
 
@@ -199,6 +199,30 @@ void CpuInitialize(int id) {
 	proc->TimerInterruptCounter = 0;
 	proc->PauseReward = 0;
 	proc->Timeslice = 0;
+
+	proc->IblockFreeList = 0;
+
+	InitializeList(&proc->IblockLruList);
+
+	for (int i = 0; i < XR_IBLOCK_HASH_BUCKETS; i++) {
+		InitializeList(&proc->IblockHashBuckets[i]);
+	}
+
+	printf("%lu\n", sizeof(XrIblock) * XR_IBLOCK_COUNT);
+
+	XrIblock *iblocks = malloc(sizeof(XrIblock) * XR_IBLOCK_COUNT);
+
+	if (!iblocks) {
+		fprintf(stderr, "failed to allocate iblocks for cpu %d\n", id);
+		exit(1);
+	}
+
+	for (int i = 0; i < XR_IBLOCK_COUNT; i++) {
+		iblocks->HashEntry.Next = (void *)proc->IblockFreeList;
+		proc->IblockFreeList = iblocks;
+
+		iblocks++;
+	}
 
 	XrReset(proc);
 

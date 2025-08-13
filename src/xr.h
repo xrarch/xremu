@@ -1,4 +1,5 @@
 #include <SDL.h>
+#include "queue.h"
 
 // Configurable stall parameters.
 
@@ -104,7 +105,43 @@
 #define XR_WB_INDEX_INVALID 255
 #define XR_CACHE_INDEX_INVALID 0xFFFFFFFF
 
-typedef struct _XrProcessor {
+// XR_IBLOCK_INSTS should be defined as a multiple of the Icache line size,
+// because the instruction decode logic fetches lines at a time.
+
+#define XR_IBLOCK_INSTS_LOG 2
+#define XR_IBLOCK_HASH_BUCKETS 256
+#define XR_IBLOCK_COUNT 2048
+#define XR_IBLOCK_RECLAIM 32
+
+// Don't modify this XR_IBLOCK_INSTS, modify XR_IBLOCK_INSTS_LOG.
+
+#define XR_IBLOCK_INSTS ((XR_IC_LINE_SIZE >> 2) << XR_IBLOCK_INSTS_LOG)
+
+#define XR_IBLOCK_HASH(pc) ((pc >> 2) & (XR_IBLOCK_HASH_BUCKETS - 1))
+
+typedef struct _XrProcessor XrProcessor;
+typedef struct _XrIblock XrIblock;
+typedef struct _XrCachedInst XrCachedInst;
+typedef struct _XrIblockLinkage XrIblockLinkage;
+
+typedef void (*XrInstImplF)(XrProcessor *proc, XrIblock *block, XrCachedInst *inst);
+
+struct _XrCachedInst {
+	XrInstImplF Func;
+};
+
+struct _XrIblock {
+	ListEntry HashEntry;
+	ListEntry LruEntry;
+
+	XrIblock *TruePath;
+	XrIblock *FalsePath;
+	uint32_t Pc;
+
+	XrCachedInst Insts[XR_IBLOCK_INSTS];
+};
+
+struct _XrProcessor {
 	uint64_t Itb[XR_ITB_SIZE];
 	uint64_t Dtb[XR_DTB_SIZE];
 
@@ -115,6 +152,11 @@ typedef struct _XrProcessor {
 	void *LoopSemaphore;
 	void *InterruptLock;
 	void *RunLock;
+
+	XrIblock *IblockFreeList;
+
+	ListEntry IblockLruList;
+	ListEntry IblockHashBuckets[XR_IBLOCK_HASH_BUCKETS];
 
 	uint32_t IcTags[XR_IC_LINE_COUNT];
 	uint32_t DcTags[XR_DC_LINE_COUNT];
@@ -172,7 +214,7 @@ typedef struct _XrProcessor {
 	uint8_t UserBreak;
 	uint8_t Halted;
 	uint8_t Running;
-} XrProcessor;
+};
 
 extern uint8_t XrSimulateCaches;
 extern uint8_t XrSimulateCacheStalls;

@@ -1,5 +1,5 @@
 ifndef EMSCRIPTEN
-	CFLAGS = -g -Ofast
+	CFLAGS = -g -O3
 	SDL2_CONFIG = sdl2-config
 	RISC_CFLAGS = $(CFLAGS) -std=c99 `$(SDL2_CONFIG) --cflags --libs`
 	TARGET=xremu
@@ -19,6 +19,7 @@ ifdef DBG
 endif
 
 CFILES = src/main.c \
+	src/xr17032mp.c src/xr.h \
 	src/ebus.c src/ebus.h \
 	src/ram256.c src/ram256.h \
 	src/lsic.c src/lsic.h \
@@ -33,7 +34,6 @@ CFILES = src/main.c \
 	src/screen.c src/screen.h \
 	src/text.c src/text.h \
 	src/tty.c src/tty.h \
-	src/xr17032mp.c src/xr.h \
 	src/dbg.c
 
 $(TARGET): $(CFILES)
