@@ -89,9 +89,6 @@ static inline uint32_t RoR(uint32_t x, uint32_t n) {
 #define DCACHECTRL 28
 #define DTBADDR 29
 
-#define NONCACHED 0
-#define CACHED 1
-
 #define XrReadByte(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 1, 0);
 #define XrReadInt(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 2, 0);
 #define XrReadLong(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 4, 0);
@@ -210,7 +207,7 @@ static inline XrIblock *XrAllocateIblock(XrProcessor *proc) {
 	return iblock;
 }
 
-static inline XrIblock *XrLookupIblock(XrProcessor *proc, uint32_t pc, uint32_t asid, int move) {
+static inline XrIblock *XrLookupIblock(XrProcessor *proc, uint32_t pc, uint32_t asid) {
 	// Look up a cached Iblock starting at the given program counter.
 
 	uint32_t hash = XR_IBLOCK_HASH(pc);
@@ -223,17 +220,15 @@ static inline XrIblock *XrLookupIblock(XrProcessor *proc, uint32_t pc, uint32_t 
 		if (iblock->Pc == pc && iblock->Asid == asid) {
 			// Found it.
 
-			if (move) {
-				// Move the Iblock to the front of the hash bucket for faster
-				// lookup later.
+			// Move the Iblock to the front of the hash bucket for faster
+			// lookup later.
 
-				// Note the if (move) conditional should get optimized out
-				// when this routine is inlined.
+			// Note the if (move) conditional should get optimized out
+			// when this routine is inlined.
 
-				RemoveEntryList(listentry);
+			RemoveEntryList(listentry);
 
-				InsertAtHeadList(&proc->IblockHashBuckets[hash], listentry);
-			}
+			InsertAtHeadList(&proc->IblockHashBuckets[hash], listentry);
 
 			return iblock;
 		}
@@ -435,7 +430,7 @@ static inline uint8_t XrLookupDtb(XrProcessor *proc, uint32_t virtual, uint64_t 
 	return 0;
 }
 
-static inline int XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t *phys, int *cachetype, bool writing, bool ifetch) {
+static inline int XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t *phys, int *flags, bool writing, bool ifetch) {
 	uint64_t tbe;
 	uint32_t vpn = virtual >> 12;
 
@@ -507,7 +502,7 @@ static inline int XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t *phy
 		proc->DtbLastResult = tbe;
 	}
 
-	*cachetype = (tbe & PTE_NONCACHED) ? NONCACHED : CACHED;
+	*flags = tbe & 31;
 	*phys = ((tbe & 0x1FFFFE0) << 7) + (virtual & 0xFFF);
 
 	//DBGPRINT("virt=%x phys=%x\n", virt, *phys);
@@ -1192,21 +1187,21 @@ static inline int XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, 
 		return 0;
 	}
 
-	int cachetype = CACHED;
+	int flags = 0;
 
 	if (proc->Cr[RS] & RS_MMU) {
-		if (!XrTranslate(proc, address, &address, &cachetype, dest ? 0 : 1, 0)) {
+		if (!XrTranslate(proc, address, &address, &flags, dest ? 0 : 1, 0)) {
 			return 0;
 		}
 	} else if (address >= XR_NONCACHED_PHYS_BASE) {
-		cachetype = NONCACHED;
+		flags |= PTE_NONCACHED;
 	}
 
 	if (!XR_SIMULATE_CACHES) {
-		cachetype = NONCACHED;
+		flags |= PTE_NONCACHED;
 	}
 
-	if (cachetype == NONCACHED) {
+	if (flags & PTE_NONCACHED) {
 		if (forceexclusive && XR_SIMULATE_CACHES) {
 			// Attempt to use LL/SC on noncached memory. Nonsense! Just kill the
 			// evildoer with a bus error.
@@ -1673,6 +1668,14 @@ static XrIblock *XrExecuteRfe(XrProcessor *proc, XrIblock *block, XrCachedInst *
 
 	uint32_t oldrs = proc->Cr[RS];
 
+	if (oldrs & RS_USER) {
+		// Ope, privilege violation.
+
+		XrBasicException(proc, XR_EXC_PRV, proc->Pc);
+
+		return 0;
+	}
+
 	if (proc->Cr[RS] & RS_TBMISS) {
 		proc->Pc = proc->Cr[TBPC];
 	} else {
@@ -1692,6 +1695,14 @@ static XrIblock *XrExecuteRfe(XrProcessor *proc, XrIblock *block, XrCachedInst *
 static XrIblock *XrExecuteHlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 31\n");
 
+	if (proc->Cr[RS] & RS_USER) {
+		// Ope, privilege violation.
+
+		XrBasicException(proc, XR_EXC_PRV, proc->Pc);
+
+		return 0;
+	}
+
 	proc->Halted = true;
 
 	proc->Pc += 4;
@@ -1701,6 +1712,14 @@ static XrIblock *XrExecuteHlt(XrProcessor *proc, XrIblock *block, XrCachedInst *
 
 static XrIblock *XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 32\n");
+
+	if (proc->Cr[RS] & RS_USER) {
+		// Ope, privilege violation.
+
+		XrBasicException(proc, XR_EXC_PRV, proc->Pc);
+
+		return 0;
+	}
 
 	// Reset the NMI mask counter.
 
@@ -1950,6 +1969,14 @@ static XrIblock *XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst 
 
 static XrIblock *XrExecuteMfcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 33\n");
+
+	if (proc->Cr[RS] & RS_USER) {
+		// Ope, privilege violation.
+
+		XrBasicException(proc, XR_EXC_PRV, proc->Pc);
+
+		return 0;
+	}
 
 	// Reset the NMI mask counter.
 
@@ -3382,12 +3409,17 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 		asid = 0xFFFFFFFF;
 	}
 
-	XrIblock *iblock = XrLookupIblock(proc, pc, asid, 1);
+	XrIblock *iblock = XrLookupIblock(proc, pc, asid);
 
 	if (XrLikely(iblock != 0)) {
 		// Already cached.
 
-		DBGPRINT("cached as %p\n", iblock);
+		if (XrUnlikely((iblock->PteFlags & PTE_KERNEL) && (proc->Cr[RS] & RS_USER))) {
+			proc->Cr[EBADADDR] = pc;
+			XrBasicException(proc, XR_EXC_PGF, proc->Pc);
+
+			return 0;
+		}
 
 		return iblock;
 	}
@@ -3420,23 +3452,23 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 
 	// Translate the program counter.
 
-	int cachetype = CACHED;
+	int flags = 0;
 
 	if (XrLikely(proc->Cr[RS] & RS_MMU)) {
-		if (!XrTranslate(proc, fetchpc, &fetchpc, &cachetype, 0, 1)) {
+		if (!XrTranslate(proc, fetchpc, &fetchpc, &flags, 0, 1)) {
 			return 0;
 		}
 	} else if (XrUnlikely(fetchpc >= XR_NONCACHED_PHYS_BASE)) {
-		cachetype = NONCACHED;
+		flags |= PTE_NONCACHED;
 	}
 
 	if (!XR_SIMULATE_CACHES) {
-		cachetype = NONCACHED;
+		flags |= PTE_NONCACHED;
 	}
 
 	// Fetch instructions one line at a time.
 
-	if (XrUnlikely(cachetype == NONCACHED)) {
+	if (XrUnlikely(flags & PTE_NONCACHED)) {
 		for (int offset = 0;
 			offset < instcount;
 			offset += XR_IC_INST_PER_LINE, fetchpc += XR_IC_LINE_SIZE) {
@@ -3470,6 +3502,7 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 	iblock->TruePath = 0;
 	iblock->FalsePath = 0;
 	iblock->CachedByFifoIndex = 0;
+	iblock->PteFlags = flags;
 
 	for (int i = 0; i < XR_IBLOCK_CACHEDBY_MAX; i++) {
 		iblock->CachedBy[i] = 0;

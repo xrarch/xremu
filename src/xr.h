@@ -155,10 +155,11 @@ struct _XrIblock {
 
 	XrIblock **CachedBy[XR_IBLOCK_CACHEDBY_MAX];
 
-	uint32_t CachedByFifoIndex;
 	uint32_t Asid;
 	uint32_t Pc;
-	uint32_t Cycles;
+	uint8_t Cycles;
+	uint8_t CachedByFifoIndex;
+	uint8_t PteFlags;
 
 	XrCachedInst Insts[XR_IBLOCK_INSTS + 1];
 };
