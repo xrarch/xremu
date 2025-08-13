@@ -19,7 +19,7 @@ ifdef DBG
 endif
 
 CFILES = src/main.c \
-	src/xr17032mp.c src/xr.h \
+	src/xr17032fast.c src/xr.h \
 	src/ebus.c src/ebus.h \
 	src/ram256.c src/ram256.h \
 	src/lsic.c src/lsic.h \

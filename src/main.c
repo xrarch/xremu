@@ -149,7 +149,7 @@ int CpuLoop(void *context) {
 					RTCUpdateRealTime();
 				}
 
-				int realcycles = XrExecute(proc, cyclesperms + proc->PauseReward, 1);
+				int realcycles = XrExecuteFast(proc, cyclesperms + proc->PauseReward, 1);
 
 				if (realcycles > cyclesperms) {
 					// Used some of the reward cycles, decrement them.
@@ -213,8 +213,6 @@ void CpuInitialize(int id) {
 	for (int i = 0; i < XR_IBLOCK_HASH_BUCKETS; i++) {
 		InitializeList(&proc->IblockHashBuckets[i]);
 	}
-
-	printf("%lu\n", sizeof(XrIblock) * XR_IBLOCK_COUNT);
 
 	XrIblock *iblocks = malloc(sizeof(XrIblock) * XR_IBLOCK_COUNT);
 

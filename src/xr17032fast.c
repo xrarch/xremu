@@ -10,8 +10,6 @@
 #include "lsic.h"
 #include "ebus.h"
 
-uint8_t XrSimulateCaches = 1;
-uint8_t XrSimulateCacheStalls = 0;
 uint8_t XrPrintCache = 0;
 
 uint32_t XrScacheTags[XR_SC_LINE_COUNT];
@@ -102,6 +100,25 @@ static inline uint32_t RoR(uint32_t x, uint32_t n) {
 #define XrWriteInt(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 2, 0);
 #define XrWriteLong(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 4, 0);
 
+static inline void XrInvalidateIblockPointers(XrIblock *iblock) {
+	for (int i = 0; i < XR_IBLOCK_CACHEDBY_MAX; i++) {
+		if (iblock->CachedBy[i]) {
+			*iblock->CachedBy[i] = 0;
+		}
+	}
+}
+
+static inline void XrCreateCachedPointerToBlock(XrIblock *iblock, XrIblock **ptr) {
+	int index = (iblock->CachedByFifoIndex++) & (XR_IBLOCK_CACHEDBY_MAX - 1);
+
+	if (iblock->CachedBy[index]) {
+		*iblock->CachedBy[index] = 0;
+	}
+
+	*ptr = iblock;
+	iblock->CachedBy[index] = ptr;
+}
+
 static inline void XrDeactivateIblock(XrIblock *iblock) {
 	// Remove from the LRU list.
 
@@ -138,6 +155,10 @@ static void XrPopulateIblockList(XrProcessor *proc) {
 	for (int i = 0; i < XR_IBLOCK_RECLAIM; i++) {
 		XrIblock *iblock = ContainerOf(listentry, XrIblock, LruEntry);
 
+		// Invalidate the pointers to this Iblock.
+
+		XrInvalidateIblockPointers(iblock);
+
 		// Free the Iblock. Note that this doesn't modify the LRU list links so
 		// we don't need to stash them.
 
@@ -156,6 +177,9 @@ static void XrInvalidateIblockCache(XrProcessor *proc) {
 
 	while (listentry != &proc->IblockLruList) {
 		XrIblock *iblock = ContainerOf(listentry, XrIblock, LruEntry);
+
+		// No need to invalidate the Iblock's pointers. We're destroying all
+		// active Iblocks.
 
 		// Free the Iblock. Note that this doesn't modify the LRU list links so
 		// we don't need to stash them.
@@ -186,7 +210,7 @@ static inline XrIblock *XrAllocateIblock(XrProcessor *proc) {
 	return iblock;
 }
 
-static inline XrIblock *XrLookupIblock(XrProcessor *proc, uint32_t pc, int move) {
+static inline XrIblock *XrLookupIblock(XrProcessor *proc, uint32_t pc, uint32_t asid, int move) {
 	// Look up a cached Iblock starting at the given program counter.
 
 	uint32_t hash = XR_IBLOCK_HASH(pc);
@@ -196,7 +220,7 @@ static inline XrIblock *XrLookupIblock(XrProcessor *proc, uint32_t pc, int move)
 	while (listentry != &proc->IblockHashBuckets[hash]) {
 		XrIblock *iblock = ContainerOf(listentry, XrIblock, HashEntry);
 
-		if (iblock->Pc == pc) {
+		if (iblock->Pc == pc && iblock->Asid == asid) {
 			// Found it.
 
 			if (move) {
@@ -270,7 +294,6 @@ void XrReset(XrProcessor *proc) {
 
 	proc->NmiMaskCounter = NMI_MASK_CYCLES;
 	proc->LastTbMissWasWrite = 0;
-	proc->IFetch = 0;
 	proc->UserBreak = 0;
 	proc->Halted = 0;
 	proc->Running = 1;
@@ -334,20 +357,10 @@ static inline void XrVectorException(XrProcessor *proc, uint32_t exc) {
 	proc->Progress = XR_POLL_MAX;
 }
 
-static inline void XrBasicException(XrProcessor *proc, uint32_t exc) {
+static inline void XrBasicException(XrProcessor *proc, uint32_t exc, uint32_t pc) {
 	// "Basic" exceptions that behave the same way every time.
 
-	proc->Cr[EPC] = proc->Pc - 4;
-
-	XrPushMode(proc);
-	XrSetEcause(proc, exc);
-	XrVectorException(proc, exc);
-}
-
-static inline void XrBasicInbetweenException(XrProcessor *proc, uint32_t exc) {
-	// "Basic" exceptions that behave the same way every time.
-
-	proc->Cr[EPC] = proc->Pc;
+	proc->Cr[EPC] = pc;
 
 	XrPushMode(proc);
 	XrSetEcause(proc, exc);
@@ -379,7 +392,7 @@ static inline uint8_t XrLookupItb(XrProcessor *proc, uint32_t virtual, uint64_t 
 	if ((proc->Cr[RS] & RS_TBMISS) == 0) {
 		XrPushMode(proc);
 		proc->Cr[TBMISSADDR] = virtual;
-		proc->Cr[TBPC] = proc->Pc - 4;
+		proc->Cr[TBPC] = proc->Pc;
 		proc->Cr[RS] |= RS_TBMISS;
 	}
 
@@ -413,7 +426,7 @@ static inline uint8_t XrLookupDtb(XrProcessor *proc, uint32_t virtual, uint64_t 
 	if ((proc->Cr[RS] & RS_TBMISS) == 0) {
 		XrPushMode(proc);
 		proc->Cr[TBMISSADDR] = virtual;
-		proc->Cr[TBPC] = proc->Pc - 4;
+		proc->Cr[TBPC] = proc->Pc;
 		proc->Cr[RS] |= RS_TBMISS;
 	}
 
@@ -422,11 +435,11 @@ static inline uint8_t XrLookupDtb(XrProcessor *proc, uint32_t virtual, uint64_t 
 	return 0;
 }
 
-static inline uint8_t XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t *phys, int *cachetype, bool writing) {
+static inline int XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t *phys, int *cachetype, bool writing, bool ifetch) {
 	uint64_t tbe;
 	uint32_t vpn = virtual >> 12;
 
-	if (proc->IFetch) {
+	if (ifetch) {
 		if (proc->ItbLastVpn == vpn) {
 			// This matches the last lookup, avoid searching the whole ITB.
 
@@ -460,7 +473,7 @@ static inline uint8_t XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t 
 			writing = proc->LastTbMissWasWrite;
 		} else {
 			proc->Cr[EBADADDR] = virtual;
-			proc->Cr[EPC] = proc->Pc - 4;
+			proc->Cr[EPC] = proc->Pc;
 			XrPushMode(proc);
 		}
 
@@ -474,19 +487,19 @@ static inline uint8_t XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t 
 		// Kernel mode page and we're in usermode! 
 
 		proc->Cr[EBADADDR] = virtual;
-		XrBasicException(proc, writing ? XR_EXC_PGW : XR_EXC_PGF);
+		XrBasicException(proc, writing ? XR_EXC_PGW : XR_EXC_PGF, proc->Pc);
 
 		return 0;
 	}
 
 	if (writing && !(tbe & PTE_WRITABLE)) {
 		proc->Cr[EBADADDR] = virtual;
-		XrBasicException(proc, writing ? XR_EXC_PGW : XR_EXC_PGF);
+		XrBasicException(proc, writing ? XR_EXC_PGW : XR_EXC_PGF, proc->Pc);
 
 		return 0;
 	}
 
-	if (proc->IFetch) {
+	if (ifetch) {
 		proc->ItbLastVpn = vpn;
 		proc->ItbLastResult = tbe;
 	} else {
@@ -497,7 +510,7 @@ static inline uint8_t XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t 
 	*cachetype = (tbe & PTE_NONCACHED) ? NONCACHED : CACHED;
 	*phys = ((tbe & 0x1FFFFE0) << 7) + (virtual & 0xFFF);
 
-	//printf("virt=%x phys=%x\n", virt, *phys);
+	//DBGPRINT("virt=%x phys=%x\n", virt, *phys);
 
 	return 1;
 }
@@ -510,7 +523,7 @@ static uint32_t XrAccessMasks[5] = {
 	0xFFFFFFFF
 };
 
-static inline uint8_t XrNoncachedAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length) {
+static inline int XrNoncachedAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length) {
 	proc->StallCycles += XR_UNCACHED_STALL;
 
 	int result;
@@ -523,19 +536,15 @@ static inline uint8_t XrNoncachedAccess(XrProcessor *proc, uint32_t address, uin
 
 	if (result == EBUSERROR) {
 		proc->Cr[EBADADDR] = address;
-		XrBasicException(proc, XR_EXC_BUS);
+		XrBasicException(proc, XR_EXC_BUS, proc->Pc);
 
 		return 0;
-	}
-
-	if (dest) {
-		*dest &= XrAccessMasks[length];
 	}
 
 	return 1;
 }
 
-static inline uint8_t XrIcacheAccess(XrProcessor *proc, uint32_t address, uint32_t *dest) {
+static inline int XrIcacheAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t length) {
 	// Access Icache. Quite fast, don't need to take any locks or anything
 	// as there is no coherence, plus its always a 32-bit read, so we
 	// duplicate some logic here as a fast path.
@@ -550,7 +559,7 @@ static inline uint8_t XrIcacheAccess(XrProcessor *proc, uint32_t address, uint32
 		proc->IcHitCount++;
 #endif
 
-		*dest = *(uint32_t*)(&proc->Ic[proc->IcLastOffset + lineoffset]);
+		CopyWithLength(dest, &proc->Ic[proc->IcLastOffset + lineoffset], length);
 
 		return 1;
 	}
@@ -568,7 +577,7 @@ static inline uint8_t XrIcacheAccess(XrProcessor *proc, uint32_t address, uint32
 
 			uint32_t cacheoff = (cacheindex + i) << XR_IC_LINE_SIZE_LOG;
 
-			*dest = *(uint32_t*)(&proc->Ic[cacheoff + lineoffset]);
+			CopyWithLength(dest, &proc->Ic[cacheoff + lineoffset], length);
 
 			proc->IcLastTag = tag;
 			proc->IcLastOffset = cacheoff;
@@ -598,7 +607,7 @@ static inline uint8_t XrIcacheAccess(XrProcessor *proc, uint32_t address, uint32
 		proc->IcFlags[newindex] = XR_LINE_INVALID;
 
 		proc->Cr[EBADADDR] = address;
-		XrBasicException(proc, XR_EXC_BUS);
+		XrBasicException(proc, XR_EXC_BUS, proc->Pc);
 
 		return 0;
 	}
@@ -609,7 +618,7 @@ static inline uint8_t XrIcacheAccess(XrProcessor *proc, uint32_t address, uint32
 	proc->IcLastTag = tag;
 	proc->IcLastOffset = cacheoff;
 
-	*dest = *(uint32_t*)(&proc->Ic[cacheoff + lineoffset]);
+	CopyWithLength(dest, &proc->Ic[cacheoff + lineoffset], length);
 
 	return 1;
 }
@@ -803,7 +812,7 @@ static inline uint32_t XrFindOrReplaceInScache(XrProcessor *thisproc, uint32_t t
 	return cacheindex;
 }
 
-static inline uint8_t XrDcacheAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, uint8_t forceexclusive) {
+static int XrDcacheAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, int forceexclusive) {
 	// Access Dcache. Scary! We have to worry about coherency with the other
 	// Dcaches in the system, and this can be a 1, 2, or 4 byte access.
 	// If dest == 0, this is a write. Otherwise it's a read.
@@ -1136,7 +1145,7 @@ restart:
 		DBGPRINT("bus error on %x\n", tag);
 
 		proc->Cr[EBADADDR] = address;
-		XrBasicException(proc, XR_EXC_BUS);
+		XrBasicException(proc, XR_EXC_BUS, proc->Pc);
 
 		return 0;
 	}
@@ -1173,12 +1182,12 @@ restart:
 	return 1;
 }
 
-static uint8_t XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, uint8_t forceexclusive) {
+static inline int XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, int forceexclusive) {
 	if (address & (length - 1)) {
 		// Unaligned access.
 
 		proc->Cr[EBADADDR] = address;
-		XrBasicException(proc, XR_EXC_UNA);
+		XrBasicException(proc, XR_EXC_UNA, proc->Pc);
 
 		return 0;
 	}
@@ -1186,33 +1195,39 @@ static uint8_t XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uin
 	int cachetype = CACHED;
 
 	if (proc->Cr[RS] & RS_MMU) {
-		if (!XrTranslate(proc, address, &address, &cachetype, dest ? 0 : 1)) {
+		if (!XrTranslate(proc, address, &address, &cachetype, dest ? 0 : 1, 0)) {
 			return 0;
 		}
 	} else if (address >= XR_NONCACHED_PHYS_BASE) {
 		cachetype = NONCACHED;
 	}
 
-	if (!XrSimulateCaches) {
+	if (!XR_SIMULATE_CACHES) {
 		cachetype = NONCACHED;
 	}
 
 	if (cachetype == NONCACHED) {
-		if (forceexclusive && XrSimulateCaches) {
+		if (forceexclusive && XR_SIMULATE_CACHES) {
 			// Attempt to use LL/SC on noncached memory. Nonsense! Just kill the
 			// evildoer with a bus error.
 
 			proc->Cr[EBADADDR] = address;
-			XrBasicException(proc, XR_EXC_BUS);
+			XrBasicException(proc, XR_EXC_BUS, proc->Pc);
 
 			return 0;
 		}
 
-		return XrNoncachedAccess(proc, address, dest, srcvalue, length);
-	}
+		int status = XrNoncachedAccess(proc, address, dest, srcvalue, length);
 
-	if (proc->IFetch) {
-		return XrIcacheAccess(proc, address, dest);
+		if (!status) {
+			return 0;
+		}
+
+		if (dest) {
+			*dest &= XrAccessMasks[length];
+		}
+
+		return 1;
 	}
 
 	return XrDcacheAccess(proc, address, dest, srcvalue, length, forceexclusive);
@@ -1274,374 +1289,389 @@ static inline void XrWriteWbEntry(XrProcessor *proc) {
 	}
 }
 
-static inline uint32_t XrComputeValue(uint32_t val, uint32_t ir) {
-	// Compute a value based on the inline shift expressed in the instruction.
+static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc);
 
-	uint32_t shifttype = (ir >> 26) & 3;
-	uint32_t shift = (ir >> 21) & 31;
+#define XR_NEXT_NO_PC() inst++; XR_TAIL return inst->Func(proc, block, inst);
+#define XR_NEXT() proc->Pc += 4; XR_NEXT_NO_PC();
 
-	switch(shifttype) {
-		case 0: // LSH
-			return val << shift;
+#define XR_REG_RD() proc->Reg[inst->Imm8_1]
+#define XR_REG_RA() proc->Reg[inst->Imm8_2]
+#define XR_REG_RB() proc->Reg[inst->Imm32_1]
+#define XR_INST_SHAMT() inst->Imm8_3
+#define XR_SHIFTED_VAL() inst->ShiftFunc(XR_REG_RB(), XR_INST_SHAMT())
+#define XR_MAINTAIN_ZERO() if ((proc->Cr[RS] & RS_TBMISS) == 0) proc->Reg[0] = 0;
 
-		case 1: // RSH
-			return val >> shift;
+static XrIblock *XrExecuteIllegalInstruction(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 1\n");
 
-		case 2: // ASH
-			return (int32_t) val >> shift;
+	XrBasicException(proc, XR_EXC_INV, proc->Pc);
 
-		case 3: // ROR
-			return RoR(val, shift);
+	return 0;
+}
+
+static XrIblock *XrExecuteNor(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 2\n");
+
+	XR_REG_RD() = ~(XR_REG_RA() | XR_SHIFTED_VAL());
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
+}
+
+static XrIblock *XrExecuteOr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 3\n");
+
+	XR_REG_RD() = XR_REG_RA() | XR_SHIFTED_VAL();
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
+}
+
+static XrIblock *XrExecuteXor(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 4\n");
+
+	XR_REG_RD() = XR_REG_RA() ^ XR_SHIFTED_VAL();
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
+}
+
+static XrIblock *XrExecuteAnd(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 5\n");
+
+	XR_REG_RD() = XR_REG_RA() & XR_SHIFTED_VAL();
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
+}
+
+static XrIblock *XrExecuteSltSigned(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 6\n");
+
+	if ((int32_t) XR_REG_RA() < (int32_t) XR_SHIFTED_VAL()) {
+		XR_REG_RD() = 1;
+	} else {
+		XR_REG_RD() = 0;
 	}
 
-	return val;
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-typedef void (*XrInstructionF)(XrProcessor *proc, uint32_t currentpc, uint32_t ir);
+static XrIblock *XrExecuteSlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 7\n");
 
-static void XrIllegalInstruction(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	XrBasicException(proc, XR_EXC_INV);
-}
-
-static void XrNor(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
-	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
-
-	proc->Reg[rd] = ~(proc->Reg[ra] | val);
-}
-
-static void XrOr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
-	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
-
-	proc->Reg[rd] = proc->Reg[ra] | val;
-}
-
-static void XrXor(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
-	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
-
-	proc->Reg[rd] = proc->Reg[ra] ^ val;
-}
-
-static void XrAnd(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
-	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
-
-	proc->Reg[rd] = proc->Reg[ra] & val;
-}
-
-static void XrSltSigned(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
-	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
-
-	if ((int32_t) proc->Reg[ra] < (int32_t) val)
-		proc->Reg[rd] = 1;
-	else
-		proc->Reg[rd] = 0;
-}
-
-static void XrSlt(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
-	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
-
-	if (proc->Reg[ra] < val)
-		proc->Reg[rd] = 1;
-	else
-		proc->Reg[rd] = 0;
-}
-
-static void XrSub(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
-	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
-
-	proc->Reg[rd] = proc->Reg[ra] - val;
-}
-
-static void XrAdd(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
-	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
-
-	proc->Reg[rd] = proc->Reg[ra] + val;
-}
-
-static void XrRegShifts(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
-
-	uint32_t shifttype = (ir >> 26) & 3;
-
-	switch(shifttype) {
-		case 0: // LSH
-			if (proc->Reg[ra] >= 32) {
-				proc->Reg[rd] = 0;
-			} else {
-				proc->Reg[rd] = proc->Reg[rb] << proc->Reg[ra];
-			}
-
-			break;
-
-		case 1: // RSH
-			if (proc->Reg[ra] >= 32) {
-				proc->Reg[rd] = 0;
-			} else {
-				proc->Reg[rd] = proc->Reg[rb] >> proc->Reg[ra];
-			}
-
-			break;
-
-		case 2: // ASH
-			if (proc->Reg[ra] >= 32) {
-				if (proc->Reg[rb] & 0x80000000) {
-					proc->Reg[rd] = 0xFFFFFFFF;
-				} else {
-					proc->Reg[rd] = 0;
-				}
-			} else {
-				proc->Reg[rd] = (int32_t) proc->Reg[rb] >> proc->Reg[ra];
-			}
-
-			break;
-
-		case 3: // ROR
-			proc->Reg[rd] = RoR(proc->Reg[rb], proc->Reg[ra]);
-			break;
+	if (XR_REG_RA() < XR_SHIFTED_VAL()) {
+		XR_REG_RD() = 1;
+	} else {
+		XR_REG_RD() = 0;
 	}
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static void XrStoreLongRegOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
-	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+static XrIblock *XrExecuteSub(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 8\n");
 
-	XrWriteLong(proc, proc->Reg[ra] + val, proc->Reg[rd]);
+	XR_REG_RD() = XR_REG_RA() - XR_SHIFTED_VAL();
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static void XrStoreIntRegOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
-	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+static XrIblock *XrExecuteAdd(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 
-	XrWriteInt(proc, proc->Reg[ra] + val, proc->Reg[rd]);
+	DBGPRINT("exec 9\n");
+
+	XR_REG_RD() = XR_REG_RA() + XR_SHIFTED_VAL();
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static void XrStoreByteRegOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
-	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+static XrIblock *XrExecuteLsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 10\n");
 
-	XrWriteByte(proc, proc->Reg[ra] + val, proc->Reg[rd]);
+	XR_REG_RD() = XR_REG_RB() << XR_REG_RA();
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static void XrLoadLongRegOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
-	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+static XrIblock *XrExecuteRsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 11\n");
 
-	XrReadLong(proc, proc->Reg[ra] + val, &proc->Reg[rd]);
+	XR_REG_RD() = XR_REG_RB() >> XR_REG_RA();
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static void XrLoadIntRegOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
-	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+static XrIblock *XrExecuteAsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 12\n");
 
-	XrReadInt(proc, proc->Reg[ra] + val, &proc->Reg[rd]);
+	XR_REG_RD() = (int32_t) XR_REG_RB() >> XR_REG_RA();
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static void XrLoadByteRegOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
-	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+static XrIblock *XrExecuteRor(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 13\n");
 
-	XrReadByte(proc, proc->Reg[ra] + val, &proc->Reg[rd]);
+	XR_REG_RD() = RoR(XR_REG_RB(), XR_REG_RA());
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static XrInstructionF XrFunctions111001[16] = {
-	[0] = &XrNor,
-	[1] = &XrOr,
-	[2] = &XrXor,
-	[3] = &XrAnd,
-	[4] = &XrSltSigned,
-	[5] = &XrSlt,
-	[6] = &XrSub,
-	[7] = &XrAdd,
-	[8] = &XrRegShifts,
-	[9] = &XrStoreLongRegOffset,
-	[10] = &XrStoreIntRegOffset,
-	[11] = &XrStoreByteRegOffset,
-	[12] = &XrIllegalInstruction,
-	[13] = &XrLoadLongRegOffset,
-	[14] = &XrLoadIntRegOffset,
-	[15] = &XrLoadByteRegOffset,
-};
+static XrIblock *XrExecuteStoreLongRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 14\n");
 
-static void XrLookup111001(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	XrFunctions111001[ir >> 28](proc, currentpc, ir);
+	int status = XrWriteLong(proc, XR_REG_RA() + XR_SHIFTED_VAL(), XR_REG_RD());
+
+	if (!status) {
+		// An exception occurred, so perform an early exit from the basic block.
+
+		return 0;
+	}
+
+	XR_NEXT();
 }
 
-static void XrSys(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	XrBasicInbetweenException(proc, XR_EXC_SYS);
+static XrIblock *XrExecuteStoreIntRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 15\n");
+
+	int status = XrWriteInt(proc, XR_REG_RA() + XR_SHIFTED_VAL(), XR_REG_RD());
+
+	if (!status) {
+		// An exception occurred, so perform an early exit from the basic block.
+
+		return 0;
+	}
+
+	XR_NEXT();
 }
 
-static void XrBrk(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	XrBasicInbetweenException(proc, XR_EXC_BRK);
+static XrIblock *XrExecuteStoreByteRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 16\n");
+
+	int status = XrWriteByte(proc, XR_REG_RA() + XR_SHIFTED_VAL(), XR_REG_RD());
+
+	if (!status) {
+		// An exception occurred, so perform an early exit from the basic block.
+
+		return 0;
+	}
+
+	XR_NEXT();
 }
 
-static void XrWmb(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	if (XrSimulateCaches) {
+static XrIblock *XrExecuteLoadLongRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 17\n");
+
+	int status = XrReadLong(proc, XR_REG_RA() + XR_SHIFTED_VAL(), &XR_REG_RD());
+
+	if (!status) {
+		// An exception occurred, so perform an early exit from the basic block.
+
+		return 0;
+	}
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
+}
+
+static XrIblock *XrExecuteLoadIntRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 18\n");
+
+	int status = XrReadInt(proc, XR_REG_RA() + XR_SHIFTED_VAL(), &XR_REG_RD());
+
+	if (!status) {
+		// An exception occurred, so perform an early exit from the basic block.
+
+		return 0;
+	}
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
+}
+
+static XrIblock *XrExecuteLoadByteRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 19\n");
+
+	int status = XrReadByte(proc, XR_REG_RA() + XR_SHIFTED_VAL(), &XR_REG_RD());
+
+	if (!status) {
+		// An exception occurred, so perform an early exit from the basic block.
+
+		return 0;
+	}
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
+}
+
+static XrIblock *XrExecuteSys(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 20\n");
+
+	XrBasicException(proc, XR_EXC_SYS, proc->Pc + 4);
+
+	return 0;
+}
+
+static XrIblock *XrExecuteBrk(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 21\n");
+
+	XrBasicException(proc, XR_EXC_BRK, proc->Pc + 4);
+
+	return 0;
+}
+
+static XrIblock *XrExecuteWmb(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 22\n");
+
+	if (XR_SIMULATE_CACHES) {
 		// Flush the write buffer.
 
 		XrFlushWriteBuffer(proc);
 	}
+
+	XR_NEXT();
 }
 
-static void XrMb(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	XrWmb(proc, currentpc, ir);
-}
+static XrIblock *XrExecutePause(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 23\n");
 
-static void XrPause(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 	proc->PauseCalls++;
+
+	XR_NEXT();
 }
 
-static void XrSC(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
+static XrIblock *XrExecuteSC(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 24\n");
 
 	if (!proc->Locked) {
 		// Something happened on this processor that caused the
 		// lock to go away.
 
-		proc->Reg[rd] = 0;
+		XR_REG_RD() = 0;
+	} else {
+		// Store the word in a way that will atomically fail if we
+		// no longer have the cache line from LL's load.
 
-		return;
+		//DBGPRINT("%d: SC %d\n", proc->Id, proc->Reg[rb]);
+
+		uint8_t status = XrAccess(proc, XR_REG_RA(), 0, XR_REG_RB(), 4, 1);
+
+		if (!status) {
+			return 0;
+		}
+
+		XR_REG_RD() = (status == 2) ? 0 : 1;
 	}
 
-	// Store the word in a way that will atomically fail if we
-	// no longer have the cache line from LL's load.
+	XR_MAINTAIN_ZERO();
 
-	//printf("%d: SC %d\n", proc->Id, proc->Reg[rb]);
-
-	uint8_t status = XrAccess(proc, proc->Reg[ra], 0, proc->Reg[rb], 4, 1);
-
-	if (!status) {
-		return;
-	}
-
-	proc->Reg[rd] = (status == 2) ? 0 : 1;
+	XR_NEXT();
 }
 
-static void XrLL(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
+static XrIblock *XrExecuteLL(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 25\n");
+
+	int status = XrReadLong(proc, XR_REG_RA(), &XR_REG_RD());
+
+	if (!status) {
+		return 0;
+	}
 
 	proc->Locked = 1;
 
-	XrReadLong(proc, proc->Reg[ra], &proc->Reg[rd]);
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static void XrMod(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
+static XrIblock *XrExecuteMod(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 26\n");
 
-	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+	uint32_t val = XR_SHIFTED_VAL();
 
 	if (val == 0) {
-		proc->Reg[rd] = 0;
-		return;
+		XR_REG_RD() = 0;
+	} else {
+		XR_REG_RD() = XR_REG_RA() % val;
+
+		XR_MAINTAIN_ZERO();
 	}
 
-	proc->Reg[rd] = proc->Reg[ra] % val;
+	XR_NEXT();
 }
 
-static void XrDivSigned(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
+static XrIblock *XrExecuteDivSigned(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 27\n");
 
-	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+	uint32_t val = XR_SHIFTED_VAL();
 
 	if (val == 0) {
-		proc->Reg[rd] = 0;
-		return;
+		XR_REG_RD() = 0;
+	} else {
+		XR_REG_RD() = (int32_t) XR_REG_RA() / (int32_t) val;
+
+		XR_MAINTAIN_ZERO();
 	}
 
-	proc->Reg[rd] = (int32_t) proc->Reg[ra] / (int32_t) val;
+	XR_NEXT();
 }
 
-static void XrDiv(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
+static XrIblock *XrExecuteDiv(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 28\n");
 
-	uint32_t val = XrComputeValue(proc->Reg[rb], ir);
+	uint32_t val = XR_SHIFTED_VAL();
 
 	if (val == 0) {
-		proc->Reg[rd] = 0;
-		return;
+		XR_REG_RD() = 0;
+	} else {
+		XR_REG_RD() = XR_REG_RA() / val;
+
+		XR_MAINTAIN_ZERO();
 	}
 
-	proc->Reg[rd] = proc->Reg[ra] / val;
+	XR_NEXT();
 }
 
-static void XrMul(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
+static XrIblock *XrExecuteMul(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 29\n");
 
-	proc->Reg[rd] = proc->Reg[ra] * XrComputeValue(proc->Reg[rb], ir);
+	XR_REG_RD() = XR_REG_RA() * XR_SHIFTED_VAL();
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static XrInstructionF XrFunctions110001[16] = {
-	[0] = &XrSys,
-	[1] = &XrBrk,
-	[2] = &XrWmb,
-	[3] = &XrMb,
-	[4] = &XrIllegalInstruction,
-	[5] = &XrIllegalInstruction,
-	[6] = &XrPause,
-	[7] = &XrIllegalInstruction,
-	[8] = &XrSC,
-	[9] = &XrLL,
-	[10] = &XrIllegalInstruction,
-	[11] = &XrMod,
-	[12] = &XrDivSigned,
-	[13] = &XrDiv,
-	[14] = &XrIllegalInstruction,
-	[15] = &XrMul,
-};
+static XrIblock *XrExecuteRfe(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 30\n");
 
-static void XrLookup110001(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	XrFunctions110001[ir >> 28](proc, currentpc, ir);
-}
-
-static void XrRfe(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 	proc->Locked = 0;
+
+	uint32_t oldrs = proc->Cr[RS];
 
 	if (proc->Cr[RS] & RS_TBMISS) {
 		proc->Pc = proc->Cr[TBPC];
@@ -1650,23 +1680,38 @@ static void XrRfe(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 	}
 
 	proc->Cr[RS] = (proc->Cr[RS] & 0xF0000000) | ((proc->Cr[RS] >> 8) & 0xFFFF);
+
+	if ((proc->Cr[RS] & RS_TBMISS) == 0) {
+		// Make sure the zero register is still zero after the TB miss handler.
+		proc->Reg[0] = 0;
+	}
+
+	return 0;
 }
 
-static void XrHlt(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+static XrIblock *XrExecuteHlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 31\n");
+
 	proc->Halted = true;
+
+	proc->Pc += 4;
+
+	return 0;
 }
 
-static void XrMtcr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
+static XrIblock *XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 32\n");
+
 	// Reset the NMI mask counter.
 
 	proc->NmiMaskCounter = NMI_MASK_CYCLES;
 
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t rb = (ir >> 16) & 31;
+	uint32_t ra = inst->Imm8_1;
+	uint32_t rb = inst->Imm8_2;
 
 	switch(rb) {
 		case ICACHECTRL:
-			if (!XrSimulateCaches)
+			if (!XR_SIMULATE_CACHES)
 				break;
 
 			if ((proc->Reg[ra] & 3) == 3) {
@@ -1697,10 +1742,16 @@ static void XrMtcr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 
 			proc->IcLastTag = -1;
 
-			break;
+			// Dump the whole Iblock cache.
+
+			XrInvalidateIblockCache(proc);
+
+			proc->Pc += 4;
+
+			return 0;
 
 		case DCACHECTRL:
-			if (!XrSimulateCaches)
+			if (!XR_SIMULATE_CACHES)
 				break;
 
 			XrFlushWriteBuffer(proc);
@@ -1765,7 +1816,7 @@ static void XrMtcr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 					}
 				}
 
-				//printf("invl %x\n", Reg[ra] >> 12);
+				//DBGPRINT("invl %x\n", Reg[ra] >> 12);
 
 				//Running = false;
 			}
@@ -1774,7 +1825,13 @@ static void XrMtcr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 
 			proc->ItbLastVpn = -1;
 
-			break;
+			// Dump the whole Iblock cache.
+
+			XrInvalidateIblockCache(proc);
+
+			proc->Pc += 4;
+
+			return 0;
 
 		case DTBCTRL:
 			if ((proc->Reg[ra] & 3) == 3) {
@@ -1810,7 +1867,7 @@ static void XrMtcr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 					}
 				}
 
-				//printf("invl %x\n", Reg[ra] >> 12);
+				//DBGPRINT("invl %x\n", Reg[ra] >> 12);
 
 				//Running = false;
 			}
@@ -1827,7 +1884,7 @@ static void XrMtcr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 
 			proc->Itb[proc->Cr[ITBINDEX]] = ((uint64_t)(proc->Cr[ITBTAG]) << 32) | proc->Reg[ra];
 
-			//printf("ITB[%d] = %llx\n", ControlReg[ITBINDEX], ITlb[ControlReg[ITBINDEX]]);
+			//DBGPRINT("ITB[%d] = %llx\n", ControlReg[ITBINDEX], ITlb[ControlReg[ITBINDEX]]);
 
 			proc->Cr[ITBINDEX] += 1;
 
@@ -1845,7 +1902,7 @@ static void XrMtcr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 
 			proc->Dtb[proc->Cr[DTBINDEX]] = ((uint64_t)(proc->Cr[DTBTAG]) << 32) | proc->Reg[ra];
 
-			//printf("DTB[%d] = %llx\n", ControlReg[DTBINDEX], DTlb[ControlReg[DTBINDEX]]);
+			//DBGPRINT("DTB[%d] = %llx\n", ControlReg[DTBINDEX], DTlb[ControlReg[DTBINDEX]]);
 
 			proc->Cr[DTBINDEX] += 1;
 
@@ -1859,12 +1916,10 @@ static void XrMtcr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 
 		case ITBINDEX:
 			proc->Cr[ITBINDEX] = proc->Reg[ra] & (XR_ITB_SIZE - 1);
-			//printf("ITBX = %x\n", ControlReg[ITBINDEX]);
 			break;
 
 		case DTBINDEX:
 			proc->Cr[DTBINDEX] = proc->Reg[ra] & (XR_DTB_SIZE - 1);
-			//printf("DTBX = %x\n", ControlReg[DTBINDEX]);
 			break;
 
 		case DTBTAG:
@@ -1889,358 +1944,1575 @@ static void XrMtcr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 			proc->Cr[rb] = proc->Reg[ra];
 			break;
 	}
+
+	XR_NEXT();
 }
 
-static void XrMfcr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	// Reset the NMI mask counter.
+static XrIblock *XrExecuteMfcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 33\n");
 
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t rb = (ir >> 16) & 31;
+	// Reset the NMI mask counter.
 
 	proc->NmiMaskCounter = NMI_MASK_CYCLES;
 
-	proc->Reg[rd] = proc->Cr[rb];
+	proc->Reg[inst->Imm8_1] = proc->Cr[inst->Imm8_2];
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static XrInstructionF XrFunctions101001[16] = {
-	[0] = &XrIllegalInstruction,
-	[1] = &XrIllegalInstruction,
-	[2] = &XrIllegalInstruction,
-	[3] = &XrIllegalInstruction,
-	[4] = &XrIllegalInstruction,
-	[5] = &XrIllegalInstruction,
-	[6] = &XrIllegalInstruction,
-	[7] = &XrIllegalInstruction,
-	[8] = &XrIllegalInstruction,
-	[9] = &XrIllegalInstruction,
-	[10] = &XrIllegalInstruction,
-	[11] = &XrRfe,
-	[12] = &XrHlt,
-	[13] = &XrIllegalInstruction,
-	[14] = &XrMtcr,
-	[15] = &XrMfcr,
-};
+static XrIblock *XrExecuteBpo(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 34\n");
 
-static void XrLookup101001(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	if (proc->Cr[RS] & RS_USER) {
-		// Current mode is usermode, so cause a privilege violation
-		// exception.
+	uint32_t rd = inst->Imm8_1;
 
-		XrBasicException(proc, XR_EXC_PRV);
-	}
-
-	XrFunctions101001[ir >> 28](proc, currentpc, ir);
-}
-
-static void XrBpo(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
+	XrIblock *iblock;
+	XrIblock **referrent;
 
 	if (proc->Reg[rd] & 1) {
-		proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
+		proc->Pc += inst->Imm32_1;
+		referrent = &block->TruePath;
+	} else {
+		proc->Pc += 4;
+		referrent = &block->FalsePath;
 	}
+
+	iblock = *referrent;
+
+	if (iblock) {
+		return iblock;
+	}
+
+	iblock = XrDecodeInstructions(proc, proc->Pc);
+
+	if (!iblock) {
+		// Ifetch mishap.
+
+		return 0;
+	}
+
+	XrCreateCachedPointerToBlock(iblock, referrent);
+
+	return iblock;
 }
 
-static void XrBpe(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
+static XrIblock *XrExecuteBpe(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 35\n");
+
+	uint32_t rd = inst->Imm8_1;
+
+	XrIblock *iblock;
+	XrIblock **referrent;
 
 	if ((proc->Reg[rd] & 1) == 0) {
-		proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
+		proc->Pc += inst->Imm32_1;
+		referrent = &block->TruePath;
+	} else {
+		proc->Pc += 4;
+		referrent = &block->FalsePath;
 	}
+
+	iblock = *referrent;
+
+	if (iblock) {
+		return iblock;
+	}
+
+	iblock = XrDecodeInstructions(proc, proc->Pc);
+
+	if (!iblock) {
+		// Ifetch mishap.
+
+		return 0;
+	}
+
+	XrCreateCachedPointerToBlock(iblock, referrent);
+
+	return iblock;
 }
 
-static void XrBge(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
+static XrIblock *XrExecuteBge(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 36\n");
 
-	if ((int32_t) proc->Reg[rd] >= 0) {
-		proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
+	uint32_t rd = inst->Imm8_1;
+
+	XrIblock *iblock;
+	XrIblock **referrent;
+
+	if ((int32_t)proc->Reg[rd] >= 0) {
+		proc->Pc += inst->Imm32_1;
+		referrent = &block->TruePath;
+	} else {
+		proc->Pc += 4;
+		referrent = &block->FalsePath;
 	}
+
+	iblock = *referrent;
+
+	if (iblock) {
+		return iblock;
+	}
+
+	iblock = XrDecodeInstructions(proc, proc->Pc);
+
+	if (!iblock) {
+		// Ifetch mishap.
+
+		return 0;
+	}
+
+	XrCreateCachedPointerToBlock(iblock, referrent);
+
+	return iblock;
 }
 
-static void XrBle(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
+static XrIblock *XrExecuteBle(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 37\n");
 
-	if ((int32_t) proc->Reg[rd] <= 0) {
-		proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
+	uint32_t rd = inst->Imm8_1;
+
+	XrIblock *iblock;
+	XrIblock **referrent;
+
+	if ((int32_t)proc->Reg[rd] <= 0) {
+		proc->Pc += inst->Imm32_1;
+		referrent = &block->TruePath;
+	} else {
+		proc->Pc += 4;
+		referrent = &block->FalsePath;
 	}
+
+	iblock = *referrent;
+
+	if (iblock) {
+		return iblock;
+	}
+
+	iblock = XrDecodeInstructions(proc, proc->Pc);
+
+	if (!iblock) {
+		// Ifetch mishap.
+
+		return 0;
+	}
+
+	XrCreateCachedPointerToBlock(iblock, referrent);
+
+	return iblock;
 }
 
-static void XrBgt(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
+static XrIblock *XrExecuteBgt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 38\n");
 
-	if ((int32_t) proc->Reg[rd] > 0) {
-		proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
+	uint32_t rd = inst->Imm8_1;
+
+	XrIblock *iblock;
+	XrIblock **referrent;
+
+	if ((int32_t)proc->Reg[rd] > 0) {
+		proc->Pc += inst->Imm32_1;
+		referrent = &block->TruePath;
+	} else {
+		proc->Pc += 4;
+		referrent = &block->FalsePath;
 	}
+
+	iblock = *referrent;
+
+	if (iblock) {
+		return iblock;
+	}
+
+	iblock = XrDecodeInstructions(proc, proc->Pc);
+
+	if (!iblock) {
+		// Ifetch mishap.
+
+		return 0;
+	}
+
+	XrCreateCachedPointerToBlock(iblock, referrent);
+
+	return iblock;
 }
 
-static void XrBlt(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
+static XrIblock *XrExecuteBlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 39\n");
 
-	if ((int32_t) proc->Reg[rd] < 0) {
-		proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
+	uint32_t rd = inst->Imm8_1;
+
+	XrIblock *iblock;
+	XrIblock **referrent;
+
+	if ((int32_t)proc->Reg[rd] < 0) {
+		proc->Pc += inst->Imm32_1;
+		referrent = &block->TruePath;
+	} else {
+		proc->Pc += 4;
+		referrent = &block->FalsePath;
 	}
+
+	iblock = *referrent;
+
+	if (iblock) {
+		return iblock;
+	}
+
+	iblock = XrDecodeInstructions(proc, proc->Pc);
+
+	if (!iblock) {
+		// Ifetch mishap.
+
+		return 0;
+	}
+
+	XrCreateCachedPointerToBlock(iblock, referrent);
+
+	return iblock;
 }
 
-static void XrBne(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
+static XrIblock *XrExecuteBne(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 40\n");
+
+	uint32_t rd = inst->Imm8_1;
+
+	XrIblock *iblock;
+	XrIblock **referrent;
 
 	if (proc->Reg[rd] != 0) {
-		proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
+		proc->Pc += inst->Imm32_1;
+		referrent = &block->TruePath;
+	} else {
+		proc->Pc += 4;
+		referrent = &block->FalsePath;
 	}
+
+	iblock = *referrent;
+
+	if (iblock) {
+		return iblock;
+	}
+
+	iblock = XrDecodeInstructions(proc, proc->Pc);
+
+	if (!iblock) {
+		// Ifetch mishap.
+
+		return 0;
+	}
+
+	XrCreateCachedPointerToBlock(iblock, referrent);
+
+	return iblock;
 }
 
-static void XrBeq(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
+static XrIblock *XrExecuteBeq(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 41\n");
+
+	uint32_t rd = inst->Imm8_1;
+
+	XrIblock *iblock;
+	XrIblock **referrent;
 
 	if (proc->Reg[rd] == 0) {
-		proc->Pc = currentpc + SignExt23((ir >> 11) << 2);
+		proc->Pc += inst->Imm32_1;
+		referrent = &block->TruePath;
+	} else {
+		proc->Pc += 4;
+		referrent = &block->FalsePath;
 	}
+
+	iblock = *referrent;
+
+	if (iblock) {
+		return iblock;
+	}
+
+	iblock = XrDecodeInstructions(proc, proc->Pc);
+
+	if (!iblock) {
+		// Ifetch mishap.
+
+		return 0;
+	}
+
+	XrCreateCachedPointerToBlock(iblock, referrent);
+
+	return iblock;
 }
 
-static void XrLui(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+static XrIblock *XrExecuteB(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 42\n");
 
-	proc->Reg[rd] = proc->Reg[ra] | (imm << 16);
+	proc->Pc += inst->Imm32_1;
+
+	XrIblock *iblock = block->TruePath;
+
+	if (iblock) {
+		DBGPRINT("true path b %p\n", iblock);
+		return iblock;
+	}
+
+	iblock = XrDecodeInstructions(proc, proc->Pc);
+
+	if (!iblock) {
+		// Ifetch mishap.
+
+		return 0;
+	}
+
+	XrCreateCachedPointerToBlock(iblock, &block->TruePath);
+
+	return iblock;
 }
 
-static void XrOri(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+static XrIblock *XrExecuteOri(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 43\n");
+
+	uint32_t rd = inst->Imm8_1;
+	uint32_t ra = inst->Imm8_2;
+	uint32_t imm = inst->Imm32_1;
 
 	proc->Reg[rd] = proc->Reg[ra] | imm;
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static void XrXori(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+static XrIblock *XrExecuteXori(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 44\n");
+
+	uint32_t rd = inst->Imm8_1;
+	uint32_t ra = inst->Imm8_2;
+	uint32_t imm = inst->Imm32_1;
 
 	proc->Reg[rd] = proc->Reg[ra] ^ imm;
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static void XrAndi(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+static XrIblock *XrExecuteAndi(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 45\n");
+
+	uint32_t rd = inst->Imm8_1;
+	uint32_t ra = inst->Imm8_2;
+	uint32_t imm = inst->Imm32_1;
 
 	proc->Reg[rd] = proc->Reg[ra] & imm;
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static void XrSltiSigned(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+static XrIblock *XrExecuteSltiSigned(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 46\n");
 
-	if ((int32_t) proc->Reg[ra] < (int32_t) SignExt16(imm)) {
+	uint32_t rd = inst->Imm8_1;
+	uint32_t ra = inst->Imm8_2;
+	uint32_t imm = inst->Imm32_1;
+
+	if ((int32_t) proc->Reg[ra] < (int32_t) imm) {
 		proc->Reg[rd] = 1;
 	} else {
 		proc->Reg[rd] = 0;
 	}
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static void XrSlti(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+static XrIblock *XrExecuteSlti(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 47\n");
+
+	uint32_t rd = inst->Imm8_1;
+	uint32_t ra = inst->Imm8_2;
+	uint32_t imm = inst->Imm32_1;
 
 	if (proc->Reg[ra] < imm) {
 		proc->Reg[rd] = 1;
 	} else {
 		proc->Reg[rd] = 0;
 	}
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static void XrSubi(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+static XrIblock *XrExecuteSubi(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 48\n");
+
+	uint32_t rd = inst->Imm8_1;
+	uint32_t ra = inst->Imm8_2;
+	uint32_t imm = inst->Imm32_1;
 
 	proc->Reg[rd] = proc->Reg[ra] - imm;
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static void XrAddi(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+static XrIblock *XrExecuteAddi(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 49\n");
+
+	uint32_t rd = inst->Imm8_1;
+	uint32_t ra = inst->Imm8_2;
+	uint32_t imm = inst->Imm32_1;
 
 	proc->Reg[rd] = proc->Reg[ra] + imm;
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static void XrStoreLongImmOffsetImm(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+static XrIblock *XrExecuteStoreLongImmOffsetImm(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 50\n");
 
-	XrWriteLong(proc, proc->Reg[rd] + (imm << 2), SignExt5(ra));
+	uint32_t rd = inst->Imm8_1;
+	uint32_t ra = inst->Imm8_2;
+	uint32_t imm = inst->Imm32_1;
+
+	int status = XrWriteLong(proc, proc->Reg[rd] + imm, SignExt5(ra));
+
+	if (!status) {
+		return 0;
+	}
+
+	XR_NEXT();
 }
 
-static void XrStoreIntImmOffsetImm(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+static XrIblock *XrExecuteStoreIntImmOffsetImm(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 51\n");
 
-	XrWriteInt(proc, proc->Reg[rd] + (imm << 1), SignExt5(ra));
+	uint32_t rd = inst->Imm8_1;
+	uint32_t ra = inst->Imm8_2;
+	uint32_t imm = inst->Imm32_1;
+
+	int status = XrWriteInt(proc, proc->Reg[rd] + imm, SignExt5(ra));
+
+	if (!status) {
+		return 0;
+	}
+
+	XR_NEXT();
 }
 
-static void XrStoreByteImmOffsetImm(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+static XrIblock *XrExecuteStoreByteImmOffsetImm(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 52\n");
 
-	XrWriteByte(proc, proc->Reg[rd] + imm, SignExt5(ra));
+	uint32_t rd = inst->Imm8_1;
+	uint32_t ra = inst->Imm8_2;
+	uint32_t imm = inst->Imm32_1;
+
+	int status = XrWriteByte(proc, proc->Reg[rd] + imm, SignExt5(ra));
+
+	if (!status) {
+		return 0;
+	}
+
+	XR_NEXT();
 }
 
-static void XrStoreLongImmOffsetReg(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+static XrIblock *XrExecuteStoreLongImmOffsetReg(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 53\n");
 
-	XrWriteLong(proc, proc->Reg[rd] + (imm << 2), proc->Reg[ra]);
+	uint32_t rd = inst->Imm8_1;
+	uint32_t ra = inst->Imm8_2;
+	uint32_t imm = inst->Imm32_1;
+
+	int status = XrWriteLong(proc, proc->Reg[rd] + imm, proc->Reg[ra]);
+
+	if (!status) {
+		return 0;
+	}
+
+	XR_NEXT();
 }
 
-static void XrStoreIntImmOffsetReg(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+static XrIblock *XrExecuteStoreIntImmOffsetReg(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 54\n");
 
-	XrWriteInt(proc, proc->Reg[rd] + (imm << 1), proc->Reg[ra]);
+	uint32_t rd = inst->Imm8_1;
+	uint32_t ra = inst->Imm8_2;
+	uint32_t imm = inst->Imm32_1;
+
+	int status = XrWriteInt(proc, proc->Reg[rd] + imm, proc->Reg[ra]);
+
+	if (!status) {
+		return 0;
+	}
+
+	XR_NEXT();
 }
 
-static void XrStoreByteImmOffsetReg(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+static XrIblock *XrExecuteStoreByteImmOffsetReg(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 55\n");
 
-	XrWriteByte(proc, proc->Reg[rd] + imm, proc->Reg[ra]);
+	uint32_t rd = inst->Imm8_1;
+	uint32_t ra = inst->Imm8_2;
+	uint32_t imm = inst->Imm32_1;
+
+	int status = XrWriteByte(proc, proc->Reg[rd] + imm, proc->Reg[ra]);
+
+	if (!status) {
+		return 0;
+	}
+
+	XR_NEXT();
 }
 
-static void XrLoadLongImmOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+static XrIblock *XrExecuteLoadLongImmOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 56\n");
 
-	XrReadLong(proc, proc->Reg[ra] + (imm << 2), &proc->Reg[rd]);
-}
-
-static void XrLoadIntImmOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+	uint32_t rd = inst->Imm8_1;
+	uint32_t ra = inst->Imm8_2;
+	uint32_t imm = inst->Imm32_1;
 	
-	XrReadInt(proc, proc->Reg[ra] + (imm << 1), &proc->Reg[rd]);
+	int status = XrReadLong(proc, proc->Reg[ra] + imm, &proc->Reg[rd]);
+
+	if (!status) {
+		// An exception occurred.
+
+		return 0;
+	}
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static void XrLoadByteImmOffset(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+static XrIblock *XrExecuteLoadIntImmOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 57\n");
+
+	uint32_t rd = inst->Imm8_1;
+	uint32_t ra = inst->Imm8_2;
+	uint32_t imm = inst->Imm32_1;
 	
-	XrReadByte(proc, proc->Reg[ra] + imm, &proc->Reg[rd]);
+	int status = XrReadInt(proc, proc->Reg[ra] + imm, &proc->Reg[rd]);
+
+	if (!status) {
+		// An exception occurred.
+
+		return 0;
+	}
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static void XrJalr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	uint32_t rd = (ir >> 6) & 31;
-	uint32_t ra = (ir >> 11) & 31;
-	uint32_t imm = ir >> 16;
+static XrIblock *XrExecuteLoadByteImmOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 58\n");
 
-	proc->Reg[rd] = proc->Pc;
-	proc->Pc = proc->Reg[ra] + SignExt18(imm << 2);
+	uint32_t rd = inst->Imm8_1;
+	uint32_t ra = inst->Imm8_2;
+	uint32_t imm = inst->Imm32_1;
+	
+	int status = XrReadByte(proc, proc->Reg[ra] + imm, &proc->Reg[rd]);
+
+	if (!status) {
+		// An exception occurred.
+
+		return 0;
+	}
+
+	XR_MAINTAIN_ZERO();
+
+	XR_NEXT();
 }
 
-static XrInstructionF XrLowSix[64] = {
-	[0] = &XrIllegalInstruction,
-	[1] = &XrIllegalInstruction,
-	[2] = &XrIllegalInstruction,
-	[3] = &XrIllegalInstruction,
-	[4] = &XrLui,
-	[5] = &XrBpo,
-	[6] = &XrIllegalInstruction,
-	[7] = &XrIllegalInstruction,
-	[8] = &XrIllegalInstruction,
-	[9] = &XrIllegalInstruction,
-	[10] = &XrStoreLongImmOffsetImm,
-	[11] = &XrIllegalInstruction,
-	[12] = &XrOri,
-	[13] = &XrBpe,
-	[14] = &XrIllegalInstruction,
-	[15] = &XrIllegalInstruction,
-	[16] = &XrIllegalInstruction,
-	[17] = &XrIllegalInstruction,
-	[18] = &XrStoreIntImmOffsetImm,
-	[19] = &XrIllegalInstruction,
-	[20] = &XrXori,
-	[21] = &XrBge,
-	[22] = &XrIllegalInstruction,
-	[23] = &XrIllegalInstruction,
-	[24] = &XrIllegalInstruction,
-	[25] = &XrIllegalInstruction,
-	[26] = &XrStoreByteImmOffsetImm,
-	[27] = &XrIllegalInstruction,
-	[28] = &XrAndi,
-	[29] = &XrBle,
-	[30] = &XrIllegalInstruction,
-	[31] = &XrIllegalInstruction,
-	[32] = &XrIllegalInstruction,
-	[33] = &XrIllegalInstruction,
-	[34] = &XrIllegalInstruction,
-	[35] = &XrIllegalInstruction,
-	[36] = &XrSltiSigned,
-	[37] = &XrBgt,
-	[38] = &XrIllegalInstruction,
-	[39] = &XrIllegalInstruction,
-	[40] = &XrIllegalInstruction,
-	[41] = &XrLookup101001,
-	[42] = &XrStoreLongImmOffsetReg,
-	[43] = &XrLoadLongImmOffset,
-	[44] = &XrSlti,
-	[45] = &XrBlt,
-	[46] = &XrIllegalInstruction,
-	[47] = &XrIllegalInstruction,
-	[48] = &XrIllegalInstruction,
-	[49] = &XrLookup110001,
-	[50] = &XrStoreIntImmOffsetReg,
-	[51] = &XrLoadIntImmOffset,
-	[52] = &XrSubi,
-	[53] = &XrBne,
-	[54] = &XrIllegalInstruction,
-	[55] = &XrIllegalInstruction,
-	[56] = &XrJalr,
-	[57] = &XrLookup111001,
-	[58] = &XrStoreByteImmOffsetReg,
-	[59] = &XrLoadByteImmOffset,
-	[60] = &XrAddi,
-	[61] = &XrBeq,
-	[62] = &XrIllegalInstruction,
-	[63] = &XrIllegalInstruction,
+static XrIblock *XrExecuteJalr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 59 @ %x\n", proc->Pc);
+
+	uint32_t rd = inst->Imm8_1;
+	uint32_t ra = inst->Imm8_2;
+
+	proc->Reg[rd] = proc->Pc + 4;
+	proc->Pc = proc->Reg[ra] + inst->Imm32_1;
+
+	DBGPRINT("jalr destination rd=%x reg[%d]=%x + %x = %x\n", rd, ra, proc->Reg[ra], inst->Imm32_1, proc->Pc);
+
+	XR_MAINTAIN_ZERO();
+
+	return 0;
+}
+
+static XrIblock *XrExecuteJal(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 60\n");
+
+	proc->Reg[LR] = proc->Pc + 4;
+	proc->Pc = inst->Imm32_1;
+
+	XrIblock *iblock = block->TruePath;
+
+	if (iblock) {
+		DBGPRINT("true path jal %p\n", iblock);
+		return iblock;
+	}
+
+	iblock = XrDecodeInstructions(proc, proc->Pc);
+
+	if (!iblock) {
+		// Ifetch mishap.
+
+		return 0;
+	}
+
+	XrCreateCachedPointerToBlock(iblock, &block->TruePath);
+
+	return iblock;
+}
+
+static XrIblock *XrExecuteJ(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 61\n");
+
+	proc->Pc = inst->Imm32_1;
+
+	XrIblock *iblock = block->TruePath;
+
+	if (iblock) {
+		DBGPRINT("true path j %p\n", iblock);
+		return iblock;
+	}
+
+	iblock = XrDecodeInstructions(proc, proc->Pc);
+
+	if (!iblock) {
+		// Ifetch mishap.
+
+		return 0;
+	}
+
+	XrCreateCachedPointerToBlock(iblock, &block->TruePath);
+
+	return iblock;
+}
+
+static uint32_t XrShiftLsh(uint32_t a, uint32_t b) {
+	return a << b;
+}
+
+static uint32_t XrShiftRsh(uint32_t a, uint32_t b) {
+	return a >> b;
+}
+
+static uint32_t XrShiftAsh(uint32_t a, uint32_t b) {
+	return (int32_t) a >> b;
+}
+
+static uint32_t XrShiftRor(uint32_t a, uint32_t b) {
+	return RoR(a, b);
+}
+
+static XrInstImplF XrRegShiftFunctionTable[4] = {
+	[0] = &XrExecuteLsh,
+	[1] = &XrExecuteRsh,
+	[2] = &XrExecuteAsh,
+	[3] = &XrExecuteRor
 };
 
-static void XrJal(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	proc->Reg[LR] = proc->Pc;
-	proc->Pc = (currentpc & 0x80000000) | ((ir >> 3) << 2);
-}
-
-static void XrJ(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	proc->Pc = (currentpc & 0x80000000) | ((ir >> 3) << 2);
-}
-
-static void XrLookupMajor(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	XrLowSix[ir & 63](proc, currentpc, ir);
-}
-
-static XrInstructionF XrLowThree[8] = {
-	[0] = &XrLookupMajor,
-	[1] = &XrLookupMajor,
-	[2] = &XrLookupMajor,
-	[3] = &XrLookupMajor,
-	[4] = &XrLookupMajor,
-	[5] = &XrLookupMajor,
-	[6] = &XrJ,
-	[7] = &XrJal,
+static XrInstShiftF XrShiftFunctionTable[4] = {
+	[0] = &XrShiftLsh,
+	[1] = &XrShiftRsh,
+	[2] = &XrShiftAsh,
+	[3] = &XrShiftRor
 };
 
-uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
+typedef int (*XrDecodeInstructionF)(XrCachedInst *inst, uint32_t ir, uint32_t pc);
+
+static int XrDecodeIllegalInstruction(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteIllegalInstruction;
+
+	return 1;
+}
+
+static int XrDecodeRfe(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteRfe;
+
+	return 1;
+}
+
+static int XrDecodeHlt(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteHlt;
+
+	return 1;
+}
+
+static int XrDecodeMtcr(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteMtcr;
+	inst->Imm8_1 = (ir >> 11) & 31;
+	inst->Imm8_2 = (ir >> 16) & 31;
+
+	return 0;
+}
+
+static int XrDecodeMfcr(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteMfcr;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 16) & 31;
+
+	return 0;
+}
+
+static XrDecodeInstructionF XrDecodeFunctions101001[16] = {
+	[0] = &XrDecodeIllegalInstruction,
+	[1] = &XrDecodeIllegalInstruction,
+	[2] = &XrDecodeIllegalInstruction,
+	[3] = &XrDecodeIllegalInstruction,
+	[4] = &XrDecodeIllegalInstruction,
+	[5] = &XrDecodeIllegalInstruction,
+	[6] = &XrDecodeIllegalInstruction,
+	[7] = &XrDecodeIllegalInstruction,
+	[8] = &XrDecodeIllegalInstruction,
+	[9] = &XrDecodeIllegalInstruction,
+	[10] = &XrDecodeIllegalInstruction,
+	[11] = &XrDecodeRfe,
+	[12] = &XrDecodeHlt,
+	[13] = &XrDecodeIllegalInstruction,
+	[14] = &XrDecodeMtcr,
+	[15] = &XrDecodeMfcr,
+};
+
+static int XrDecodeSys(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteSys;
+
+	return 1;
+}
+
+static int XrDecodeBrk(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteBrk;
+
+	return 1;
+}
+
+static int XrDecodeWmb(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteWmb;
+
+	return 0;
+}
+
+static int XrDecodeMb(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteWmb;
+
+	return 0;
+}
+
+static int XrDecodePause(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecutePause;
+
+	return 0;
+}
+
+static int XrDecodeSC(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteSC;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	return 0;
+}
+
+static int XrDecodeLL(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteLL;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+
+	return 0;
+}
+
+static int XrDecodeMod(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteMod;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static int XrDecodeDivSigned(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteDivSigned;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static int XrDecodeDiv(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteDiv;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static int XrDecodeMul(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteMul;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static XrDecodeInstructionF XrDecodeFunctions110001[16] = {
+	[0] = &XrDecodeSys,
+	[1] = &XrDecodeBrk,
+	[2] = &XrDecodeWmb,
+	[3] = &XrDecodeMb,
+	[4] = &XrDecodeIllegalInstruction,
+	[5] = &XrDecodeIllegalInstruction,
+	[6] = &XrDecodePause,
+	[7] = &XrDecodeIllegalInstruction,
+	[8] = &XrDecodeSC,
+	[9] = &XrDecodeLL,
+	[10] = &XrDecodeIllegalInstruction,
+	[11] = &XrDecodeMod,
+	[12] = &XrDecodeDivSigned,
+	[13] = &XrDecodeDiv,
+	[14] = &XrDecodeIllegalInstruction,
+	[15] = &XrDecodeMul,
+};
+
+static int XrDecodeNor(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteNor;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static int XrDecodeOr(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteOr;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static int XrDecodeXor(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteXor;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static int XrDecodeAnd(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteAnd;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static int XrDecodeSltSigned(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteSltSigned;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static int XrDecodeSlt(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteSlt;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static int XrDecodeSub(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteSub;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static int XrDecodeAdd(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteAdd;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static int XrDecodeRegShifts(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = XrRegShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	return 0;
+}
+
+static int XrDecodeStoreLongRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteStoreLongRegOffset;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static int XrDecodeStoreIntRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteStoreIntRegOffset;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static int XrDecodeStoreByteRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteStoreByteRegOffset;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static int XrDecodeLoadLongRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteLoadLongRegOffset;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static int XrDecodeLoadIntRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteLoadIntRegOffset;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static int XrDecodeLoadByteRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteLoadByteRegOffset;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) & 31;
+
+	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+	inst->Imm8_3 = (ir >> 21) & 31;
+
+	return 0;
+}
+
+static XrDecodeInstructionF XrDecodeFunctions111001[16] = {
+	[0] = &XrDecodeNor,
+	[1] = &XrDecodeOr,
+	[2] = &XrDecodeXor,
+	[3] = &XrDecodeAnd,
+	[4] = &XrDecodeSltSigned,
+	[5] = &XrDecodeSlt,
+	[6] = &XrDecodeSub,
+	[7] = &XrDecodeAdd,
+	[8] = &XrDecodeRegShifts,
+	[9] = &XrDecodeStoreLongRegOffset,
+	[10] = &XrDecodeStoreIntRegOffset,
+	[11] = &XrDecodeStoreByteRegOffset,
+	[12] = &XrDecodeIllegalInstruction,
+	[13] = &XrDecodeLoadLongRegOffset,
+	[14] = &XrDecodeLoadIntRegOffset,
+	[15] = &XrDecodeLoadByteRegOffset,
+};
+
+static int XrDecodeLui(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteOri;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) << 16;
+
+	return 0;
+}
+
+static int XrDecodeBpo(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteBpo;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+
+	return 1;
+}
+
+static int XrDecodeStoreLongImmOffsetImm(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteStoreLongImmOffsetImm;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) << 2;
+
+	return 0;
+}
+
+static int XrDecodeOri(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteOri;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = ir >> 16;
+
+	return 0;
+}
+
+static int XrDecodeBpe(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteBpe;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+
+	return 1;
+}
+
+static int XrDecodeStoreIntImmOffsetImm(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteStoreIntImmOffsetImm;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) << 1;
+
+	return 0;
+}
+
+static int XrDecodeXori(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteXori;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = ir >> 16;
+
+	return 0;
+}
+
+static int XrDecodeBge(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteBge;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+
+	return 1;
+}
+
+static int XrDecodeStoreByteImmOffsetImm(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteStoreByteImmOffsetImm;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = ir >> 16;
+
+	return 0;
+}
+
+static int XrDecodeAndi(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteAndi;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = ir >> 16;
+
+	return 0;
+}
+
+static int XrDecodeBle(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteBle;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+
+	return 1;
+}
+
+static int XrDecodeSltiSigned(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteSltiSigned;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = SignExt16(ir >> 16);
+
+	return 0;
+}
+
+static int XrDecodeBgt(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteBgt;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+
+	return 1;
+}
+
+static int XrDecode101001(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	return XrDecodeFunctions101001[ir >> 28](inst, ir, pc);
+}
+
+static int XrDecodeStoreLongImmOffsetReg(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteStoreLongImmOffsetReg;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) << 2;
+
+	return 0;
+}
+
+static int XrDecodeLoadLongImmOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteLoadLongImmOffset;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) << 2;
+
+	return 0;
+}
+
+static int XrDecodeSlti(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteSlti;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = ir >> 16;
+
+	return 0;
+}
+
+static int XrDecodeBlt(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteBlt;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+
+	return 1;
+}
+
+static int XrDecode110001(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	return XrDecodeFunctions110001[ir >> 28](inst, ir, pc);
+}
+
+static int XrDecodeStoreIntImmOffsetReg(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteStoreIntImmOffsetReg;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) << 1;
+
+	return 0;
+}
+
+static int XrDecodeLoadIntImmOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteLoadIntImmOffset;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = (ir >> 16) << 1;
+
+	return 0;
+}
+
+static int XrDecodeSubi(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteSubi;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = ir >> 16;
+
+	return 0;
+}
+
+static int XrDecodeBne(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteBne;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+
+	return 1;
+}
+
+static int XrDecodeJalr(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteJalr;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = SignExt18((ir >> 16) << 2);
+
+	return 1;
+}
+
+static int XrDecode111001(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	return XrDecodeFunctions111001[ir >> 28](inst, ir, pc);
+}
+
+static int XrDecodeStoreByteImmOffsetReg(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteStoreByteImmOffsetReg;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = ir >> 16;
+
+	return 0;
+}
+
+static int XrDecodeLoadByteImmOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteLoadByteImmOffset;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = ir >> 16;
+
+	return 0;
+}
+
+static int XrDecodeAddi(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteAddi;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm8_2 = (ir >> 11) & 31;
+	inst->Imm32_1 = ir >> 16;
+
+	return 0;
+}
+
+static int XrDecodeBeq(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+
+	if (((ir >> 6) & 31) == 0) {
+		// This is a BEQ, ZERO, XXX instruction.
+		// This is the canonical unconditional branch, generated by the B
+		// pseudo-instruction. We can optimize this a bit.
+
+		inst->Func = &XrExecuteB;
+
+		return 1;
+	}
+
+	inst->Func = &XrExecuteBeq;
+	inst->Imm8_1 = (ir >> 6) & 31;
+
+	return 1;
+}
+
+static XrDecodeInstructionF XrDecodeLowSix[64] = {
+	[0] = &XrDecodeIllegalInstruction,
+	[1] = &XrDecodeIllegalInstruction,
+	[2] = &XrDecodeIllegalInstruction,
+	[3] = &XrDecodeIllegalInstruction,
+	[4] = &XrDecodeLui,
+	[5] = &XrDecodeBpo,
+	[6] = &XrDecodeIllegalInstruction,
+	[7] = &XrDecodeIllegalInstruction,
+	[8] = &XrDecodeIllegalInstruction,
+	[9] = &XrDecodeIllegalInstruction,
+	[10] = &XrDecodeStoreLongImmOffsetImm,
+	[11] = &XrDecodeIllegalInstruction,
+	[12] = &XrDecodeOri,
+	[13] = &XrDecodeBpe,
+	[14] = &XrDecodeIllegalInstruction,
+	[15] = &XrDecodeIllegalInstruction,
+	[16] = &XrDecodeIllegalInstruction,
+	[17] = &XrDecodeIllegalInstruction,
+	[18] = &XrDecodeStoreIntImmOffsetImm,
+	[19] = &XrDecodeIllegalInstruction,
+	[20] = &XrDecodeXori,
+	[21] = &XrDecodeBge,
+	[22] = &XrDecodeIllegalInstruction,
+	[23] = &XrDecodeIllegalInstruction,
+	[24] = &XrDecodeIllegalInstruction,
+	[25] = &XrDecodeIllegalInstruction,
+	[26] = &XrDecodeStoreByteImmOffsetImm,
+	[27] = &XrDecodeIllegalInstruction,
+	[28] = &XrDecodeAndi,
+	[29] = &XrDecodeBle,
+	[30] = &XrDecodeIllegalInstruction,
+	[31] = &XrDecodeIllegalInstruction,
+	[32] = &XrDecodeIllegalInstruction,
+	[33] = &XrDecodeIllegalInstruction,
+	[34] = &XrDecodeIllegalInstruction,
+	[35] = &XrDecodeIllegalInstruction,
+	[36] = &XrDecodeSltiSigned,
+	[37] = &XrDecodeBgt,
+	[38] = &XrDecodeIllegalInstruction,
+	[39] = &XrDecodeIllegalInstruction,
+	[40] = &XrDecodeIllegalInstruction,
+	[41] = &XrDecode101001,
+	[42] = &XrDecodeStoreLongImmOffsetReg,
+	[43] = &XrDecodeLoadLongImmOffset,
+	[44] = &XrDecodeSlti,
+	[45] = &XrDecodeBlt,
+	[46] = &XrDecodeIllegalInstruction,
+	[47] = &XrDecodeIllegalInstruction,
+	[48] = &XrDecodeIllegalInstruction,
+	[49] = &XrDecode110001,
+	[50] = &XrDecodeStoreIntImmOffsetReg,
+	[51] = &XrDecodeLoadIntImmOffset,
+	[52] = &XrDecodeSubi,
+	[53] = &XrDecodeBne,
+	[54] = &XrDecodeIllegalInstruction,
+	[55] = &XrDecodeIllegalInstruction,
+	[56] = &XrDecodeJalr,
+	[57] = &XrDecode111001,
+	[58] = &XrDecodeStoreByteImmOffsetReg,
+	[59] = &XrDecodeLoadByteImmOffset,
+	[60] = &XrDecodeAddi,
+	[61] = &XrDecodeBeq,
+	[62] = &XrDecodeIllegalInstruction,
+	[63] = &XrDecodeIllegalInstruction,
+};
+
+static int XrDecodeJal(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteJal;
+	inst->Imm32_1 = (pc & 0x80000000) | ((ir >> 3) << 2);
+
+	return 1;
+}
+
+static int XrDecodeJ(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteJ;
+	inst->Imm32_1 = (pc & 0x80000000) | ((ir >> 3) << 2);
+
+	return 1;
+}
+
+static int XrDecodeMajor(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	return XrDecodeLowSix[ir & 63](inst, ir, pc);
+}
+
+static XrDecodeInstructionF XrDecodeLowThree[8] = {
+	[0] = &XrDecodeMajor,
+	[1] = &XrDecodeMajor,
+	[2] = &XrDecodeMajor,
+	[3] = &XrDecodeMajor,
+	[4] = &XrDecodeMajor,
+	[5] = &XrDecodeMajor,
+	[6] = &XrDecodeJ,
+	[7] = &XrDecodeJal,
+};
+
+XrIblock *XrSpecialLinkageInstruction(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 0\n");
+
+	// This instruction is placed at the end of a basic block that didn't
+	// terminate in a natural way (with a branch or illegal instruction).
+	// It just directs the outer loop to look up the next block.
+
+	XrIblock *iblock = block->TruePath;
+
+	if (XrLikely(iblock != 0)) {
+		// We already cached the pointer to the next Iblock, so return it
+		// directly.
+
+		DBGPRINT("true path linkage %p\n", iblock);
+		return iblock;
+	}
+
+	iblock = XrDecodeInstructions(proc, proc->Pc);
+
+	if (!iblock) {
+		// Ifetch mishap.
+
+		return 0;
+	}
+
+	XrCreateCachedPointerToBlock(iblock, &block->TruePath);
+
+	return iblock;
+}
+
+static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
+	// Decode some instructions starting at the given virtual PC.
+	// Return NULLPTR if we fail to fetch the first instruction. This implies
+	// that an exception occurred, such as an ITB miss, page fault, or bus
+	// error.
+
+	uint32_t asid;
+
+	int mmuon = proc->Cr[RS] & RS_MMU;
+
+	if (mmuon) {
+		asid = proc->Cr[ITBTAG] & 0xFFF00000;
+	} else {
+		asid = 0xFFFFFFFF;
+	}
+
+	XrIblock *iblock = XrLookupIblock(proc, pc, asid, 1);
+
+	if (XrLikely(iblock != 0)) {
+		// Already cached.
+
+		DBGPRINT("cached as %p\n", iblock);
+
+		return iblock;
+	}
+
+	if (XrUnlikely((pc & 3) != 0)) {
+		// Unaligned access.
+
+		proc->Cr[EBADADDR] = pc;
+		XrBasicException(proc, XR_EXC_UNA, proc->Pc);
+
+		return 0;
+	}
+
+	uint32_t ir[XR_IBLOCK_INSTS];
+
+	// Round down to the last Icache line boundary so that we can fetch one line
+	// at a time.
+
+	uint32_t fetchpc = pc & ~(XR_IC_LINE_SIZE - 1);
+
+	int instindex = (pc - fetchpc) >> 2;
+
+	int instcount = XR_IBLOCK_INSTS;
+
+	// Don't allow fetches to cross page boundaries.
+
+	if (((fetchpc + XR_IBLOCK_INSTS_BYTES) & 0xFFFFF000) != (pc & 0xFFFFF000)) {
+		instcount = (((pc + 0xFFF) & 0xFFFFF000) - fetchpc) >> 2;
+	}
+
+	// Translate the program counter.
+
+	int cachetype = CACHED;
+
+	if (XrLikely(proc->Cr[RS] & RS_MMU)) {
+		if (!XrTranslate(proc, fetchpc, &fetchpc, &cachetype, 0, 1)) {
+			return 0;
+		}
+	} else if (XrUnlikely(fetchpc >= XR_NONCACHED_PHYS_BASE)) {
+		cachetype = NONCACHED;
+	}
+
+	if (!XR_SIMULATE_CACHES) {
+		cachetype = NONCACHED;
+	}
+
+	// Fetch instructions one line at a time.
+
+	if (XrUnlikely(cachetype == NONCACHED)) {
+		for (int offset = 0;
+			offset < instcount;
+			offset += XR_IC_INST_PER_LINE, fetchpc += XR_IC_LINE_SIZE) {
+
+			int status = XrNoncachedAccess(proc, fetchpc, &ir[offset], 0, XR_IC_LINE_SIZE);
+
+			if (XrUnlikely(!status)) {
+				return 0;
+			}
+		}
+	} else {
+		for (int offset = 0;
+			offset < instcount;
+			offset += XR_IC_INST_PER_LINE, fetchpc += XR_IC_LINE_SIZE) {
+
+			int status = XrIcacheAccess(proc, fetchpc, &ir[offset], XR_IC_LINE_SIZE);
+
+			if (XrUnlikely(!status)) {
+				return 0;
+			}
+		}
+	}
+
+	// Allocate an Iblock.
+
+	iblock = XrAllocateIblock(proc);
+
+	iblock->Pc = pc;
+	iblock->Asid = asid;
+	iblock->Cycles = 0;
+	iblock->TruePath = 0;
+	iblock->FalsePath = 0;
+	iblock->CachedByFifoIndex = 0;
+
+	for (int i = 0; i < XR_IBLOCK_CACHEDBY_MAX; i++) {
+		iblock->CachedBy[i] = 0;
+	}
+
+	InsertAtHeadList(&proc->IblockHashBuckets[XR_IBLOCK_HASH(pc)], &iblock->HashEntry);
+	InsertAtHeadList(&proc->IblockLruList, &iblock->LruEntry);
+
+	// Decode instructions starting at the offset of the program counter within
+	// the fetched chunk, until we reach either a branch, an illegal
+	// instruction, or the end of the chunk.
+
+	DBGPRINT("decode %x %x %x %x\n", instindex, pc, fetchpc, ir[instindex]);
+
+	XrCachedInst *inst = &iblock->Insts[0];
+
+	for (;
+		instindex < instcount;
+		instindex++, inst++, pc += 4) {
+
+		iblock->Cycles++;
+
+		// The decode routine returns 1 if the instruction terminates the basic
+		// block.
+
+		if (XrDecodeLowThree[ir[instindex] & 7](inst, ir[instindex], pc)) {
+			inst++;
+			break;
+		}
+	}
+
+	// In case we went right up to the end of the basic block's maximum extent
+	// without running into a control flow instruction, we want this special
+	// linkage instruction at the end which just directs the interpreter to the
+	// next basic block. There's an extra instruction slot in the basic block to
+	// make sure there's room for this.
+
+	inst->Func = &XrSpecialLinkageInstruction;
+
+	return iblock;
+}
+
+int XrExecuteFast(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 #ifdef PROFCPU
 	if (XrPrintCache) {
 		proc->TimeToNextPrint -= dt;
@@ -2251,8 +3523,8 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 			int itotal = proc->IcHitCount + proc->IcMissCount;
 			int dtotal = proc->DcHitCount + proc->DcMissCount;
 
-			fprintf(stderr, "%d: icache misses: %d (%.2f%% miss rate)\n", proc->Id, proc->IcMissCount, (double)proc->IcMissCount/(double)itotal*100.0);
-			fprintf(stderr, "%d: dcache misses: %d (%.2f%% miss rate)\n", proc->Id, proc->DcMissCount, (double)proc->DcMissCount/(double)dtotal*100.0);
+			fDBGPRINT(stderr, "%d: icache misses: %d (%.2f%% miss rate)\n", proc->Id, proc->IcMissCount, (double)proc->IcMissCount/(double)itotal*100.0);
+			fDBGPRINT(stderr, "%d: dcache misses: %d (%.2f%% miss rate)\n", proc->Id, proc->DcMissCount, (double)proc->DcMissCount/(double)dtotal*100.0);
 
 			proc->IcMissCount = 0;
 			proc->IcHitCount = 0;
@@ -2265,7 +3537,7 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 			/*
 			for (int i = 0; i < XR_DC_LINE_COUNT; i++) {
 				if (proc->DcFlags[i]) {
-					printf("%d: %d = %x %x\n", proc->Id, i, proc->DcTags[i], proc->DcFlags[i]);
+					DBGPRINT("%d: %d = %x %x\n", proc->Id, i, proc->DcTags[i], proc->DcFlags[i]);
 				}
 			}
 			*/
@@ -2278,7 +3550,7 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 	if (proc->UserBreak && !proc->NmiMaskCounter) {
 		// There's a pending user-initiated NMI, so do that.
 
-		XrBasicInbetweenException(proc, XR_EXC_NMI);
+		XrBasicException(proc, XR_EXC_NMI, proc->Pc);
 		proc->UserBreak = 0;
 		proc->Halted = 0;
 	}
@@ -2332,7 +3604,9 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 
 	int status;
 
-	for (; cyclesdone < cycles && !proc->Halted && proc->Running && proc->PauseCalls < XR_PAUSE_MAX; cyclesdone++) {
+	XrIblock *iblock = 0;
+
+	for (; cyclesdone < cycles && !proc->Halted && proc->Running && proc->PauseCalls < XR_PAUSE_MAX;) {
 		if (proc->NmiMaskCounter) {
 			// Decrement the NMI mask cycle counter.
 
@@ -2341,42 +3615,23 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 			if (proc->UserBreak && !proc->NmiMaskCounter) {
 				// There's a pending user-initiated NMI, so do that.
 
-				XrBasicInbetweenException(proc, XR_EXC_NMI);
+				XrBasicException(proc, XR_EXC_NMI, proc->Pc);
 				proc->UserBreak = 0;
 				proc->Halted = 0;
+
+				// Make sure we re-lookup the Iblock.
+
+				iblock = 0;
 			}
 		}
 
-#ifdef PROFCPU
-		proc->CycleCounter++;
-#endif
+		if (XR_SIMULATE_CACHE_STALLS && proc->StallCycles) {
+			// There's a simulated cache stall of some number of cycles, so
+			// decrement the remaining stall and loop.
 
-		// Make sure the zero register is always zero, except during TLB misses,
-		// where it may be used as a scratch register.
+			proc->StallCycles--;
 
-		if ((proc->Cr[RS] & RS_TBMISS) == 0) {
-			proc->Reg[0] = 0;
-		}
-
-		if (XrSimulateCaches) {
-			if (proc->StallCycles && XrSimulateCacheStalls) {
-				// There's a simulated cache stall of some number of cycles, so
-				// decrement the remaining stall and loop.
-
-				proc->StallCycles--;
-
-				continue;
-			}
-
-			if (proc->WbCycles) {
-				proc->WbCycles -= 1;
-
-				if (proc->WbCycles == 0) {
-					// Time to write out a write buffer entry.
-
-					XrWriteWbEntry(proc);
-				}
-			}
+			continue;
 		}
 
 		if (lsic->InterruptPending && (proc->Cr[RS] & RS_INT)) {
@@ -2387,85 +3642,67 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 			// writes by other host cores to the interrupt pending flag visible
 			// to us in a timely manner, without needing any barriers.
 
-			XrBasicInbetweenException(proc, XR_EXC_INT);
+			XrBasicException(proc, XR_EXC_INT, proc->Pc);
 
 			// Reset the poll counter so as not to penalize the processor for
 			// handling the interrupt.
 
 			proc->Progress = XR_POLL_MAX;
+
+			// Make sure we re-lookup the Iblock.
+
+			iblock = 0;
 		}
 
-		currentpc = proc->Pc;
-		proc->Pc += 4;
+		if (!iblock) {
+			iblock = XrDecodeInstructions(proc, proc->Pc);
 
-		proc->IFetch = 1;
-		status = XrReadLong(proc, currentpc, &ir);
-		proc->IFetch = 0;
+			if (!iblock) {
+				// An exception occurred while performing instruction fetch.
+				// Loop and let the exception handler execute.
 
-		if (!status) {
-			// The read failed and an exception was caused, so loop and let the
-			// exception handler execute.
+				cyclesdone += XR_IBLOCK_INSTS;
 
-			continue;
+				continue;
+			}
+
+			DBGPRINT("acquired %p\n", iblock);
 		}
 
-		// Fetch was successful, decode the instruction word and execute the
-		// instruction.
+		DBGPRINT("running %x %p\n", proc->Pc, iblock);
 
-		XrLowThree[ir & 7](proc, currentpc, ir);
+		uint32_t blockcycles = iblock->Cycles;
+
+		cyclesdone += blockcycles;
+
+#ifdef PROFCPU
+		proc->CycleCounter += blockcycles;
+#endif
+
+		// Move the basic block to the front of the LRU list.
+
+		RemoveEntryList(&iblock->LruEntry);
+
+		InsertAtHeadList(&proc->IblockLruList, &iblock->LruEntry);
+
+		// Execute the basic block.
+		// Each instruction execute function directly tail-calls the next until
+		// the final one returns the next Iblock to us.
+
+		iblock = iblock->Insts[0].Func(proc, iblock, &iblock->Insts[0]);
+
+		DBGPRINT("next %p\n", iblock);
+
+		if (XR_SIMULATE_CACHES && proc->WbCycles) {
+			if (proc->WbCycles <= blockcycles) {
+				// Time to write out a write buffer entry.
+				proc->WbCycles = 0;
+				XrWriteWbEntry(proc);
+			} else {
+				proc->WbCycles -= blockcycles;
+			}
+		}
 	}
 
 	return cyclesdone;
-}
-
-static inline XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
-	// Decode some instructions starting at the given virtual PC.
-	// Return NULLPTR if we fail to fetch the first instruction. This implies
-	// that an exception occurred, such as an ITB miss, page fault, or bus
-	// error.
-
-	XrIblock *iblock = XrLookupIblock(proc, pc, 1);
-
-	if (iblock) {
-		// Already cached.
-
-		return iblock;
-	}
-
-	uint32_t ir[XR_IBLOCK_INSTS];
-
-	// Round down to the last Icache line boundary so that we can fetch one line
-	// at a time.
-
-	pc &= ~(XR_IC_LINE_SIZE - 1);
-
-	// Calculate the maximum address we should fetch up to.
-	// This is the lesser of the maximum number of instructions per Iblock, and
-	// the next virtual page boundary.
-
-	uint32_t max = (pc + 0xFFF) & ~0xFFF;
-
-	if (pc + XR_IBLOCK_INSTS * 4 < max) {
-		max = pc + XR_IBLOCK_INSTS * 4;
-	}
-
-	proc->IFetch = 1;
-
-	for (int i = 0; pc < max; i += 1, pc += XR_IC_LINE_SIZE) {
-		int status = XrAccess(proc, pc, &ir[i], 0, XR_IC_LINE_SIZE, 0);
-
-		if (!status) {
-			proc->IFetch = 0;
-
-			return 0;
-		}
-	}
-
-	proc->IFetch = 0;
-
-	// Allocate an iblock.
-
-	iblock = XrAllocateIblock(proc);
-
-	return iblock;
 }

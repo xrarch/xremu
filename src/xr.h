@@ -1,6 +1,9 @@
 #include <SDL.h>
 #include "queue.h"
 
+#define XrLikely(x)       __builtin_expect(!!(x), 1)
+#define XrUnlikely(x)     __builtin_expect(!!(x), 0)
+
 // Configurable stall parameters.
 
 #define XR_UNCACHED_STALL 3
@@ -51,6 +54,8 @@
 #define XR_DC_WAYS (1 << XR_DC_WAY_LOG)
 #define XR_IC_BYTE_COUNT (1 << (XR_IC_LINE_COUNT_LOG + XR_IC_LINE_SIZE_LOG))
 #define XR_DC_BYTE_COUNT (1 << (XR_DC_LINE_COUNT_LOG + XR_DC_LINE_SIZE_LOG))
+
+#define XR_IC_INST_PER_LINE (XR_IC_LINE_SIZE / 4)
 
 #define XR_SC_SETS (1 << XR_SC_SET_LOG)
 #define XR_SC_LINE_COUNT (1 << XR_SC_LINE_COUNT_LOG)
@@ -113,21 +118,32 @@
 #define XR_IBLOCK_COUNT 2048
 #define XR_IBLOCK_RECLAIM 32
 
+#define XR_IBLOCK_CACHEDBY_MAX 4
+
 // Don't modify this XR_IBLOCK_INSTS, modify XR_IBLOCK_INSTS_LOG.
 
 #define XR_IBLOCK_INSTS ((XR_IC_LINE_SIZE >> 2) << XR_IBLOCK_INSTS_LOG)
+#define XR_IBLOCK_INSTS_BYTES (XR_IBLOCK_INSTS * 4)
 
 #define XR_IBLOCK_HASH(pc) ((pc >> 2) & (XR_IBLOCK_HASH_BUCKETS - 1))
+
+#define XR_TAIL [[clang::musttail]]
 
 typedef struct _XrProcessor XrProcessor;
 typedef struct _XrIblock XrIblock;
 typedef struct _XrCachedInst XrCachedInst;
-typedef struct _XrIblockLinkage XrIblockLinkage;
 
-typedef void (*XrInstImplF)(XrProcessor *proc, XrIblock *block, XrCachedInst *inst);
+typedef uint32_t (*XrInstShiftF)(uint32_t a, uint32_t b);
+
+typedef XrIblock *(*XrInstImplF)(XrProcessor *proc, XrIblock *block, XrCachedInst *inst);
 
 struct _XrCachedInst {
 	XrInstImplF Func;
+	XrInstShiftF ShiftFunc;
+	uint32_t Imm32_1;
+	uint8_t Imm8_1;
+	uint8_t Imm8_2;
+	uint8_t Imm8_3;
 };
 
 struct _XrIblock {
@@ -136,9 +152,15 @@ struct _XrIblock {
 
 	XrIblock *TruePath;
 	XrIblock *FalsePath;
-	uint32_t Pc;
 
-	XrCachedInst Insts[XR_IBLOCK_INSTS];
+	XrIblock **CachedBy[XR_IBLOCK_CACHEDBY_MAX];
+
+	uint32_t CachedByFifoIndex;
+	uint32_t Asid;
+	uint32_t Pc;
+	uint32_t Cycles;
+
+	XrCachedInst Insts[XR_IBLOCK_INSTS + 1];
 };
 
 struct _XrProcessor {
@@ -225,7 +247,7 @@ extern uint32_t XrProcessorCount;
 extern XrProcessor *CpuTable[XR_PROC_MAX];
 
 extern void XrReset(XrProcessor *proc);
-extern uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt);
+extern int XrExecuteFast(XrProcessor *proc, uint32_t cycles, uint32_t dt);
 
 #ifndef EMSCRIPTEN
 
