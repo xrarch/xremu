@@ -1,3 +1,10 @@
+#ifndef XR_TTY_H
+#define XR_TTY_H
+
+#include <stdint.h>
+#include <stdbool.h>
+#include <SDL.h>
+
 extern bool TTY132ColumnMode;
 
 struct TTY;
@@ -299,3 +306,5 @@ static uint8_t KeyMapShift[SDL_NUM_SCANCODES] = {
 	[SDL_SCANCODE_KP_9]        = '9',
 	[SDL_SCANCODE_KP_PERIOD]   = '.',
 };
+
+#endif // XR_TTY_H

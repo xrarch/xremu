@@ -1,3 +1,6 @@
+#ifndef XR_H
+#define XR_H
+
 #include <SDL.h>
 #include "queue.h"
 
@@ -289,3 +292,5 @@ static inline void XrLockInterrupt(XrProcessor *proc) {}
 static inline void XrUnlockInterrupt(XrProcessor *proc) {}
 
 #endif
+
+#endif // XR_H

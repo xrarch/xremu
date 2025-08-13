@@ -1,7 +1,8 @@
-#ifndef _QUEUE_H_
-#define	_QUEUE_H_
+#ifndef XR_QUEUE_H
+#define	XR_QUEUE_H
 
 #include <stddef.h>
+#include <stdbool.h>
 
 typedef struct _ListEntry ListEntry;
 
@@ -48,4 +49,4 @@ static inline void RemoveEntryList(ListEntry *entry) {
 #define ContainerOf(address, type, field) \
 	((type *)((size_t)(address) - offsetof(type, field)))
 
-#endif /* !_QUEUE_H_ */
+#endif // XR_QUEUE_H

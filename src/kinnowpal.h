@@ -1,3 +1,8 @@
+#ifndef XR_KINNOWPAL_H
+#define XR_KINNOWPAL_H
+
+#include <stdint.h>
+
 static uint32_t KinnowPalette[256] = {
 	0x000000,
 	0x220022,
@@ -256,3 +261,5 @@ static uint32_t KinnowPalette[256] = {
 	0xcceecc,
 	0xffffff,
 };
+
+#endif // XR_KINNOWPAL_H
