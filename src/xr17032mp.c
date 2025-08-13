@@ -10,8 +10,6 @@
 #include "lsic.h"
 #include "ebus.h"
 
-uint8_t XrSimulateCaches = 1;
-uint8_t XrSimulateCacheStalls = 0;
 uint8_t XrPrintCache = 0;
 
 uint32_t XrScacheTags[XR_SC_LINE_COUNT];
@@ -152,7 +150,6 @@ void XrReset(XrProcessor *proc) {
 
 	proc->NmiMaskCounter = NMI_MASK_CYCLES;
 	proc->LastTbMissWasWrite = 0;
-	proc->IFetch = 0;
 	proc->UserBreak = 0;
 	proc->Halted = 0;
 	proc->Running = 1;
@@ -304,11 +301,11 @@ static inline uint8_t XrLookupDtb(XrProcessor *proc, uint32_t virtual, uint64_t 
 	return 0;
 }
 
-static inline uint8_t XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t *phys, int *cachetype, bool writing) {
+static inline int XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t *phys, int *cachetype, bool writing, bool ifetch) {
 	uint64_t tbe;
 	uint32_t vpn = virtual >> 12;
 
-	if (proc->IFetch) {
+	if (ifetch) {
 		if (proc->ItbLastVpn == vpn) {
 			// This matches the last lookup, avoid searching the whole ITB.
 
@@ -368,7 +365,7 @@ static inline uint8_t XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t 
 		return 0;
 	}
 
-	if (proc->IFetch) {
+	if (ifetch) {
 		proc->ItbLastVpn = vpn;
 		proc->ItbLastResult = tbe;
 	} else {
@@ -392,7 +389,7 @@ static uint32_t XrAccessMasks[5] = {
 	0xFFFFFFFF
 };
 
-static inline uint8_t XrNoncachedAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length) {
+static inline int XrNoncachedAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length) {
 	proc->StallCycles += XR_UNCACHED_STALL;
 
 	int result;
@@ -417,7 +414,7 @@ static inline uint8_t XrNoncachedAccess(XrProcessor *proc, uint32_t address, uin
 	return 1;
 }
 
-static inline uint8_t XrIcacheAccess(XrProcessor *proc, uint32_t address, uint32_t *dest) {
+static inline int XrIcacheAccess(XrProcessor *proc, uint32_t address, uint32_t *dest) {
 	// Access Icache. Quite fast, don't need to take any locks or anything
 	// as there is no coherence, plus its always a 32-bit read, so we
 	// duplicate some logic here as a fast path.
@@ -685,7 +682,7 @@ static inline uint32_t XrFindOrReplaceInScache(XrProcessor *thisproc, uint32_t t
 	return cacheindex;
 }
 
-static inline uint8_t XrDcacheAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, uint8_t forceexclusive) {
+static int XrDcacheAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, int forceexclusive) {
 	// Access Dcache. Scary! We have to worry about coherency with the other
 	// Dcaches in the system, and this can be a 1, 2, or 4 byte access.
 	// If dest == 0, this is a write. Otherwise it's a read.
@@ -1055,7 +1052,38 @@ restart:
 	return 1;
 }
 
-static uint8_t XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, uint8_t forceexclusive) {
+static inline int XrIfetch(XrProcessor *proc, uint32_t address, uint32_t *dest) {
+	if (address & 3) {
+		// Unaligned access.
+
+		proc->Cr[EBADADDR] = address;
+		XrBasicException(proc, XR_EXC_UNA);
+
+		return 0;
+	}
+
+	int cachetype = CACHED;
+
+	if (proc->Cr[RS] & RS_MMU) {
+		if (!XrTranslate(proc, address, &address, &cachetype, 0, 1)) {
+			return 0;
+		}
+	} else if (address >= XR_NONCACHED_PHYS_BASE) {
+		cachetype = NONCACHED;
+	}
+
+	if (!XR_SIMULATE_CACHES) {
+		cachetype = NONCACHED;
+	}
+
+	if (cachetype == NONCACHED) {
+		return XrNoncachedAccess(proc, address, dest, 0, 4);
+	}
+
+	return XrIcacheAccess(proc, address, dest);
+}
+
+static inline int XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, int forceexclusive) {
 	if (address & (length - 1)) {
 		// Unaligned access.
 
@@ -1068,19 +1096,19 @@ static uint8_t XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uin
 	int cachetype = CACHED;
 
 	if (proc->Cr[RS] & RS_MMU) {
-		if (!XrTranslate(proc, address, &address, &cachetype, dest ? 0 : 1)) {
+		if (!XrTranslate(proc, address, &address, &cachetype, dest ? 0 : 1, 0)) {
 			return 0;
 		}
 	} else if (address >= XR_NONCACHED_PHYS_BASE) {
 		cachetype = NONCACHED;
 	}
 
-	if (!XrSimulateCaches) {
+	if (!XR_SIMULATE_CACHES) {
 		cachetype = NONCACHED;
 	}
 
 	if (cachetype == NONCACHED) {
-		if (forceexclusive && XrSimulateCaches) {
+		if (forceexclusive && XR_SIMULATE_CACHES) {
 			// Attempt to use LL/SC on noncached memory. Nonsense! Just kill the
 			// evildoer with a bus error.
 
@@ -1091,10 +1119,6 @@ static uint8_t XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uin
 		}
 
 		return XrNoncachedAccess(proc, address, dest, srcvalue, length);
-	}
-
-	if (proc->IFetch) {
-		return XrIcacheAccess(proc, address, dest);
 	}
 
 	return XrDcacheAccess(proc, address, dest, srcvalue, length, forceexclusive);
@@ -1394,7 +1418,7 @@ static void XrBrk(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 }
 
 static void XrWmb(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
-	if (XrSimulateCaches) {
+	if (XR_SIMULATE_CACHES) {
 		// Flush the write buffer.
 
 		XrFlushWriteBuffer(proc);
@@ -1548,7 +1572,7 @@ static void XrMtcr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 
 	switch(rb) {
 		case ICACHECTRL:
-			if (!XrSimulateCaches)
+			if (!XR_SIMULATE_CACHES)
 				break;
 
 			if ((proc->Reg[ra] & 3) == 3) {
@@ -1582,7 +1606,7 @@ static void XrMtcr(XrProcessor *proc, uint32_t currentpc, uint32_t ir) {
 			break;
 
 		case DCACHECTRL:
-			if (!XrSimulateCaches)
+			if (!XR_SIMULATE_CACHES)
 				break;
 
 			XrFlushWriteBuffer(proc);
@@ -2240,8 +2264,8 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 			proc->Reg[0] = 0;
 		}
 
-		if (XrSimulateCaches) {
-			if (proc->StallCycles && XrSimulateCacheStalls) {
+		if (XR_SIMULATE_CACHES) {
+			if (proc->StallCycles && XR_SIMULATE_CACHE_STALLS) {
 				// There's a simulated cache stall of some number of cycles, so
 				// decrement the remaining stall and loop.
 
@@ -2280,9 +2304,7 @@ uint32_t XrExecute(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 		currentpc = proc->Pc;
 		proc->Pc += 4;
 
-		proc->IFetch = 1;
-		status = XrReadLong(proc, currentpc, &ir);
-		proc->IFetch = 0;
+		status = XrIfetch(proc, currentpc, &ir);
 
 		if (!status) {
 			// The read failed and an exception was caused, so loop and let the

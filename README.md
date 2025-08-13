@@ -44,12 +44,6 @@ Striking the right ALT key will switch the display between the framebuffer and t
     -asyncserial
         Simulate serial latency.
 
-    -nocachesim
-        Don't simulate the I-cache and D-cache.
-
-    -cachemiss
-        Simulate cycle delays on cache misses.
-
     -cacheprint
         Print cache statistics every 2 seconds. Only works if the emulator was compiled with PROFCPU=1 (which may slow down CPU emulation a bit).
 

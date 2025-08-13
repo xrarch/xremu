@@ -68,7 +68,7 @@ int CpuLoop(void *context) {
 	// Execute CPU time from each CPU in sequence, until all timeslices have run
 	// down.
 
-	int procid = 0;
+	int startprocid = id * (XrProcessorCount / CpuThreadCount);
 
 	int cyclesperms = (SimulatorHz+999)/1000;
 	int pausemargin = cyclesperms * 2;
@@ -77,6 +77,12 @@ int CpuLoop(void *context) {
 		// Wait until the next frame.
 
 		SDL_SemWait(CpuTable[id]->LoopSemaphore);
+
+		// Start the processor ID at the preferred ID. This will make it so the
+		// same threads preferentially execute the same couple of processors,
+		// which will improve cache affinity.
+
+		int procid = startprocid;
 
 		// Iterate over the CPUs in a cycle until all of the virtual CPU time
 		// for this frame, of which each CPU gets ~17ms worth, has been
@@ -376,12 +382,6 @@ int main(int argc, char *argv[]) {
 				return 1;
 			}
 
-		} else if (strcmp(argv[i], "-nocachesim") == 0) {
-			XrSimulateCaches = false;
-
-		} else if (strcmp(argv[i], "-cachemiss") == 0) {
-			XrSimulateCacheStalls = true;
-
 		} else if (strcmp(argv[i], "-cacheprint") == 0) {
 			XrPrintCache = true;
 
@@ -438,7 +438,7 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	if (!XrSimulateCaches && XrProcessorCount > 1) {
+	if (!XR_SIMULATE_CACHES && XrProcessorCount > 1) {
 		fprintf(stderr, "Can't simulate multiprocessor with disabled caches\n");
 		return 1;
 	}

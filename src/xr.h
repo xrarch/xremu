@@ -210,14 +210,14 @@ struct _XrProcessor {
 	uint8_t DcLastFlags;
 	uint8_t Locked;
 	uint8_t LastTbMissWasWrite;
-	uint8_t IFetch;
 	uint8_t UserBreak;
 	uint8_t Halted;
 	uint8_t Running;
 };
 
-extern uint8_t XrSimulateCaches;
-extern uint8_t XrSimulateCacheStalls;
+#define XR_SIMULATE_CACHES 1
+#define XR_SIMULATE_CACHE_STALLS 0
+
 extern uint8_t XrPrintCache;
 
 extern uint32_t XrProcessorCount;
