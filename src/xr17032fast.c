@@ -56,6 +56,12 @@
 //    simulation and virtual memory translation machinery that can be more
 //    specialized and optimized in the new cached interpreter world.
 //
+//    The cache mutexes currently take up an undue amount of time even when
+//    uncontended because of dynamic calls from xremu -> SDL -> pthreads.
+//    It is likely worth it to replace this with our own attempt at an inline
+//    lock acquisition with a single atomic operation, and then call SDL
+//    directly only if it fails.
+//
 // 7. Optimize the zero register. Maybe keep destination registers the same
 //    during decode, but replace any source register specified as zero, to be a
 //    virtual 33rd register with index 32 that always contains zero. Except for
@@ -71,9 +77,22 @@
 //
 //    which compares two registers RA and RB and branches if they're equal, to
 //
-//        BEQ RA, RB, OFFSET
+//        BEQ.sub RD, RA, RB, OFFSET
 //
-//    a direct comparison and jump in a single virtual instruction.
+//    a direct comparison and jump in a single virtual instruction. Note that it
+//    still performs the subtraction into RD because that is a visible side
+//    effect of the original sequence and we aren't fancy enough to tell ahead
+//    of time whether the result of the subtraction will actually be needed.
+//
+// 9. The inline shifts for register instructions should not be a call through a
+//    function pointer as they are currently, but should instead be either a
+//    chain of if statements (perhaps doing a binary search) or a virtual
+//    instruction inserted into the basic block, which performs the shift into a
+//    fake register which is then used as the source by the register
+//    instruction. Both methods should be tried and benchmarked. The main
+//    benefit of the virtual instruction is that in the common case of a shift
+//    amount of 0, we can completely elide the shift. The if statements on the
+//    other hand have a constant overhead even when shamt == 0.
 //
 
 #include <stdbool.h>
