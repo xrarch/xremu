@@ -1,3 +1,53 @@
+//
+// Cached interpreter core for the fictional XR/17032 microprocessor.
+//
+// Cool optimizations left to do:
+//
+// 1. The basic block cache is virtual and so needs to be purged when ITB
+//    entries are explicitly flushed. I managed to tag them with ASIDs so they
+//    dont need to be flushed upon address space switch, but it would be nice to
+//    be able to only invalidate the basic blocks that resided within the
+//    virtual page that was flushed. I have some ideas for doing this
+//    efficiently, such as a secondary hash table keyed by bits of the VPN in
+//    which basic blocks are all inserted.
+//
+// 2. Currently most of the branch instructions are capable of caching a pointer
+//    to the next basic block for both the true and false paths, which avoids a
+//    hash table lookup, but JALR (calling through a register) currently cannot.
+//    I'd like to generalize the true/false paths into an array of cached paths
+//    in the basic block header and allow JALR-terminated basic blocks to keep a
+//    small history table of recent jump destinations.
+//
+//2a. As a sub-case of the above, JALR to R31 (the link register) should be able
+//    to make use of a small stack cache that is "pushed" by JAL x and "popped"
+//    by JALR ZERO, R31, 0.
+//
+// 4. Keep a small cache of 2-4 recent DTB lookups in the basic block header
+//    which is consulted before the DTLB by instructions therein. There's an
+//    issue with invalidating these when DTLB entries are flushed that im not
+//    completely sure how to deal with. One way is by caching an index within
+//    the DTB and having it be a validating look up (it makes sure the present
+//    DTB entry matches the translation done earlier) but this eliminates the
+//    potential benefit of increasing the functional size of the DTB.
+//
+// 5. Allow basic blocks to, most of the time, directly tail-call one another
+//    rather than always returning to the outer dispatch loop on basic block
+//    boundaries. I was thinking I could do this with a simple incrementing
+//    counter where it'll do a direct call if (counter & 7) != 0 and return to
+//    the dispatch loop otherwise. In fact, the dispatch loop could be
+//    completely eliminated, with its functions replaced by another tail-called
+//    routine (such as checking for interrupts on basic block boundaries).
+//
+// 6. I do an unnecessary copy from the Icache while doing instruction decoding
+//    that could be replaced with directly examining the instruction data within
+//    the Icache. It's also probably unnecessary to support noncached
+//    instruction fetch and I can eliminate some branches if I just don't.
+//
+// 7. Various implementational improvements of older, overly-generalized cache
+//    simulation and virtual memory translation machinery that can be more
+//    specialized and optimized in the new cached interpreter world.
+//
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
