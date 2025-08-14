@@ -43,9 +43,37 @@
 //    the Icache. It's also probably unnecessary to support noncached
 //    instruction fetch and I can eliminate some branches if I just don't.
 //
+//    This raises a more interesting notion where the entire memory access model
+//    of the emulator should maybe be replaced with a phys addr -> host addr
+//    translation scheme, potentially even with its own cache, so I can easily
+//    get direct pointers to host memory to do things like instruction decode
+//    rapidly. This can always be done for cacheable memory but there still
+//    needs to be an active and action-oriented rather than passive and
+//    translation-oriented interface for noncached mappings of things like
+//    device registers.
+//
 // 6. Various implementational improvements of older, overly-generalized cache
 //    simulation and virtual memory translation machinery that can be more
 //    specialized and optimized in the new cached interpreter world.
+//
+// 7. Optimize the zero register. Maybe keep destination registers the same
+//    during decode, but replace any source register specified as zero, to be a
+//    virtual 33rd register with index 32 that always contains zero. Except for
+//    blocks that are decoded with the RS_TBMISS bit set, which must directly
+//    use the zero register (it is banked and usable as scratch during TLB miss
+//    handling).
+//
+// 8. Decode with a small peephole window rather than a single instruction at a
+//    time, and collapse common idioms such as
+//
+//        SUB RD, RA, RB
+//        BEQ RD, OFFSET
+//
+//    which compares two registers RA and RB and branches if they're equal, to
+//
+//        BEQ RA, RB, OFFSET
+//
+//    a direct comparison and jump in a single virtual instruction.
 //
 
 #include <stdbool.h>
