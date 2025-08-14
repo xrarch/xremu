@@ -2401,10 +2401,10 @@ static XrIblock *XrExecuteSubBeq(XrProcessor *proc, XrIblock *block, XrCachedIns
 	XrIblock **referrent;
 
 	if (sub == 0) {
-		proc->Pc += inst->Imm32_2;
+		proc->Pc += 4 + inst->Imm32_2;
 		referrent = &block->TruePath;
 	} else {
-		proc->Pc += 4;
+		proc->Pc += 8;
 		referrent = &block->FalsePath;
 	}
 
@@ -3090,19 +3090,19 @@ static XrDecodeResult XrDecodeSub(XrCachedInst *inst, uint32_t ir, uint32_t pc, 
 		uint16_t expected = (reg << 6) | 0b111101;
 		if ((next_inst & 0b11111111111) == expected) {
 			// decode as a SubBeq
-			printf("DECODE PEEPHOLE!!!\n");
+			// printf("DECODE PEEPHOLE!!!\n");
 			// // sub
-			// inst->Func = &XrExecuteSubBeq;
-			// inst->Imm8_1 = (ir >> 6) & 31;
-			// inst->Imm8_2 = (ir >> 11) & 31;
-			// inst->Imm32_1 = (ir >> 16) & 31;
-			// inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
-			// inst->Imm8_3 = (ir >> 21) & 31;
+			inst->Func = &XrExecuteSubBeq;
+			inst->Imm8_1 = (ir >> 6) & 31;
+			inst->Imm8_2 = (ir >> 11) & 31;
+			inst->Imm32_1 = (ir >> 16) & 31;
+			inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+			inst->Imm8_3 = (ir >> 21) & 31;
 
-			// // beq
-			// inst->Imm32_2 = SignExt23((ir >> 11) << 2);
+			// beq
+			inst->Imm32_2 = SignExt23((next_inst >> 11) << 2);
 
-			// return XR_DECODE_MULTI(1, 2);
+			return XR_DECODE_MULTI(1, 2);
 		}
 	}
 

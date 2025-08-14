@@ -7,5 +7,6 @@
 *.wasm
 *.js
 *.img
+*.json
 bin/nvram
 xremu
