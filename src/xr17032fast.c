@@ -1296,6 +1296,7 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc);
 #define XR_SHIFTED_VAL() inst->ShiftFunc(XR_REG_RB(), XR_INST_SHAMT())
 #define XR_MAINTAIN_ZERO() if ((proc->Cr[RS] & RS_TBMISS) == 0) proc->Reg[0] = 0;
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteIllegalInstruction(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 1\n");
 
@@ -1304,6 +1305,7 @@ static XrIblock *XrExecuteIllegalInstruction(XrProcessor *proc, XrIblock *block,
 	return 0;
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteNor(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 2\n");
 
@@ -1314,6 +1316,7 @@ static XrIblock *XrExecuteNor(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteOr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 3\n");
 
@@ -1324,6 +1327,7 @@ static XrIblock *XrExecuteOr(XrProcessor *proc, XrIblock *block, XrCachedInst *i
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteXor(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 4\n");
 
@@ -1334,6 +1338,7 @@ static XrIblock *XrExecuteXor(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteAnd(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 5\n");
 
@@ -1344,6 +1349,7 @@ static XrIblock *XrExecuteAnd(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteSltSigned(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 6\n");
 
@@ -1358,6 +1364,7 @@ static XrIblock *XrExecuteSltSigned(XrProcessor *proc, XrIblock *block, XrCached
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteSlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 7\n");
 
@@ -1372,6 +1379,7 @@ static XrIblock *XrExecuteSlt(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteSub(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 8\n");
 
@@ -1382,6 +1390,7 @@ static XrIblock *XrExecuteSub(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteAdd(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 
 	DBGPRINT("exec 9\n");
@@ -1393,6 +1402,7 @@ static XrIblock *XrExecuteAdd(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteLsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 10\n");
 
@@ -1403,6 +1413,7 @@ static XrIblock *XrExecuteLsh(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteRsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 11\n");
 
@@ -1413,6 +1424,7 @@ static XrIblock *XrExecuteRsh(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteAsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 12\n");
 
@@ -1423,6 +1435,7 @@ static XrIblock *XrExecuteAsh(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteRor(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 13\n");
 
@@ -1433,6 +1446,7 @@ static XrIblock *XrExecuteRor(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteStoreLongRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 14\n");
 
@@ -1447,6 +1461,7 @@ static XrIblock *XrExecuteStoreLongRegOffset(XrProcessor *proc, XrIblock *block,
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteStoreIntRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 15\n");
 
@@ -1461,6 +1476,7 @@ static XrIblock *XrExecuteStoreIntRegOffset(XrProcessor *proc, XrIblock *block, 
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteStoreByteRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 16\n");
 
@@ -1475,6 +1491,7 @@ static XrIblock *XrExecuteStoreByteRegOffset(XrProcessor *proc, XrIblock *block,
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteLoadLongRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 17\n");
 
@@ -1491,6 +1508,7 @@ static XrIblock *XrExecuteLoadLongRegOffset(XrProcessor *proc, XrIblock *block, 
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteLoadIntRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 18\n");
 
@@ -1507,6 +1525,7 @@ static XrIblock *XrExecuteLoadIntRegOffset(XrProcessor *proc, XrIblock *block, X
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteLoadByteRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 19\n");
 
@@ -1523,6 +1542,7 @@ static XrIblock *XrExecuteLoadByteRegOffset(XrProcessor *proc, XrIblock *block, 
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteSys(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 20\n");
 
@@ -1531,6 +1551,7 @@ static XrIblock *XrExecuteSys(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	return 0;
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteBrk(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 21\n");
 
@@ -1539,6 +1560,7 @@ static XrIblock *XrExecuteBrk(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	return 0;
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteWmb(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 22\n");
 
@@ -1551,6 +1573,7 @@ static XrIblock *XrExecuteWmb(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecutePause(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 23\n");
 
@@ -1559,6 +1582,7 @@ static XrIblock *XrExecutePause(XrProcessor *proc, XrIblock *block, XrCachedInst
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteSC(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 24\n");
 
@@ -1587,6 +1611,7 @@ static XrIblock *XrExecuteSC(XrProcessor *proc, XrIblock *block, XrCachedInst *i
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteLL(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 25\n");
 
@@ -1603,6 +1628,7 @@ static XrIblock *XrExecuteLL(XrProcessor *proc, XrIblock *block, XrCachedInst *i
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteMod(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 26\n");
 
@@ -1619,6 +1645,7 @@ static XrIblock *XrExecuteMod(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteDivSigned(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 27\n");
 
@@ -1635,6 +1662,7 @@ static XrIblock *XrExecuteDivSigned(XrProcessor *proc, XrIblock *block, XrCached
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteDiv(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 28\n");
 
@@ -1651,6 +1679,7 @@ static XrIblock *XrExecuteDiv(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteMul(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 29\n");
 
@@ -1661,6 +1690,7 @@ static XrIblock *XrExecuteMul(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteRfe(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 30\n");
 
@@ -1692,6 +1722,7 @@ static XrIblock *XrExecuteRfe(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	return 0;
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteHlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 31\n");
 
@@ -1710,6 +1741,7 @@ static XrIblock *XrExecuteHlt(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	return 0;
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 32\n");
 
@@ -1967,6 +1999,7 @@ static XrIblock *XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst 
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteMfcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 33\n");
 
@@ -1989,6 +2022,7 @@ static XrIblock *XrExecuteMfcr(XrProcessor *proc, XrIblock *block, XrCachedInst 
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteBpo(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 34\n");
 
@@ -2024,6 +2058,7 @@ static XrIblock *XrExecuteBpo(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	return iblock;
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteBpe(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 35\n");
 
@@ -2059,6 +2094,7 @@ static XrIblock *XrExecuteBpe(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	return iblock;
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteBge(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 36\n");
 
@@ -2094,6 +2130,7 @@ static XrIblock *XrExecuteBge(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	return iblock;
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteBle(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 37\n");
 
@@ -2129,6 +2166,7 @@ static XrIblock *XrExecuteBle(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	return iblock;
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteBgt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 38\n");
 
@@ -2164,6 +2202,7 @@ static XrIblock *XrExecuteBgt(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	return iblock;
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteBlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 39\n");
 
@@ -2199,6 +2238,7 @@ static XrIblock *XrExecuteBlt(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	return iblock;
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteBne(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 40\n");
 
@@ -2234,6 +2274,7 @@ static XrIblock *XrExecuteBne(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	return iblock;
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteBeq(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 41\n");
 
@@ -2269,6 +2310,7 @@ static XrIblock *XrExecuteBeq(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	return iblock;
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteB(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 42\n");
 
@@ -2294,6 +2336,7 @@ static XrIblock *XrExecuteB(XrProcessor *proc, XrIblock *block, XrCachedInst *in
 	return iblock;
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteOri(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 43\n");
 
@@ -2308,6 +2351,7 @@ static XrIblock *XrExecuteOri(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteXori(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 44\n");
 
@@ -2322,6 +2366,7 @@ static XrIblock *XrExecuteXori(XrProcessor *proc, XrIblock *block, XrCachedInst 
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteAndi(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 45\n");
 
@@ -2336,6 +2381,7 @@ static XrIblock *XrExecuteAndi(XrProcessor *proc, XrIblock *block, XrCachedInst 
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteSltiSigned(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 46\n");
 
@@ -2354,6 +2400,7 @@ static XrIblock *XrExecuteSltiSigned(XrProcessor *proc, XrIblock *block, XrCache
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteSlti(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 47\n");
 
@@ -2372,6 +2419,7 @@ static XrIblock *XrExecuteSlti(XrProcessor *proc, XrIblock *block, XrCachedInst 
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteSubi(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 48\n");
 
@@ -2386,6 +2434,7 @@ static XrIblock *XrExecuteSubi(XrProcessor *proc, XrIblock *block, XrCachedInst 
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteAddi(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 49\n");
 
@@ -2400,6 +2449,7 @@ static XrIblock *XrExecuteAddi(XrProcessor *proc, XrIblock *block, XrCachedInst 
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteStoreLongImmOffsetImm(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 50\n");
 
@@ -2416,6 +2466,7 @@ static XrIblock *XrExecuteStoreLongImmOffsetImm(XrProcessor *proc, XrIblock *blo
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteStoreIntImmOffsetImm(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 51\n");
 
@@ -2432,6 +2483,7 @@ static XrIblock *XrExecuteStoreIntImmOffsetImm(XrProcessor *proc, XrIblock *bloc
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteStoreByteImmOffsetImm(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 52\n");
 
@@ -2448,6 +2500,7 @@ static XrIblock *XrExecuteStoreByteImmOffsetImm(XrProcessor *proc, XrIblock *blo
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteStoreLongImmOffsetReg(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 53\n");
 
@@ -2464,6 +2517,7 @@ static XrIblock *XrExecuteStoreLongImmOffsetReg(XrProcessor *proc, XrIblock *blo
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteStoreIntImmOffsetReg(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 54\n");
 
@@ -2480,6 +2534,7 @@ static XrIblock *XrExecuteStoreIntImmOffsetReg(XrProcessor *proc, XrIblock *bloc
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteStoreByteImmOffsetReg(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 55\n");
 
@@ -2496,6 +2551,7 @@ static XrIblock *XrExecuteStoreByteImmOffsetReg(XrProcessor *proc, XrIblock *blo
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteLoadLongImmOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 56\n");
 
@@ -2516,6 +2572,7 @@ static XrIblock *XrExecuteLoadLongImmOffset(XrProcessor *proc, XrIblock *block, 
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteLoadIntImmOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 57\n");
 
@@ -2536,6 +2593,7 @@ static XrIblock *XrExecuteLoadIntImmOffset(XrProcessor *proc, XrIblock *block, X
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteLoadByteImmOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 58\n");
 
@@ -2556,6 +2614,7 @@ static XrIblock *XrExecuteLoadByteImmOffset(XrProcessor *proc, XrIblock *block, 
 	XR_NEXT();
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteJalr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 59 @ %x\n", proc->Pc);
 
@@ -2572,6 +2631,7 @@ static XrIblock *XrExecuteJalr(XrProcessor *proc, XrIblock *block, XrCachedInst 
 	return 0;
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteJal(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 60\n");
 
@@ -2598,6 +2658,7 @@ static XrIblock *XrExecuteJal(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	return iblock;
 }
 
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteJ(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 61\n");
 
@@ -2623,18 +2684,22 @@ static XrIblock *XrExecuteJ(XrProcessor *proc, XrIblock *block, XrCachedInst *in
 	return iblock;
 }
 
+XR_PRESERVE_NONE
 static uint32_t XrShiftLsh(uint32_t a, uint32_t b) {
 	return a << b;
 }
 
+XR_PRESERVE_NONE
 static uint32_t XrShiftRsh(uint32_t a, uint32_t b) {
 	return a >> b;
 }
 
+XR_PRESERVE_NONE
 static uint32_t XrShiftAsh(uint32_t a, uint32_t b) {
 	return (int32_t) a >> b;
 }
 
+XR_PRESERVE_NONE
 static uint32_t XrShiftRor(uint32_t a, uint32_t b) {
 	return RoR(a, b);
 }
@@ -3363,6 +3428,7 @@ static XrDecodeInstructionF XrDecodeLowThree[8] = {
 	[7] = &XrDecodeJal,
 };
 
+XR_PRESERVE_NONE
 XrIblock *XrSpecialLinkageInstruction(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 0\n");
 

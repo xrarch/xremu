@@ -116,7 +116,7 @@
 // XR_IBLOCK_INSTS should be defined as a multiple of the Icache line size,
 // because the instruction decode logic fetches lines at a time.
 
-#define XR_IBLOCK_INSTS_LOG 2
+#define XR_IBLOCK_INSTS_LOG 3
 #define XR_IBLOCK_HASH_BUCKETS 256
 #define XR_IBLOCK_COUNT 2048
 #define XR_IBLOCK_RECLAIM 32
@@ -130,15 +130,17 @@
 
 #define XR_IBLOCK_HASH(pc) ((pc >> 2) & (XR_IBLOCK_HASH_BUCKETS - 1))
 
+#define XR_PRESERVE_NONE [[clang::preserve_none]]
+
 #define XR_TAIL [[clang::musttail]]
 
 typedef struct _XrProcessor XrProcessor;
 typedef struct _XrIblock XrIblock;
 typedef struct _XrCachedInst XrCachedInst;
 
-typedef uint32_t (*XrInstShiftF)(uint32_t a, uint32_t b);
+typedef uint32_t (*XrInstShiftF XR_PRESERVE_NONE)(uint32_t a, uint32_t b);
 
-typedef XrIblock *(*XrInstImplF)(XrProcessor *proc, XrIblock *block, XrCachedInst *inst);
+typedef XrIblock *(*XrInstImplF XR_PRESERVE_NONE)(XrProcessor *proc, XrIblock *block, XrCachedInst *inst);
 
 struct _XrCachedInst {
 	XrInstImplF Func;
