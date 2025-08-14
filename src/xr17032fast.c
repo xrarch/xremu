@@ -3758,14 +3758,8 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 		instindex < instcount;
 		inst++) {
 
-		// iblock->Cycles++;
-
 		// The decode routine returns 1 if the instruction terminates the basic block.
 		XrDecodeResult decode = XrDecodeLowThree[ir[instindex] & 7](inst, ir[instindex], pc, &ir[instindex], instindex);
-
-		if (decode.NumConsumed > 1) {
-			DBGPRINT("decoded peephole!\n");
-		}
 
 		iblock->Cycles += decode.NumConsumed;
 		instindex += decode.NumConsumed;
