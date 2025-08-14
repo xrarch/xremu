@@ -910,7 +910,7 @@ static inline uint32_t XrFindOrReplaceInScache(XrProcessor *thisproc, uint32_t t
 	return cacheindex;
 }
 
-static int XrDcacheAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, int forceexclusive) {
+static int XrDcacheAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, int sc) {
 	// Access Dcache. Scary! We have to worry about coherency with the other
 	// Dcaches in the system, and this can be a 1, 2, or 4 byte access.
 	// If dest == 0, this is a write. Otherwise it's a read.
@@ -1041,7 +1041,7 @@ restart:
 			// in the interim since LL.
 
 #if 0
-			if (forceexclusive && dest == 0) {
+			if (sc && dest == 0) {
 				// We failed the SC condition, since it was only shared, not
 				// exclusive.
 
@@ -1121,7 +1121,7 @@ restart:
 
 	XrUnlockCache(proc, tag);
 
-	if (forceexclusive) {
+	if (sc) {
 		// We failed the SC condition since it was invalid.
 
 		return 2;
@@ -1280,7 +1280,7 @@ restart:
 	return 1;
 }
 
-static inline int XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, int forceexclusive) {
+static inline int XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, int sc) {
 	if (address & (length - 1)) {
 		// Unaligned access.
 
@@ -1305,8 +1305,8 @@ static inline int XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, 
 	}
 
 	if (flags & PTE_NONCACHED) {
-		if (forceexclusive && XR_SIMULATE_CACHES) {
-			// Attempt to use LL/SC on noncached memory. Nonsense! Just kill the
+		if (sc && XR_SIMULATE_CACHES) {
+			// Attempt to use SC on noncached memory. Nonsense! Just kill the
 			// evildoer with a bus error.
 
 			proc->Cr[EBADADDR] = address;
@@ -1328,7 +1328,7 @@ static inline int XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, 
 		return 1;
 	}
 
-	return XrDcacheAccess(proc, address, dest, srcvalue, length, forceexclusive);
+	return XrDcacheAccess(proc, address, dest, srcvalue, length, sc);
 }
 
 static inline void XrWriteWbEntry(XrProcessor *proc) {
@@ -1695,8 +1695,9 @@ static XrIblock *XrExecuteSC(XrProcessor *proc, XrIblock *block, XrCachedInst *i
 
 		XR_REG_RD() = 0;
 	} else {
-		// Store the word in a way that will atomically fail if we
-		// no longer have the cache line from LL's load.
+		// Store the word in a way that will atomically fail if we no longer
+		// have the cache line from LL's load. This is accomplished by passing
+		// sc=1 to XrAccess.
 
 		//DBGPRINT("%d: SC %d\n", proc->Id, proc->Reg[rb]);
 
