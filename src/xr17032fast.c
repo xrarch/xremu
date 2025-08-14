@@ -1135,11 +1135,6 @@ restart:
 
 	uint32_t newstate = (dest == 0) ? XR_LINE_EXCLUSIVE : XR_LINE_SHARED;
 
-	// If this is a write, we want the line invalid in everyone else; otherwise
-	// shared.
-
-	uint32_t otherstate = (dest == 0) ? XR_LINE_INVALID : XR_LINE_SHARED;
-
 	// Lock the Scache.
 
 	XrLockScache(tag);
@@ -1156,10 +1151,12 @@ restart:
 
 		if (XrScacheFlags[scacheindex] == XR_LINE_EXCLUSIVE) {
 			// We have to remove it from this cache who has it exclusive.
+			// If we're writing, we want to downgrade it to invalid, because
+			// we're taking it exclusive. Otherwise downgrade it to shared.
 
 			DBGPRINT("remove exclusive %x after miss\n", tag);
 
-			XrDowngradeLine(CpuTable[XrScacheExclusiveIds[scacheindex]], tag, otherstate);
+			XrDowngradeLine(CpuTable[XrScacheExclusiveIds[scacheindex]], tag, (dest == 0) ? XR_LINE_INVALID : XR_LINE_SHARED);
 
 		} else if (dest == 0 && XrScacheFlags[scacheindex] == XR_LINE_SHARED) {
 			// We're writing and this line was shared. We have to invalidate it
@@ -1181,8 +1178,7 @@ restart:
 
 	// We have to select a Dcache line to replace now.
 
-	uint32_t index = cacheindex + (proc->DcReplacementIndex & (XR_DC_WAYS - 1));
-	proc->DcReplacementIndex += 1;
+	uint32_t index = cacheindex + (proc->DcReplacementIndex++ & (XR_DC_WAYS - 1));
 
 	if (proc->DcFlags[index] != XR_LINE_INVALID) {
 		// Lock the tag in this selected entry.
