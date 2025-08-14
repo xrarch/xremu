@@ -94,6 +94,12 @@
 //    amount of 0, we can completely elide the shift. The if statements on the
 //    other hand have a constant overhead even when shamt == 0.
 //
+//10. The proc->Pc += 4 that regularly appears can be replaced by an on-demand
+//    calculation of the current program counter as 
+//
+//        block->Pc + (inst - &block->Insts[0]) * 4
+//
+//    and other appropriate calculations.
 
 #include <stdbool.h>
 #include <stdint.h>
