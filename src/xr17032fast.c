@@ -2389,6 +2389,47 @@ static XrIblock *XrExecuteBeq(XrProcessor *proc, XrIblock *block, XrCachedInst *
 }
 
 XR_PRESERVE_NONE
+static XrIblock *XrExecuteSubBeq(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 8-41\n");
+
+	uint32_t sub = (XR_REG_RA() - XR_SHIFTED_VAL());
+	XR_REG_RD() = sub;
+
+	XR_MAINTAIN_ZERO();
+
+	XrIblock *iblock;
+	XrIblock **referrent;
+
+	if (sub == 0) {
+		proc->Pc += inst->Imm32_2;
+		referrent = &block->TruePath;
+	} else {
+		proc->Pc += 4;
+		referrent = &block->FalsePath;
+	}
+
+	iblock = *referrent;
+
+	if (iblock) {
+		return iblock;
+	}
+
+	iblock = XrDecodeInstructions(proc, proc->Pc);
+
+	if (!iblock) {
+		// Ifetch mishap.
+
+		return 0;
+	}
+
+	XrCreateCachedPointerToBlock(iblock, referrent);
+
+	return iblock;
+
+}
+
+
+XR_PRESERVE_NONE
 static XrIblock *XrExecuteB(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 42\n");
 
@@ -2796,40 +2837,40 @@ static XrInstShiftF XrShiftFunctionTable[4] = {
 	[3] = &XrShiftRor
 };
 
-typedef int (*XrDecodeInstructionF)(XrCachedInst *inst, uint32_t ir, uint32_t pc);
+typedef XrDecodeResult (*XrDecodeInstructionF)(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex);
 
-static int XrDecodeIllegalInstruction(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeIllegalInstruction(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteIllegalInstruction;
 
-	return 1;
+	return XR_DECODE_SINGLE(1);
 }
 
-static int XrDecodeRfe(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeRfe(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteRfe;
 
-	return 1;
+	return XR_DECODE_SINGLE(1);
 }
 
-static int XrDecodeHlt(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeHlt(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteHlt;
 
-	return 1;
+	return XR_DECODE_SINGLE(1);
 }
 
-static int XrDecodeMtcr(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeMtcr(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteMtcr;
 	inst->Imm8_1 = (ir >> 11) & 31;
 	inst->Imm8_2 = (ir >> 16) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeMfcr(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeMfcr(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteMfcr;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 16) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
 static XrDecodeInstructionF XrDecodeFunctions101001[16] = {
@@ -2851,54 +2892,54 @@ static XrDecodeInstructionF XrDecodeFunctions101001[16] = {
 	[15] = &XrDecodeMfcr,
 };
 
-static int XrDecodeSys(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeSys(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteSys;
 
-	return 1;
+	return XR_DECODE_SINGLE(1);
 }
 
-static int XrDecodeBrk(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeBrk(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteBrk;
 
-	return 1;
+	return XR_DECODE_SINGLE(1);
 }
 
-static int XrDecodeWmb(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeWmb(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteWmb;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeMb(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeMb(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteWmb;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodePause(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodePause(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecutePause;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeSC(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeSC(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteSC;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = (ir >> 16) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeLL(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeLL(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteLL;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeMod(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeMod(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteMod;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -2907,10 +2948,10 @@ static int XrDecodeMod(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeDivSigned(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeDivSigned(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteDivSigned;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -2919,10 +2960,10 @@ static int XrDecodeDivSigned(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeDiv(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeDiv(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteDiv;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -2931,10 +2972,10 @@ static int XrDecodeDiv(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeMul(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeMul(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteMul;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -2943,7 +2984,7 @@ static int XrDecodeMul(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
 static XrDecodeInstructionF XrDecodeFunctions110001[16] = {
@@ -2965,7 +3006,7 @@ static XrDecodeInstructionF XrDecodeFunctions110001[16] = {
 	[15] = &XrDecodeMul,
 };
 
-static int XrDecodeNor(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeNor(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteNor;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -2974,10 +3015,10 @@ static int XrDecodeNor(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeOr(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeOr(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteOr;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -2986,10 +3027,10 @@ static int XrDecodeOr(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeXor(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeXor(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteXor;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -2998,10 +3039,10 @@ static int XrDecodeXor(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeAnd(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeAnd(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteAnd;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -3010,10 +3051,10 @@ static int XrDecodeAnd(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeSltSigned(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeSltSigned(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteSltSigned;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -3022,10 +3063,10 @@ static int XrDecodeSltSigned(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeSlt(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeSlt(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteSlt;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -3034,10 +3075,37 @@ static int XrDecodeSlt(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeSub(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeSub(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
+
+	// PROOF OF CONCEPT
+
+	// are there instructions left?
+	if (instindex != XR_IBLOCK_INSTS - 1) {
+		uint32_t next_inst = irs[1];
+		// is the next thing a BEQ on the same register?
+		uint8_t reg = (ir >> 6) & 31;
+		uint16_t expected = (reg << 6) | 0b111101;
+		if ((next_inst & 0b11111111111) == expected) {
+			// decode as a SubBeq
+			printf("DECODE PEEPHOLE!!!\n");
+			// // sub
+			// inst->Func = &XrExecuteSubBeq;
+			// inst->Imm8_1 = (ir >> 6) & 31;
+			// inst->Imm8_2 = (ir >> 11) & 31;
+			// inst->Imm32_1 = (ir >> 16) & 31;
+			// inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
+			// inst->Imm8_3 = (ir >> 21) & 31;
+
+			// // beq
+			// inst->Imm32_2 = SignExt23((ir >> 11) << 2);
+
+			// return XR_DECODE_MULTI(1, 2);
+		}
+	}
+
 	inst->Func = &XrExecuteSub;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -3046,10 +3114,10 @@ static int XrDecodeSub(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeAdd(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeAdd(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteAdd;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -3058,19 +3126,19 @@ static int XrDecodeAdd(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeRegShifts(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeRegShifts(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = XrRegShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = (ir >> 16) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeStoreLongRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeStoreLongRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteStoreLongRegOffset;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -3079,10 +3147,10 @@ static int XrDecodeStoreLongRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t 
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeStoreIntRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeStoreIntRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteStoreIntRegOffset;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -3091,10 +3159,10 @@ static int XrDecodeStoreIntRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t p
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeStoreByteRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeStoreByteRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteStoreByteRegOffset;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -3103,10 +3171,10 @@ static int XrDecodeStoreByteRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t 
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeLoadLongRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeLoadLongRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteLoadLongRegOffset;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -3115,10 +3183,10 @@ static int XrDecodeLoadLongRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t p
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeLoadIntRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeLoadIntRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteLoadIntRegOffset;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -3127,10 +3195,10 @@ static int XrDecodeLoadIntRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeLoadByteRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeLoadByteRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteLoadByteRegOffset;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
@@ -3139,7 +3207,7 @@ static int XrDecodeLoadByteRegOffset(XrCachedInst *inst, uint32_t ir, uint32_t p
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
 static XrDecodeInstructionF XrDecodeFunctions111001[16] = {
@@ -3161,237 +3229,238 @@ static XrDecodeInstructionF XrDecodeFunctions111001[16] = {
 	[15] = &XrDecodeLoadByteRegOffset,
 };
 
-static int XrDecodeLui(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeLui(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteOri;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = (ir >> 16) << 16;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeBpo(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeBpo(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteBpo;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
 
-	return 1;
+	return XR_DECODE_SINGLE(1);
 }
 
-static int XrDecodeStoreLongImmOffsetImm(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeStoreLongImmOffsetImm(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteStoreLongImmOffsetImm;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = (ir >> 16) << 2;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeOri(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeOri(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteOri;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeBpe(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeBpe(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteBpe;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
 
-	return 1;
+	return XR_DECODE_SINGLE(1);
 }
 
-static int XrDecodeStoreIntImmOffsetImm(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeStoreIntImmOffsetImm(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteStoreIntImmOffsetImm;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = (ir >> 16) << 1;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeXori(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeXori(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteXori;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeBge(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeBge(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteBge;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
 
-	return 1;
+	return XR_DECODE_SINGLE(1);
 }
 
-static int XrDecodeStoreByteImmOffsetImm(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeStoreByteImmOffsetImm(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteStoreByteImmOffsetImm;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeAndi(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeAndi(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteAndi;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeBle(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeBle(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteBle;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
 
-	return 1;
+	return XR_DECODE_SINGLE(1);
 }
 
-static int XrDecodeSltiSigned(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeSltiSigned(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteSltiSigned;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = SignExt16(ir >> 16);
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeBgt(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeBgt(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteBgt;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
 
-	return 1;
+	return XR_DECODE_SINGLE(1);
 }
 
-static int XrDecode101001(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
-	return XrDecodeFunctions101001[ir >> 28](inst, ir, pc);
+static XrDecodeResult XrDecode101001(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
+	return XrDecodeFunctions101001[ir >> 28](inst, ir, pc, irs, instindex);
 }
 
-static int XrDecodeStoreLongImmOffsetReg(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeStoreLongImmOffsetReg(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteStoreLongImmOffsetReg;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = (ir >> 16) << 2;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeLoadLongImmOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeLoadLongImmOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteLoadLongImmOffset;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = (ir >> 16) << 2;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeSlti(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeSlti(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteSlti;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeBlt(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeBlt(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteBlt;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
 
-	return 1;
+	return XR_DECODE_SINGLE(1);
 }
 
-static int XrDecode110001(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
-	return XrDecodeFunctions110001[ir >> 28](inst, ir, pc);
+static XrDecodeResult XrDecode110001(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
+	return XrDecodeFunctions110001[ir >> 28](inst, ir, pc, irs, instindex);
 }
 
-static int XrDecodeStoreIntImmOffsetReg(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeStoreIntImmOffsetReg(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteStoreIntImmOffsetReg;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = (ir >> 16) << 1;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeLoadIntImmOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeLoadIntImmOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteLoadIntImmOffset;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = (ir >> 16) << 1;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeSubi(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeSubi(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
+
 	inst->Func = &XrExecuteSubi;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeBne(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeBne(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteBne;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
 
-	return 1;
+	return XR_DECODE_SINGLE(1);
 }
 
-static int XrDecodeJalr(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeJalr(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteJalr;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = SignExt18((ir >> 16) << 2);
 
-	return 1;
+	return XR_DECODE_SINGLE(1);
 }
 
-static int XrDecode111001(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
-	return XrDecodeFunctions111001[ir >> 28](inst, ir, pc);
+static XrDecodeResult XrDecode111001(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
+	return XrDecodeFunctions111001[ir >> 28](inst, ir, pc, irs, instindex);
 }
 
-static int XrDecodeStoreByteImmOffsetReg(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeStoreByteImmOffsetReg(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteStoreByteImmOffsetReg;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeLoadByteImmOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeLoadByteImmOffset(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteLoadByteImmOffset;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeAddi(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeAddi(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteAddi;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return XR_DECODE_SINGLE(0);
 }
 
-static int XrDecodeBeq(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeBeq(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
 
 	if (((ir >> 6) & 31) == 0) {
@@ -3401,13 +3470,13 @@ static int XrDecodeBeq(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 
 		inst->Func = &XrExecuteB;
 
-		return 1;
+		return XR_DECODE_SINGLE(1);
 	}
 
 	inst->Func = &XrExecuteBeq;
 	inst->Imm8_1 = (ir >> 6) & 31;
 
-	return 1;
+	return XR_DECODE_SINGLE(1);
 }
 
 static XrDecodeInstructionF XrDecodeLowSix[64] = {
@@ -3477,22 +3546,22 @@ static XrDecodeInstructionF XrDecodeLowSix[64] = {
 	[63] = &XrDecodeIllegalInstruction,
 };
 
-static int XrDecodeJal(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeJal(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteJal;
 	inst->Imm32_1 = (pc & 0x80000000) | ((ir >> 3) << 2);
-
-	return 1;
+	
+	return XR_DECODE_SINGLE(1);
 }
 
-static int XrDecodeJ(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrDecodeResult XrDecodeJ(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 	inst->Func = &XrExecuteJ;
 	inst->Imm32_1 = (pc & 0x80000000) | ((ir >> 3) << 2);
 
-	return 1;
+	return XR_DECODE_SINGLE(1);
 }
 
-static int XrDecodeMajor(XrCachedInst *inst, uint32_t ir, uint32_t pc) {
-	return XrDecodeLowSix[ir & 63](inst, ir, pc);
+static XrDecodeResult XrDecodeMajor(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
+	return XrDecodeLowSix[ir & 63](inst, ir, pc, irs, instindex);
 }
 
 static XrDecodeInstructionF XrDecodeLowThree[8] = {
@@ -3665,14 +3734,22 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 
 	for (;
 		instindex < instcount;
-		instindex++, inst++, pc += 4) {
+		inst++) {
 
-		iblock->Cycles++;
+		// iblock->Cycles++;
 
-		// The decode routine returns 1 if the instruction terminates the basic
-		// block.
+		// The decode routine returns 1 if the instruction terminates the basic block.
+		XrDecodeResult decode = XrDecodeLowThree[ir[instindex] & 7](inst, ir[instindex], pc, &ir[instindex], instindex);
 
-		if (XrDecodeLowThree[ir[instindex] & 7](inst, ir[instindex], pc)) {
+		if (decode.NumConsumed > 1) {
+			DBGPRINT("decoded peephole!\n");
+		}
+
+		iblock->Cycles += decode.NumConsumed;
+		instindex += decode.NumConsumed;
+		pc += 4 * decode.NumConsumed;
+
+		if (decode.TerminatesBlock) {
 			inst++;
 			break;
 		}

@@ -138,14 +138,28 @@ typedef struct _XrProcessor XrProcessor;
 typedef struct _XrIblock XrIblock;
 typedef struct _XrCachedInst XrCachedInst;
 
+typedef struct _XrDecodeResult XrDecodeResult;
+
 typedef uint32_t (*XrInstShiftF XR_PRESERVE_NONE)(uint32_t a, uint32_t b);
 
 typedef XrIblock *(*XrInstImplF XR_PRESERVE_NONE)(XrProcessor *proc, XrIblock *block, XrCachedInst *inst);
+
+// this is small enough to fit in return register(s)
+// on every standard calling convention.
+struct _XrDecodeResult {
+	int TerminatesBlock;
+	int NumConsumed; // number of real XR insts this decode function consumed
+};
+#define XR_DECODE_SINGLE(terminates) (XrDecodeResult){.TerminatesBlock = terminates, .NumConsumed = 1}
+#define XR_DECODE_MULTI(terminates, num) (XrDecodeResult){.TerminatesBlock = terminates, .NumConsumed = num}
 
 struct _XrCachedInst {
 	XrInstImplF Func;
 	XrInstShiftF ShiftFunc;
 	uint32_t Imm32_1;
+
+	uint32_t Imm32_2; // used by branch sequence instructions as the second
+
 	uint8_t Imm8_1;
 	uint8_t Imm8_2;
 	uint8_t Imm8_3;
