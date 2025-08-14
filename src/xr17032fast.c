@@ -22,7 +22,7 @@
 //    to make use of a small stack cache that is "pushed" by JAL x and "popped"
 //    by JALR ZERO, R31, 0.
 //
-// 4. Keep a small cache of 2-4 recent DTB lookups in the basic block header
+// 3. Keep a small cache of 2-4 recent DTB lookups in the basic block header
 //    which is consulted before the DTLB by instructions therein. There's an
 //    issue with invalidating these when DTLB entries are flushed that im not
 //    completely sure how to deal with. One way is by caching an index within
@@ -30,7 +30,7 @@
 //    DTB entry matches the translation done earlier) but this eliminates the
 //    potential benefit of increasing the functional size of the DTB.
 //
-// 5. Allow basic blocks to, most of the time, directly tail-call one another
+// 4. Allow basic blocks to, most of the time, directly tail-call one another
 //    rather than always returning to the outer dispatch loop on basic block
 //    boundaries. I was thinking I could do this with a simple incrementing
 //    counter where it'll do a direct call if (counter & 7) != 0 and return to
@@ -38,12 +38,12 @@
 //    completely eliminated, with its functions replaced by another tail-called
 //    routine (such as checking for interrupts on basic block boundaries).
 //
-// 6. I do an unnecessary copy from the Icache while doing instruction decoding
+// 5. I do an unnecessary copy from the Icache while doing instruction decoding
 //    that could be replaced with directly examining the instruction data within
 //    the Icache. It's also probably unnecessary to support noncached
 //    instruction fetch and I can eliminate some branches if I just don't.
 //
-// 7. Various implementational improvements of older, overly-generalized cache
+// 6. Various implementational improvements of older, overly-generalized cache
 //    simulation and virtual memory translation machinery that can be more
 //    specialized and optimized in the new cached interpreter world.
 //
