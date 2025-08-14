@@ -2410,8 +2410,9 @@ static XrIblock *XrExecuteBeq(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	return iblock;
 }
 
+
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteSubBeq(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static XrIblock *XrExecuteSequenceSubBeq(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 8-41\n");
 
 	uint32_t sub = (XR_REG_RA() - XR_SHIFTED_VAL());
@@ -2440,14 +2441,51 @@ static XrIblock *XrExecuteSubBeq(XrProcessor *proc, XrIblock *block, XrCachedIns
 
 	if (!iblock) {
 		// Ifetch mishap.
-
 		return 0;
 	}
 
 	XrCreateCachedPointerToBlock(iblock, referrent);
 
 	return iblock;
+}
 
+
+XR_PRESERVE_NONE
+static XrIblock *XrExecuteSequenceSubBne(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 8-41\n");
+
+	uint32_t sub = (XR_REG_RA() - XR_SHIFTED_VAL());
+	XR_REG_RD() = sub;
+
+	XR_MAINTAIN_ZERO();
+
+	XrIblock *iblock;
+	XrIblock **referrent;
+
+	if (sub != 0) {
+		proc->Pc += 4 + inst->Imm32_2;
+		referrent = &block->TruePath;
+	} else {
+		proc->Pc += 8;
+		referrent = &block->FalsePath;
+	}
+
+	iblock = *referrent;
+
+	if (iblock) {
+		return iblock;
+	}
+
+	iblock = XrDecodeInstructions(proc, proc->Pc);
+
+	if (!iblock) {
+		// Ifetch mishap.
+		return 0;
+	}
+
+	XrCreateCachedPointerToBlock(iblock, referrent);
+
+	return iblock;
 }
 
 
@@ -3100,31 +3138,43 @@ static XrDecodeResult XrDecodeSlt(XrCachedInst *inst, uint32_t ir, uint32_t pc, 
 	return XR_DECODE_SINGLE(0);
 }
 
-static XrDecodeResult XrDecodeSub(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
+static XrDecodeResult XrFindSubPeepholes(XrCachedInst *inst, uint32_t sub, uint32_t pc, uint32_t* irs, int instindex) {
+	inst->Imm8_1 = (sub >> 6) & 31;
+	inst->Imm8_2 = (sub >> 11) & 31;
+	inst->Imm32_1 = (sub >> 16) & 31;
+	inst->ShiftFunc = XrShiftFunctionTable[(sub >> 26) & 3];
+	inst->Imm8_3 = (sub >> 21) & 31;
 
-	// PROOF OF CONCEPT
+	uint32_t next_inst = irs[1];
+
+	if (((next_inst >> 6) & 31) != ((sub >> 6) & 31)) {
+		// different registers
+		return XR_DECODE_MULTI(0, 0);
+	}
+
+	switch (next_inst & 0b111111) {
+	case 0b111101: // BEQ
+		inst->Func = &XrExecuteSequenceSubBeq;
+		inst->Imm32_2 = SignExt23((next_inst >> 11) << 2);
+		return XR_DECODE_MULTI(1, 2);
+	case 0b110101: // BNE
+		inst->Func = &XrExecuteSequenceSubBne;
+		inst->Imm32_2 = SignExt23((next_inst >> 11) << 2);
+		return XR_DECODE_MULTI(1, 2);
+	}
+
+	return XR_DECODE_MULTI(0, 0);
+}
+
+static XrDecodeResult XrDecodeSub(XrCachedInst *inst, uint32_t ir, uint32_t pc, uint32_t* irs, int instindex) {
 
 	// are there instructions left?
 	if (instindex != XR_IBLOCK_INSTS - 1) {
-		uint32_t next_inst = irs[1];
-		// is the next thing a BEQ on the same register?
-		uint8_t reg = (ir >> 6) & 31;
-		uint16_t expected = (reg << 6) | 0b111101;
-		if ((next_inst & 0b11111111111) == expected) {
-			// decode as a SubBeq
-			// printf("DECODE PEEPHOLE!!!\n");
-			// // sub
-			inst->Func = &XrExecuteSubBeq;
-			inst->Imm8_1 = (ir >> 6) & 31;
-			inst->Imm8_2 = (ir >> 11) & 31;
-			inst->Imm32_1 = (ir >> 16) & 31;
-			inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
-			inst->Imm8_3 = (ir >> 21) & 31;
-
-			// beq
-			inst->Imm32_2 = SignExt23((next_inst >> 11) << 2);
-
-			return XR_DECODE_MULTI(1, 2);
+		// try to find sub peepholes
+		XrDecodeResult result = XrFindSubPeepholes(inst, ir, pc, irs, instindex);
+		if (result.NumConsumed != 0) {
+			// didnt find any.
+			return result;
 		}
 	}
 
