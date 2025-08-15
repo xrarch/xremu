@@ -657,7 +657,6 @@ static inline uint32_t *XrIcacheAccess(XrProcessor *proc, uint32_t address) {
 	// Icache for direct access, or NULLPTR if a bus error occurred.
 
 	uint32_t tag = address & ~(XR_IC_LINE_SIZE - 1);
-	uint32_t lineoffset = address & (XR_IC_LINE_SIZE - 1);
 
 	uint32_t setnumber = XR_IC_SET_NUMBER(address);
 	uint32_t cacheindex = setnumber << XR_IC_WAY_LOG;
@@ -672,7 +671,7 @@ static inline uint32_t *XrIcacheAccess(XrProcessor *proc, uint32_t address) {
 
 			uint32_t cacheoff = (cacheindex + i) << XR_IC_LINE_SIZE_LOG;
 
-			return (uint32_t*)(&proc->Ic[cacheoff + lineoffset]);
+			return (uint32_t*)(&proc->Ic[cacheoff]);
 		}
 	}
 
@@ -707,7 +706,7 @@ static inline uint32_t *XrIcacheAccess(XrProcessor *proc, uint32_t address) {
 	proc->IcFlags[newindex] = XR_LINE_SHARED;
 	proc->IcTags[newindex] = tag;
 
-	return (uint32_t*)(&proc->Ic[cacheoff + lineoffset]);
+	return (uint32_t*)(&proc->Ic[cacheoff]);
 }
 
 static inline void XrFlushWriteBuffer(XrProcessor *proc) {
