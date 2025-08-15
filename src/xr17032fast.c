@@ -3,6 +3,7 @@
 //
 // Cool optimizations left to do:
 //
+//    DONE
 // 1. The basic block cache is virtual and so needs to be purged when ITB
 //    entries are explicitly flushed. I managed to tag them with ASIDs so they
 //    dont need to be flushed upon address space switch, but it would be nice to
@@ -2075,15 +2076,15 @@ static void XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst
 
 				// Only invalidate the lookup hint if it matches this VPN.
 
-				if (proc->ItbLastVpn == vpn >> 12) {
+				if (proc->ItbLastVpn == proc->Reg[ra] >> 12) {
 					proc->ItbLastVpn = -1;
 				}
 
 				// Only invalidate the Iblocks that reside in this VPN.
 
-				XrInvalidateIblockCacheByVpn(proc, vpn);
-
 				proc->Pc += 4;
+
+				XrInvalidateIblockCacheByVpn(proc, proc->Reg[ra] & ~0xFFF);
 
 				XR_EARLY_EXIT();
 			}
@@ -2136,7 +2137,7 @@ static void XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst
 
 				// Only invalidate the lookup hint if it matches this VPN.
 
-				if (proc->DtbLastVpn == vpn >> 12) {
+				if (proc->DtbLastVpn == proc->Reg[ra] >> 12) {
 					proc->DtbLastVpn = -1;
 				}
 
