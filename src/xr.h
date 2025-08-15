@@ -117,9 +117,13 @@
 // because the instruction decode logic fetches lines at a time.
 
 #define XR_IBLOCK_INSTS_LOG 3
-#define XR_IBLOCK_HASH_BUCKETS 128
+#define XR_IBLOCK_HASH_BUCKETS 256
 #define XR_IBLOCK_COUNT 2048
 #define XR_IBLOCK_RECLAIM 32
+
+#define XR_IBLOCK_VPN_BUCKETS 128
+
+#define XR_IBLOCK_VPN(pc) ((pc >> 12) & (XR_IBLOCK_VPN_BUCKETS - 1))
 
 #define XR_IBLOCK_CACHEDBY_MAX 4
 
@@ -160,6 +164,7 @@ typedef struct _XrJalrPredictionTable {
 } XrJalrPredictionTable;
 
 struct _XrIblock {
+	ListEntry VpnEntry;
 	ListEntry HashEntry;
 	ListEntry LruEntry;
 
@@ -267,6 +272,8 @@ struct _XrProcessor {
 	uint8_t Halted;
 	uint8_t Running;
 	uint8_t NoMore;
+
+	ListEntry IblockVpnBuckets[XR_IBLOCK_VPN_BUCKETS];
 };
 
 #define XR_SIMULATE_CACHES 1

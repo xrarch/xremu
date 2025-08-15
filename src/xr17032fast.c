@@ -268,6 +268,10 @@ static inline void XrFreeIblock(XrProcessor *proc, XrIblock *iblock) {
 
 	RemoveEntryList(&iblock->HashEntry);
 
+	// Remove from the VPN table.
+
+	RemoveEntryList(&iblock->VpnEntry);
+
 	// Free Ptable.
 
 	if (iblock->HasPtable) {
@@ -315,7 +319,7 @@ static void XrPopulateIblockList(XrProcessor *proc) {
 }
 
 static void XrInvalidateIblockCache(XrProcessor *proc) {
-	// Invaliate the entire Iblock cache for the processor.
+	// Invalidate the entire Iblock cache for the processor.
 
 	ListEntry *listentry = proc->IblockLruList.Next;
 
@@ -329,6 +333,31 @@ static void XrInvalidateIblockCache(XrProcessor *proc) {
 		// we don't need to stash them.
 
 		XrFreeIblock(proc, iblock);
+
+		// Advance to the next Iblock.
+
+		listentry = listentry->Next;
+	}
+}
+
+static void XrInvalidateIblockCacheByVpn(XrProcessor *proc, uint32_t vpn) {
+	// Invalidate the Iblocks that match the given VPN.
+
+	ListEntry *listentry = proc->IblockVpnBuckets[XR_IBLOCK_VPN(vpn)].Next;
+
+	while (listentry != &proc->IblockVpnBuckets[XR_IBLOCK_VPN(vpn)]) {
+		XrIblock *iblock = ContainerOf(listentry, XrIblock, VpnEntry);
+
+		if ((iblock->Pc & 0xFFF00000) == vpn) {
+			// Invalidate the pointers to this Iblock.
+
+			XrInvalidateIblockPointers(iblock);
+
+			// Free the Iblock. Note that this doesn't modify the VPN list links so
+			// we don't need to stash them.
+
+			XrFreeIblock(proc, iblock);
+		}
 
 		// Advance to the next Iblock.
 
@@ -2041,9 +2070,22 @@ static void XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst
 					}
 				}
 
-				//DBGPRINT("invl %x\n", Reg[ra] >> 12);
+				// We can be a little more optimized when livalidating a single
+				// page.
 
-				//Running = false;
+				// Only invalidate the lookup hint if it matches this VPN.
+
+				if (proc->ItbLastVpn == vpn >> 12) {
+					proc->ItbLastVpn = -1;
+				}
+
+				// Only invalidate the Iblocks that reside in this VPN.
+
+				XrInvalidateIblockCacheByVpn(proc, vpn);
+
+				proc->Pc += 4;
+
+				XR_EARLY_EXIT();
 			}
 
 			// Reset the lookup hint.
@@ -2092,9 +2134,13 @@ static void XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst
 					}
 				}
 
-				//DBGPRINT("invl %x\n", Reg[ra] >> 12);
+				// Only invalidate the lookup hint if it matches this VPN.
 
-				//Running = false;
+				if (proc->DtbLastVpn == vpn >> 12) {
+					proc->DtbLastVpn = -1;
+				}
+
+				break;
 			}
 
 			// Reset the lookup hint.
@@ -3731,6 +3777,7 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 
 	InsertAtHeadList(&proc->IblockHashBuckets[XR_IBLOCK_HASH(pc)], &iblock->HashEntry);
 	InsertAtHeadList(&proc->IblockLruList, &iblock->LruEntry);
+	InsertAtHeadList(&proc->IblockVpnBuckets[XR_IBLOCK_VPN(pc)], &iblock->VpnEntry);
 
 	// Decode instructions starting at the offset of the program counter within
 	// the fetched chunk, until we reach either a branch, an illegal

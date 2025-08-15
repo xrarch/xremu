@@ -215,6 +215,10 @@ void CpuInitialize(int id) {
 		InitializeList(&proc->IblockHashBuckets[i]);
 	}
 
+	for (int i = 0; i < XR_IBLOCK_VPN_BUCKETS; i++) {
+		InitializeList(&proc->IblockVpnBuckets[i]);
+	}
+
 	XrIblock *iblocks = malloc(sizeof(XrIblock) * XR_IBLOCK_COUNT);
 
 	if (!iblocks) {
