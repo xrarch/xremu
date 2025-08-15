@@ -1468,10 +1468,8 @@ retry:
 #define XR_NEXT_NO_PC() inst++; XR_TAIL return inst->Func(proc, block, inst);
 #define XR_NEXT() proc->Pc += 4; XR_NEXT_NO_PC();
 
-#define XR_END_BLOCK() proc->CyclesDone += block->Cycles;
-
 #define XR_DISPATCH(nextblock) \
-	XR_END_BLOCK() \
+	proc->CyclesDone += block->Cycles; \
 	XrIblock *_nextblock = (nextblock); \
 	if (!(nextblock) || ((proc->Dispatches++ & 31) == 0)) { \
 		_nextblock = XrCheckConditions(proc, _nextblock); \
