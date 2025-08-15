@@ -169,6 +169,8 @@ struct _XrIblock {
 	XrCachedInst Insts[XR_IBLOCK_INSTS + 1];
 };
 
+#define XR_FAKE_ZERO_REGISTER 32
+
 struct _XrProcessor {
 	uint64_t Itb[XR_ITB_SIZE];
 	uint64_t Dtb[XR_DTB_SIZE];
@@ -199,7 +201,7 @@ struct _XrProcessor {
 	uint32_t WbWriteIndex;
 	uint32_t WbCycles;
 
-	uint32_t Reg[32];
+	uint32_t Reg[33];
 	uint32_t Cr[32];
 	uint32_t Pc;
 
