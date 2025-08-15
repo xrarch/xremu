@@ -2,6 +2,7 @@
 #define XR_MUTEX_H
 
 #include <stdatomic.h>
+#include <errno.h>
 
 #ifdef __APPLE__
 #include <dispatch/dispatch.h>
@@ -23,7 +24,7 @@ static inline void XrInitializeSemaphore(XrSemaphore *s, uint32_t value)
 #ifdef __APPLE__
     s->Semaphore = dispatch_semaphore_create(value);
 #else
-    sem_init(&s->sem, 0, value);
+    sem_init(&s->Semaphore, 0, value);
 #endif
 }
 
