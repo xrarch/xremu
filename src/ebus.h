@@ -44,42 +44,20 @@ static inline void CopyWithLength(void *dest, void *src, uint32_t length) {
 			break;
 
 		case 2:
-			*(uint8_t*)(dest)     = *(uint8_t*)(src);
-			*(uint8_t*)((dest)+1) = *(uint8_t*)((src)+1);
-
+			*(uint16_t*)(dest) = *(uint16_t*)(src);
 			break;
 
 		case 4:
-			*(uint8_t*)(dest)     = *(uint8_t*)(src);
-			*(uint8_t*)((dest)+1) = *(uint8_t*)((src)+1);
-			*(uint8_t*)((dest)+2) = *(uint8_t*)((src)+2);
-			*(uint8_t*)((dest)+3) = *(uint8_t*)((src)+3);
-
+			*(uint32_t*)(dest) = *(uint32_t*)(src);
 			break;
 
 		case 16:
-			*(uint8_t*)(dest)      = *(uint8_t*)(src);
-			*(uint8_t*)((dest)+1)  = *(uint8_t*)((src)+1);
-			*(uint8_t*)((dest)+2)  = *(uint8_t*)((src)+2);
-			*(uint8_t*)((dest)+3)  = *(uint8_t*)((src)+3);
-			*(uint8_t*)((dest)+4)  = *(uint8_t*)((src)+4);
-			*(uint8_t*)((dest)+5)  = *(uint8_t*)((src)+5);
-			*(uint8_t*)((dest)+6)  = *(uint8_t*)((src)+6);
-			*(uint8_t*)((dest)+7)  = *(uint8_t*)((src)+7);
-			*(uint8_t*)((dest)+8)  = *(uint8_t*)((src)+8);
-			*(uint8_t*)((dest)+9)  = *(uint8_t*)((src)+9);
-			*(uint8_t*)((dest)+10) = *(uint8_t*)((src)+10);
-			*(uint8_t*)((dest)+11) = *(uint8_t*)((src)+11);
-			*(uint8_t*)((dest)+12) = *(uint8_t*)((src)+12);
-			*(uint8_t*)((dest)+13) = *(uint8_t*)((src)+13);
-			*(uint8_t*)((dest)+14) = *(uint8_t*)((src)+14);
-			*(uint8_t*)((dest)+15) = *(uint8_t*)((src)+15);
-
+			*(uint64_t*)(dest) = *(uint64_t*)(src);
+			*(uint64_t*)(dest+8) = *(uint64_t*)(src+8);
 			break;
 
 		default:
 			memcpy(dest, src, length);
-
 			break;
 	}
 }
@@ -88,25 +66,17 @@ static inline void CopyWithLengthZext(void *dest, void *src, uint32_t length) {
 	switch (length) {
 		case 1:
 			*(uint8_t*)(dest) = *(uint8_t*)(src);
-			*(uint8_t*)((dest)+1) = 0;
-			*(uint8_t*)((dest)+2) = 0;
-			*(uint8_t*)((dest)+3) = 0;
+			*(uint8_t*)(dest+1) = 0;
+			*(uint16_t*)(dest+2) = 0;
 			break;
 
 		case 2:
-			*(uint8_t*)(dest)     = *(uint8_t*)(src);
-			*(uint8_t*)((dest)+1) = *(uint8_t*)((src)+1);
-			*(uint8_t*)((dest)+2) = 0;
-			*(uint8_t*)((dest)+3) = 0;
-
+			*(uint16_t*)(dest) = *(uint16_t*)(src);
+			*(uint16_t*)(dest+2) = 0;
 			break;
 
 		case 4:
-			*(uint8_t*)(dest)     = *(uint8_t*)(src);
-			*(uint8_t*)((dest)+1) = *(uint8_t*)((src)+1);
-			*(uint8_t*)((dest)+2) = *(uint8_t*)((src)+2);
-			*(uint8_t*)((dest)+3) = *(uint8_t*)((src)+3);
-
+			*(uint32_t*)(dest) = *(uint32_t*)(src);
 			break;
 	}
 }

@@ -12,11 +12,13 @@
 #include "kinnowfb.h"
 #include "kinnowpal.h"
 
+#include "fastmutex.h"
+
 #include "lsic.h"
 
 #include "screen.h"
 
-SDL_mutex *KinnowMutex;
+XrMutex KinnowMutex;
 
 uint8_t *KinnowFB = 0;
 
@@ -62,7 +64,7 @@ int KinnowWrite(uint32_t address, void *src, uint32_t length, void *proc) {
 		uint32_t x1 = pix1%KINNOW_FRAMEBUFFER_WIDTH;
 		uint32_t y1 = pix1/KINNOW_FRAMEBUFFER_WIDTH;
 
-		SDL_LockMutex(KinnowMutex);
+		XrLockMutex(&KinnowMutex);
 
 		IsDirty = true;
 
@@ -82,7 +84,7 @@ int KinnowWrite(uint32_t address, void *src, uint32_t length, void *proc) {
 			DirtyRectY2 = y1;
 		}
 
-		SDL_UnlockMutex(KinnowMutex);
+		XrUnlockMutex(&KinnowMutex);
 
 		CopyWithLength(&KinnowFB[address], src, length);
 
@@ -124,7 +126,7 @@ void KinnowDraw(struct Screen *screen) {
 		return;
 	}
 
-	SDL_LockMutex(KinnowMutex);
+	XrLockMutex(&KinnowMutex);
 
 	int capturedx1 = DirtyRectX1;
 	int capturedx2 = DirtyRectX2;
@@ -138,7 +140,7 @@ void KinnowDraw(struct Screen *screen) {
 
 	IsDirty = false;
 
-	SDL_UnlockMutex(KinnowMutex);
+	XrUnlockMutex(&KinnowMutex);
 
 	int width = capturedx2-capturedx1+1;
 	int height = capturedy2-capturedy1+1;
@@ -175,10 +177,7 @@ int KinnowInit() {
 	if (KinnowFB == 0)
 		return -1;
 
-	KinnowMutex = SDL_CreateMutex();
-
-	if (KinnowMutex == 0)
-		return -1;
+	XrInitializeMutex(&KinnowMutex);
 
 	memset(KinnowFB, 0, FBSize);
 

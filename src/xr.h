@@ -1,8 +1,8 @@
 #ifndef XR_H
 #define XR_H
 
-#include <SDL.h>
 #include "queue.h"
+#include "fastmutex.h"
 
 #define XrLikely(x)       __builtin_expect(!!(x), 1)
 #define XrUnlikely(x)     __builtin_expect(!!(x), 0)
@@ -138,31 +138,15 @@ typedef struct _XrProcessor XrProcessor;
 typedef struct _XrIblock XrIblock;
 typedef struct _XrCachedInst XrCachedInst;
 
-typedef struct _XrDecodeResult XrDecodeResult;
-
 typedef uint32_t (*XrInstShiftF XR_PRESERVE_NONE)(uint32_t a, uint32_t b);
 
 typedef XrIblock *(*XrInstImplF XR_PRESERVE_NONE)(XrProcessor *proc, XrIblock *block, XrCachedInst *inst);
 
-// this is small enough to fit in return register(s)
-// on every standard calling convention.
-struct _XrDecodeResult {
-	int TerminatesBlock;
-	int NumConsumed; // number of real XR insts this decode function consumed
-};
-#define XR_DECODE_SINGLE(terminates) (XrDecodeResult){.TerminatesBlock = terminates, .NumConsumed = 1}
-#define XR_DECODE_MULTI(terminates, num) (XrDecodeResult){.TerminatesBlock = terminates, .NumConsumed = num}
-
 struct _XrCachedInst {
 	XrInstImplF Func;
-	XrInstShiftF ShiftFunc;
 	uint32_t Imm32_1;
-
-	uint32_t Imm32_2; // used by branch sequence instructions as the second
-
 	uint8_t Imm8_1;
 	uint8_t Imm8_2;
-	uint8_t Imm8_3;
 };
 
 struct _XrIblock {
@@ -180,7 +164,20 @@ struct _XrIblock {
 	uint8_t CachedByFifoIndex;
 	uint8_t PteFlags;
 
-	XrCachedInst Insts[XR_IBLOCK_INSTS + 1];
+	// Two extra instructions. One is reserved for if a real instruction decodes
+	// into two virtual instructions (happens for example with inline shifts),
+	// to avoid special casing if there's no room for the virtual instruction.
+	// The second is for the special linkage instruction placed at the end of a
+	// basic block that doesn't otherwise terminate naturally.
+
+	XrCachedInst Insts[XR_IBLOCK_INSTS + 2];
+};
+
+enum XrFakeRegisters {
+	XR_FAKE_ZERO_REGISTER = 32,
+	XR_FAKE_SHIFT_SINK,
+
+	XR_REG_MAX,
 };
 
 struct _XrProcessor {
@@ -190,10 +187,10 @@ struct _XrProcessor {
 	uint64_t ItbLastResult;
 	uint64_t DtbLastResult;
 
-	void *CacheMutexes[XR_CACHE_MUTEXES];
-	void *LoopSemaphore;
-	void *InterruptLock;
-	void *RunLock;
+	XrMutex CacheMutexes[XR_CACHE_MUTEXES];
+	XrSemaphore LoopSemaphore;
+	XrMutex InterruptLock;
+	XrMutex RunLock;
 
 	XrIblock *IblockFreeList;
 
@@ -213,11 +210,13 @@ struct _XrProcessor {
 	uint32_t WbWriteIndex;
 	uint32_t WbCycles;
 
-	uint32_t Reg[32];
+	uint32_t Reg[XR_REG_MAX];
 	uint32_t Cr[32];
 	uint32_t Pc;
 
+#if XR_SIMULATE_CACHE_STALLS
 	uint32_t StallCycles;
+#endif
 	uint32_t Id;
 	int32_t Progress;
 	uint32_t CycleCounter;
@@ -227,9 +226,6 @@ struct _XrProcessor {
 
 	uint32_t IcReplacementIndex;
 	uint32_t DcReplacementIndex;
-
-	uint32_t IcLastTag;
-	uint32_t IcLastOffset;
 
 #ifdef PROFCPU
 	uint32_t DcMissCount;
@@ -271,32 +267,30 @@ extern int XrExecuteFast(XrProcessor *proc, uint32_t cycles, uint32_t dt);
 
 #ifndef EMSCRIPTEN
 
-extern SDL_mutex *ScacheMutexes[XR_CACHE_MUTEXES];
-
-extern SDL_sem* CpuSemaphore;
+extern XrMutex ScacheMutexes[XR_CACHE_MUTEXES];
 
 static inline void XrLockCache(XrProcessor *proc, uint32_t tag) {
-	SDL_LockMutex(proc->CacheMutexes[XR_MUTEX_INDEX(tag)]);
+	XrLockMutex(&proc->CacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 static inline void XrUnlockCache(XrProcessor *proc, uint32_t tag) {
-	SDL_UnlockMutex(proc->CacheMutexes[XR_MUTEX_INDEX(tag)]);
+	XrUnlockMutex(&proc->CacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 static inline void XrLockScache(uint32_t tag) {
-	SDL_LockMutex(ScacheMutexes[XR_MUTEX_INDEX(tag)]);
+	XrLockMutex(&ScacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 static inline void XrUnlockScache(uint32_t tag) {
-	SDL_UnlockMutex(ScacheMutexes[XR_MUTEX_INDEX(tag)]);
+	XrUnlockMutex(&ScacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 static inline void XrLockInterrupt(XrProcessor *proc) {
-	SDL_LockMutex(proc->InterruptLock);
+	XrLockMutex(&proc->InterruptLock);
 }
 
 static inline void XrUnlockInterrupt(XrProcessor *proc) {
-	SDL_UnlockMutex(proc->InterruptLock);
+	XrUnlockMutex(&proc->InterruptLock);
 }
 
 #else
