@@ -11,6 +11,7 @@
 //    efficiently, such as a secondary hash table keyed by bits of the VPN in
 //    which basic blocks are all inserted.
 //
+//
 // 2. Currently most of the branch instructions are capable of caching a pointer
 //    to the next basic block for both the true and false paths, which avoids a
 //    hash table lookup, but JALR (calling through a register) currently cannot.
@@ -18,9 +19,11 @@
 //    in the basic block header and allow JALR-terminated basic blocks to keep a
 //    small history table of recent jump destinations.
 //
+//
 //2a. As a sub-case of the above, JALR to R31 (the link register) should be able
 //    to make use of a small stack cache that is "pushed" by JAL x and "popped"
 //    by JALR ZERO, R31, 0.
+//
 //
 // 3. Keep a small cache of 2-4 recent DTB lookups in the basic block header
 //    which is consulted before the DTLB by instructions therein. There's an
@@ -30,6 +33,8 @@
 //    DTB entry matches the translation done earlier) but this eliminates the
 //    potential benefit of increasing the functional size of the DTB.
 //
+//
+//    DONE
 // 4. Allow basic blocks to, most of the time, directly tail-call one another
 //    rather than always returning to the outer dispatch loop on basic block
 //    boundaries. I was thinking I could do this with a simple incrementing
@@ -37,6 +42,7 @@
 //    the dispatch loop otherwise. In fact, the dispatch loop could be
 //    completely eliminated, with its functions replaced by another tail-called
 //    routine (such as checking for interrupts on basic block boundaries).
+//
 //
 //    DONE, THEN PARTLY REVERTED: Putting the decode loop inside the Ifetch loop
 //                                caused some inscrutable performance regression
@@ -55,6 +61,7 @@
 //    translation-oriented interface for noncached mappings of things like
 //    device registers.
 //
+//
 // 6. Various implementational improvements of older, overly-generalized cache
 //    simulation and virtual memory translation machinery that can be more
 //    specialized and optimized in the new cached interpreter world.
@@ -66,6 +73,7 @@
 //    lock acquisition with a single atomic operation, and then call SDL
 //    directly only if it fails.
 //
+//
 //    DONE
 // 7. Optimize the zero register. Maybe keep destination registers the same
 //    during decode, but replace any source register specified as zero, to be a
@@ -73,6 +81,7 @@
 //    blocks that are decoded with the RS_TBMISS bit set, which must directly
 //    use the zero register (it is banked and usable as scratch during TLB miss
 //    handling).
+//
 //
 // 8. Decode with a small peephole window rather than a single instruction at a
 //    time, and collapse common idioms such as
@@ -89,6 +98,7 @@
 //    effect of the original sequence and we aren't fancy enough to tell ahead
 //    of time whether the result of the subtraction will actually be needed.
 //
+//
 //    DONE
 // 9. The inline shifts for register instructions should not be a call through a
 //    function pointer as they are currently, but should instead be either a
@@ -99,6 +109,7 @@
 //    benefit of the virtual instruction is that in the common case of a shift
 //    amount of 0, we can completely elide the shift. The if statements on the
 //    other hand have a constant overhead even when shamt == 0.
+//
 //
 //10. The proc->Pc += 4 that regularly appears can be replaced by an on-demand
 //    calculation of the current program counter as 
@@ -403,6 +414,7 @@ void XrReset(XrProcessor *proc) {
 	proc->UserBreak = 0;
 	proc->Halted = 0;
 	proc->Running = 1;
+	proc->Dispatches = 0;
 }
 
 static inline void XrPushMode(XrProcessor *proc) {
@@ -1378,24 +1390,108 @@ static inline void XrWriteWbEntry(XrProcessor *proc) {
 
 static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc);
 
+static XrIblock *XrCheckConditions(XrProcessor *proc, XrIblock *nextblock) {
+	// Check if any conditions are true that indicate we should terminate
+	// the execution chain.
+
+	if (XR_SIMULATE_CACHES && proc->WbCycles) {
+		// Assume enough cycles have passed to empty the writebuffer at no
+		// charge.
+
+		proc->WbCycles = 0;
+		XrFlushWriteBuffer(proc);
+	}
+
+retry:
+
+	if (proc->CyclesDone >= proc->CyclesGoal) {
+		return 0;
+	}
+
+	if (proc->Halted) {
+		return 0;
+	}
+
+	if (proc->PauseCalls >= XR_PAUSE_MAX) {
+		proc->PauseCalls = 0;
+		return 0;
+	}
+
+	if (proc->NmiMaskCounter) {
+		proc->NmiMaskCounter--;
+	}
+
+	Lsic *lsic = &LsicTable[proc->Id];
+
+	if (lsic->InterruptPending && (proc->Cr[RS] & RS_INT)) {
+		// Interrupts are enabled and there's an interrupt pending, so cause
+		// an interrupt exception.
+
+		// N.B. There's an assumption here that the host platform will make
+		// writes by other host cores to the interrupt pending flag visible
+		// to us in a timely manner, without needing any barriers.
+
+		XrBasicException(proc, XR_EXC_INT, proc->Pc);
+
+		// Reset the poll counter so as not to penalize the processor for
+		// handling the interrupt.
+
+		proc->Progress = XR_POLL_MAX;
+
+		// Make sure we re-lookup the Iblock.
+
+		nextblock = 0;
+	}
+
+	if (!nextblock) {
+		nextblock = XrDecodeInstructions(proc, proc->Pc);
+
+		if (!nextblock) {
+			// An exception occurred while performing instruction fetch.
+			// Loop and let the exception handler execute.
+
+			proc->CyclesDone += XR_IBLOCK_INSTS;
+
+			goto retry;
+		}
+	}
+
+	// Move the next block to the front of the LRU list.
+
+	RemoveEntryList(&nextblock->LruEntry);
+
+	InsertAtHeadList(&proc->IblockLruList, &nextblock->LruEntry);
+
+	return nextblock;
+}
+
 #define XR_NEXT_NO_PC() inst++; XR_TAIL return inst->Func(proc, block, inst);
 #define XR_NEXT() proc->Pc += 4; XR_NEXT_NO_PC();
+
+#define XR_DISPATCH(nextblock) \
+	proc->CyclesDone += block->Cycles; \
+	XrIblock *_nextblock = (nextblock); \
+	if (!(nextblock) || ((proc->Dispatches++ & 31) == 0)) { \
+		_nextblock = XrCheckConditions(proc, _nextblock); \
+		if (!_nextblock) return; \
+	} \
+	return _nextblock->Insts[0].Func(proc, _nextblock, &_nextblock->Insts[0]);
 
 #define XR_REG_RD() proc->Reg[inst->Imm8_1]
 #define XR_REG_RA() proc->Reg[inst->Imm8_2]
 #define XR_REG_RB() proc->Reg[inst->Imm32_1]
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteIllegalInstruction(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteIllegalInstruction(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 1\n");
 
 	XrBasicException(proc, XR_EXC_INV, proc->Pc);
 
-	return 0;
+	XR_DISPATCH(0);
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteNor(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteNor(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 2\n");
 
 	XR_REG_RD() = ~(XR_REG_RA() | XR_REG_RB());
@@ -1404,7 +1500,7 @@ static XrIblock *XrExecuteNor(XrProcessor *proc, XrIblock *block, XrCachedInst *
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteOr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteOr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 3\n");
 
 	XR_REG_RD() = XR_REG_RA() | XR_REG_RB();
@@ -1413,7 +1509,7 @@ static XrIblock *XrExecuteOr(XrProcessor *proc, XrIblock *block, XrCachedInst *i
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteXor(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteXor(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 4\n");
 
 	XR_REG_RD() = XR_REG_RA() ^ XR_REG_RB();
@@ -1422,7 +1518,7 @@ static XrIblock *XrExecuteXor(XrProcessor *proc, XrIblock *block, XrCachedInst *
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteAnd(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteAnd(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 5\n");
 
 	XR_REG_RD() = XR_REG_RA() & XR_REG_RB();
@@ -1431,7 +1527,7 @@ static XrIblock *XrExecuteAnd(XrProcessor *proc, XrIblock *block, XrCachedInst *
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteSltSigned(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteSltSigned(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 6\n");
 
 	if ((int32_t) XR_REG_RA() < (int32_t) XR_REG_RB()) {
@@ -1444,7 +1540,7 @@ static XrIblock *XrExecuteSltSigned(XrProcessor *proc, XrIblock *block, XrCached
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteSlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteSlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 7\n");
 
 	if (XR_REG_RA() < XR_REG_RB()) {
@@ -1457,7 +1553,7 @@ static XrIblock *XrExecuteSlt(XrProcessor *proc, XrIblock *block, XrCachedInst *
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteSub(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteSub(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 8\n");
 
 	XR_REG_RD() = XR_REG_RA() - XR_REG_RB();
@@ -1466,7 +1562,7 @@ static XrIblock *XrExecuteSub(XrProcessor *proc, XrIblock *block, XrCachedInst *
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteAdd(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteAdd(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 
 	DBGPRINT("exec 9\n");
 
@@ -1476,7 +1572,7 @@ static XrIblock *XrExecuteAdd(XrProcessor *proc, XrIblock *block, XrCachedInst *
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteLsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteLsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 10\n");
 
 	XR_REG_RD() = XR_REG_RB() << XR_REG_RA();
@@ -1485,7 +1581,7 @@ static XrIblock *XrExecuteLsh(XrProcessor *proc, XrIblock *block, XrCachedInst *
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteRsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteRsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 11\n");
 
 	XR_REG_RD() = XR_REG_RB() >> XR_REG_RA();
@@ -1494,7 +1590,7 @@ static XrIblock *XrExecuteRsh(XrProcessor *proc, XrIblock *block, XrCachedInst *
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteAsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteAsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 12\n");
 
 	XR_REG_RD() = (int32_t) XR_REG_RB() >> XR_REG_RA();
@@ -1503,7 +1599,7 @@ static XrIblock *XrExecuteAsh(XrProcessor *proc, XrIblock *block, XrCachedInst *
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteRor(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteRor(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 13\n");
 
 	XR_REG_RD() = RoR(XR_REG_RB(), XR_REG_RA());
@@ -1512,7 +1608,7 @@ static XrIblock *XrExecuteRor(XrProcessor *proc, XrIblock *block, XrCachedInst *
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteStoreLongRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteStoreLongRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 14\n");
 
 	int status = XrWriteLong(proc, XR_REG_RA() + XR_REG_RB(), XR_REG_RD());
@@ -1520,14 +1616,14 @@ static XrIblock *XrExecuteStoreLongRegOffset(XrProcessor *proc, XrIblock *block,
 	if (!status) {
 		// An exception occurred, so perform an early exit from the basic block.
 
-		return 0;
+		return;
 	}
 
 	XR_NEXT();
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteStoreIntRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteStoreIntRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 15\n");
 
 	int status = XrWriteInt(proc, XR_REG_RA() + XR_REG_RB(), XR_REG_RD());
@@ -1535,14 +1631,14 @@ static XrIblock *XrExecuteStoreIntRegOffset(XrProcessor *proc, XrIblock *block, 
 	if (!status) {
 		// An exception occurred, so perform an early exit from the basic block.
 
-		return 0;
+		return;
 	}
 
 	XR_NEXT();
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteStoreByteRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteStoreByteRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 16\n");
 
 	int status = XrWriteByte(proc, XR_REG_RA() + XR_REG_RB(), XR_REG_RD());
@@ -1550,14 +1646,14 @@ static XrIblock *XrExecuteStoreByteRegOffset(XrProcessor *proc, XrIblock *block,
 	if (!status) {
 		// An exception occurred, so perform an early exit from the basic block.
 
-		return 0;
+		return;
 	}
 
 	XR_NEXT();
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteLoadLongRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteLoadLongRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 17\n");
 
 	int status = XrReadLong(proc, XR_REG_RA() + XR_REG_RB(), &XR_REG_RD());
@@ -1565,14 +1661,14 @@ static XrIblock *XrExecuteLoadLongRegOffset(XrProcessor *proc, XrIblock *block, 
 	if (!status) {
 		// An exception occurred, so perform an early exit from the basic block.
 
-		return 0;
+		return;
 	}
 
 	XR_NEXT();
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteLoadIntRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteLoadIntRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 18\n");
 
 	int status = XrReadInt(proc, XR_REG_RA() + XR_REG_RB(), &XR_REG_RD());
@@ -1580,14 +1676,14 @@ static XrIblock *XrExecuteLoadIntRegOffset(XrProcessor *proc, XrIblock *block, X
 	if (!status) {
 		// An exception occurred, so perform an early exit from the basic block.
 
-		return 0;
+		return;
 	}
 
 	XR_NEXT();
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteLoadByteRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteLoadByteRegOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 19\n");
 
 	int status = XrReadByte(proc, XR_REG_RA() + XR_REG_RB(), &XR_REG_RD());
@@ -1595,32 +1691,32 @@ static XrIblock *XrExecuteLoadByteRegOffset(XrProcessor *proc, XrIblock *block, 
 	if (!status) {
 		// An exception occurred, so perform an early exit from the basic block.
 
-		return 0;
+		return;
 	}
 
 	XR_NEXT();
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteSys(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteSys(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 20\n");
 
 	XrBasicException(proc, XR_EXC_SYS, proc->Pc + 4);
 
-	return 0;
+	XR_DISPATCH(0);
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteBrk(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteBrk(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 21\n");
 
 	XrBasicException(proc, XR_EXC_BRK, proc->Pc + 4);
 
-	return 0;
+	XR_DISPATCH(0);
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteWmb(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteWmb(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 22\n");
 
 	if (XR_SIMULATE_CACHES) {
@@ -1633,16 +1729,22 @@ static XrIblock *XrExecuteWmb(XrProcessor *proc, XrIblock *block, XrCachedInst *
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecutePause(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecutePause(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 23\n");
 
-	proc->PauseCalls++;
+	if (proc->PauseCalls++ >= XR_PAUSE_MAX) {
+		// Terminate execution.
+
+		proc->Pc += 4;
+
+		return;
+	}
 
 	XR_NEXT();
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteSC(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteSC(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 24\n");
 
 	if (!proc->Locked) {
@@ -1660,7 +1762,7 @@ static XrIblock *XrExecuteSC(XrProcessor *proc, XrIblock *block, XrCachedInst *i
 		uint8_t status = XrAccess(proc, XR_REG_RA(), 0, XR_REG_RB(), 4, 1);
 
 		if (!status) {
-			return 0;
+			return;
 		}
 
 		XR_REG_RD() = (status == 2) ? 0 : 1;
@@ -1670,13 +1772,13 @@ static XrIblock *XrExecuteSC(XrProcessor *proc, XrIblock *block, XrCachedInst *i
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteLL(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteLL(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 25\n");
 
 	int status = XrReadLong(proc, XR_REG_RA(), &XR_REG_RD());
 
 	if (!status) {
-		return 0;
+		return;
 	}
 
 	proc->Locked = 1;
@@ -1685,7 +1787,7 @@ static XrIblock *XrExecuteLL(XrProcessor *proc, XrIblock *block, XrCachedInst *i
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteMod(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteMod(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 26\n");
 
 	uint32_t val = XR_REG_RB();
@@ -1700,7 +1802,7 @@ static XrIblock *XrExecuteMod(XrProcessor *proc, XrIblock *block, XrCachedInst *
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteDivSigned(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteDivSigned(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 27\n");
 
 	uint32_t val = XR_REG_RB();
@@ -1715,7 +1817,7 @@ static XrIblock *XrExecuteDivSigned(XrProcessor *proc, XrIblock *block, XrCached
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteDiv(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteDiv(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 28\n");
 
 	uint32_t val = XR_REG_RB();
@@ -1730,7 +1832,7 @@ static XrIblock *XrExecuteDiv(XrProcessor *proc, XrIblock *block, XrCachedInst *
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteMul(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteMul(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 29\n");
 
 	XR_REG_RD() = XR_REG_RA() * XR_REG_RB();
@@ -1739,7 +1841,7 @@ static XrIblock *XrExecuteMul(XrProcessor *proc, XrIblock *block, XrCachedInst *
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteRfe(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteRfe(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 30\n");
 
 	proc->Locked = 0;
@@ -1751,7 +1853,7 @@ static XrIblock *XrExecuteRfe(XrProcessor *proc, XrIblock *block, XrCachedInst *
 
 		XrBasicException(proc, XR_EXC_PRV, proc->Pc);
 
-		return 0;
+		return;
 	}
 
 	if (proc->Cr[RS] & RS_TBMISS) {
@@ -1767,11 +1869,11 @@ static XrIblock *XrExecuteRfe(XrProcessor *proc, XrIblock *block, XrCachedInst *
 		proc->Reg[0] = 0;
 	}
 
-	return 0;
+	XR_DISPATCH(0);
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteHlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteHlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 31\n");
 
 	if (proc->Cr[RS] & RS_USER) {
@@ -1779,18 +1881,18 @@ static XrIblock *XrExecuteHlt(XrProcessor *proc, XrIblock *block, XrCachedInst *
 
 		XrBasicException(proc, XR_EXC_PRV, proc->Pc);
 
-		return 0;
+		return;
 	}
 
 	proc->Halted = true;
 
 	proc->Pc += 4;
 
-	return 0;
+	XR_DISPATCH(0);
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 32\n");
 
 	if (proc->Cr[RS] & RS_USER) {
@@ -1798,7 +1900,7 @@ static XrIblock *XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst 
 
 		XrBasicException(proc, XR_EXC_PRV, proc->Pc);
 
-		return 0;
+		return;
 	}
 
 	// Reset the NMI mask counter.
@@ -1843,7 +1945,7 @@ static XrIblock *XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst 
 
 			proc->Pc += 4;
 
-			return 0;
+			return;
 
 		case DCACHECTRL:
 			if (!XR_SIMULATE_CACHES)
@@ -1926,7 +2028,7 @@ static XrIblock *XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst 
 
 			proc->Pc += 4;
 
-			return 0;
+			return;
 
 		case DTBCTRL:
 			if ((proc->Reg[ra] & 3) == 3) {
@@ -2044,7 +2146,7 @@ static XrIblock *XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst 
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteMfcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteMfcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 33\n");
 
 	if (proc->Cr[RS] & RS_USER) {
@@ -2052,7 +2154,7 @@ static XrIblock *XrExecuteMfcr(XrProcessor *proc, XrIblock *block, XrCachedInst 
 
 		XrBasicException(proc, XR_EXC_PRV, proc->Pc);
 
-		return 0;
+		return;
 	}
 
 	// Reset the NMI mask counter.
@@ -2065,7 +2167,7 @@ static XrIblock *XrExecuteMfcr(XrProcessor *proc, XrIblock *block, XrCachedInst 
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteBpo(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteBpo(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 34\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2084,24 +2186,24 @@ static XrIblock *XrExecuteBpo(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	iblock = *referrent;
 
 	if (iblock) {
-		return iblock;
+		goto dispatch;
 	}
 
 	iblock = XrDecodeInstructions(proc, proc->Pc);
 
 	if (!iblock) {
-		// Ifetch mishap.
-
-		return 0;
+		goto dispatch;
 	}
 
 	XrCreateCachedPointerToBlock(iblock, referrent);
 
-	return iblock;
+dispatch:
+
+	XR_DISPATCH(iblock);
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteBpe(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteBpe(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 35\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2120,24 +2222,24 @@ static XrIblock *XrExecuteBpe(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	iblock = *referrent;
 
 	if (iblock) {
-		return iblock;
+		goto dispatch;
 	}
 
 	iblock = XrDecodeInstructions(proc, proc->Pc);
 
 	if (!iblock) {
-		// Ifetch mishap.
-
-		return 0;
+		goto dispatch;
 	}
 
 	XrCreateCachedPointerToBlock(iblock, referrent);
 
-	return iblock;
+dispatch:
+
+	XR_DISPATCH(iblock);
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteBge(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteBge(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 36\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2156,24 +2258,24 @@ static XrIblock *XrExecuteBge(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	iblock = *referrent;
 
 	if (iblock) {
-		return iblock;
+		goto dispatch;
 	}
 
 	iblock = XrDecodeInstructions(proc, proc->Pc);
 
 	if (!iblock) {
-		// Ifetch mishap.
-
-		return 0;
+		goto dispatch;
 	}
 
 	XrCreateCachedPointerToBlock(iblock, referrent);
 
-	return iblock;
+dispatch:
+
+	XR_DISPATCH(iblock);
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteBle(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteBle(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 37\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2192,24 +2294,24 @@ static XrIblock *XrExecuteBle(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	iblock = *referrent;
 
 	if (iblock) {
-		return iblock;
+		goto dispatch;
 	}
 
 	iblock = XrDecodeInstructions(proc, proc->Pc);
 
 	if (!iblock) {
-		// Ifetch mishap.
-
-		return 0;
+		goto dispatch;
 	}
 
 	XrCreateCachedPointerToBlock(iblock, referrent);
 
-	return iblock;
+dispatch:
+
+	XR_DISPATCH(iblock);
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteBgt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteBgt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 38\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2228,24 +2330,24 @@ static XrIblock *XrExecuteBgt(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	iblock = *referrent;
 
 	if (iblock) {
-		return iblock;
+		goto dispatch;
 	}
 
 	iblock = XrDecodeInstructions(proc, proc->Pc);
 
 	if (!iblock) {
-		// Ifetch mishap.
-
-		return 0;
+		goto dispatch;
 	}
 
 	XrCreateCachedPointerToBlock(iblock, referrent);
 
-	return iblock;
+dispatch:
+
+	XR_DISPATCH(iblock);
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteBlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteBlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 39\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2264,24 +2366,24 @@ static XrIblock *XrExecuteBlt(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	iblock = *referrent;
 
 	if (iblock) {
-		return iblock;
+		goto dispatch;
 	}
 
 	iblock = XrDecodeInstructions(proc, proc->Pc);
 
 	if (!iblock) {
-		// Ifetch mishap.
-
-		return 0;
+		goto dispatch;
 	}
 
 	XrCreateCachedPointerToBlock(iblock, referrent);
 
-	return iblock;
+dispatch:
+
+	XR_DISPATCH(iblock);
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteBne(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteBne(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 40\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2300,24 +2402,24 @@ static XrIblock *XrExecuteBne(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	iblock = *referrent;
 
 	if (iblock) {
-		return iblock;
+		goto dispatch;
 	}
 
 	iblock = XrDecodeInstructions(proc, proc->Pc);
 
 	if (!iblock) {
-		// Ifetch mishap.
-
-		return 0;
+		goto dispatch;
 	}
 
 	XrCreateCachedPointerToBlock(iblock, referrent);
 
-	return iblock;
+dispatch:
+
+	XR_DISPATCH(iblock);
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteBeq(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteBeq(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 41\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2336,24 +2438,24 @@ static XrIblock *XrExecuteBeq(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	iblock = *referrent;
 
 	if (iblock) {
-		return iblock;
+		goto dispatch;
 	}
 
 	iblock = XrDecodeInstructions(proc, proc->Pc);
 
 	if (!iblock) {
-		// Ifetch mishap.
-
-		return 0;
+		goto dispatch;
 	}
 
 	XrCreateCachedPointerToBlock(iblock, referrent);
 
-	return iblock;
+dispatch:
+
+	XR_DISPATCH(iblock);
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteB(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteB(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 42\n");
 
 	proc->Pc += inst->Imm32_1;
@@ -2361,25 +2463,24 @@ static XrIblock *XrExecuteB(XrProcessor *proc, XrIblock *block, XrCachedInst *in
 	XrIblock *iblock = block->TruePath;
 
 	if (iblock) {
-		DBGPRINT("true path b %p\n", iblock);
-		return iblock;
+		goto dispatch;
 	}
 
 	iblock = XrDecodeInstructions(proc, proc->Pc);
 
 	if (!iblock) {
-		// Ifetch mishap.
-
-		return 0;
+		goto dispatch;
 	}
 
 	XrCreateCachedPointerToBlock(iblock, &block->TruePath);
 
-	return iblock;
+dispatch:
+
+	XR_DISPATCH(iblock);
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteOri(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteOri(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 43\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2392,7 +2493,7 @@ static XrIblock *XrExecuteOri(XrProcessor *proc, XrIblock *block, XrCachedInst *
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteXori(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteXori(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 44\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2405,7 +2506,7 @@ static XrIblock *XrExecuteXori(XrProcessor *proc, XrIblock *block, XrCachedInst 
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteAndi(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteAndi(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 45\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2418,7 +2519,7 @@ static XrIblock *XrExecuteAndi(XrProcessor *proc, XrIblock *block, XrCachedInst 
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteSltiSigned(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteSltiSigned(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 46\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2435,7 +2536,7 @@ static XrIblock *XrExecuteSltiSigned(XrProcessor *proc, XrIblock *block, XrCache
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteSlti(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteSlti(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 47\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2452,7 +2553,7 @@ static XrIblock *XrExecuteSlti(XrProcessor *proc, XrIblock *block, XrCachedInst 
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteSubi(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteSubi(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 48\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2465,7 +2566,7 @@ static XrIblock *XrExecuteSubi(XrProcessor *proc, XrIblock *block, XrCachedInst 
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteAddi(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteAddi(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 49\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2478,7 +2579,7 @@ static XrIblock *XrExecuteAddi(XrProcessor *proc, XrIblock *block, XrCachedInst 
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteStoreLongImmOffsetImm(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteStoreLongImmOffsetImm(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 50\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2488,14 +2589,14 @@ static XrIblock *XrExecuteStoreLongImmOffsetImm(XrProcessor *proc, XrIblock *blo
 	int status = XrWriteLong(proc, proc->Reg[rd] + imm, SignExt5(ra));
 
 	if (!status) {
-		return 0;
+		return;
 	}
 
 	XR_NEXT();
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteStoreIntImmOffsetImm(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteStoreIntImmOffsetImm(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 51\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2505,14 +2606,14 @@ static XrIblock *XrExecuteStoreIntImmOffsetImm(XrProcessor *proc, XrIblock *bloc
 	int status = XrWriteInt(proc, proc->Reg[rd] + imm, SignExt5(ra));
 
 	if (!status) {
-		return 0;
+		return;
 	}
 
 	XR_NEXT();
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteStoreByteImmOffsetImm(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteStoreByteImmOffsetImm(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 52\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2522,14 +2623,14 @@ static XrIblock *XrExecuteStoreByteImmOffsetImm(XrProcessor *proc, XrIblock *blo
 	int status = XrWriteByte(proc, proc->Reg[rd] + imm, SignExt5(ra));
 
 	if (!status) {
-		return 0;
+		return;
 	}
 
 	XR_NEXT();
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteStoreLongImmOffsetReg(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteStoreLongImmOffsetReg(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 53\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2539,14 +2640,14 @@ static XrIblock *XrExecuteStoreLongImmOffsetReg(XrProcessor *proc, XrIblock *blo
 	int status = XrWriteLong(proc, proc->Reg[rd] + imm, proc->Reg[ra]);
 
 	if (!status) {
-		return 0;
+		return;
 	}
 
 	XR_NEXT();
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteStoreIntImmOffsetReg(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteStoreIntImmOffsetReg(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 54\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2556,14 +2657,14 @@ static XrIblock *XrExecuteStoreIntImmOffsetReg(XrProcessor *proc, XrIblock *bloc
 	int status = XrWriteInt(proc, proc->Reg[rd] + imm, proc->Reg[ra]);
 
 	if (!status) {
-		return 0;
+		return;
 	}
 
 	XR_NEXT();
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteStoreByteImmOffsetReg(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteStoreByteImmOffsetReg(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 55\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2573,14 +2674,14 @@ static XrIblock *XrExecuteStoreByteImmOffsetReg(XrProcessor *proc, XrIblock *blo
 	int status = XrWriteByte(proc, proc->Reg[rd] + imm, proc->Reg[ra]);
 
 	if (!status) {
-		return 0;
+		return;
 	}
 
 	XR_NEXT();
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteLoadLongImmOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteLoadLongImmOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 56\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2590,16 +2691,14 @@ static XrIblock *XrExecuteLoadLongImmOffset(XrProcessor *proc, XrIblock *block, 
 	int status = XrReadLong(proc, proc->Reg[ra] + imm, &proc->Reg[rd]);
 
 	if (!status) {
-		// An exception occurred.
-
-		return 0;
+		return;
 	}
 
 	XR_NEXT();
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteLoadIntImmOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteLoadIntImmOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 57\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2609,16 +2708,14 @@ static XrIblock *XrExecuteLoadIntImmOffset(XrProcessor *proc, XrIblock *block, X
 	int status = XrReadInt(proc, proc->Reg[ra] + imm, &proc->Reg[rd]);
 
 	if (!status) {
-		// An exception occurred.
-
-		return 0;
+		return;
 	}
 
 	XR_NEXT();
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteLoadByteImmOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteLoadByteImmOffset(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 58\n");
 
 	uint32_t rd = inst->Imm8_1;
@@ -2628,16 +2725,14 @@ static XrIblock *XrExecuteLoadByteImmOffset(XrProcessor *proc, XrIblock *block, 
 	int status = XrReadByte(proc, proc->Reg[ra] + imm, &proc->Reg[rd]);
 
 	if (!status) {
-		// An exception occurred.
-
-		return 0;
+		return;
 	}
 
 	XR_NEXT();
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteJalr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteJalr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 59 @ %x\n", proc->Pc);
 
 	uint32_t rd = inst->Imm8_1;
@@ -2656,11 +2751,11 @@ static XrIblock *XrExecuteJalr(XrProcessor *proc, XrIblock *block, XrCachedInst 
 		XrBasicException(proc, XR_EXC_UNA, proc->Pc);
 	}
 
-	return 0;
+	XR_DISPATCH(0);
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteJal(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteJal(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 60\n");
 
 	proc->Reg[LR] = proc->Pc + 4;
@@ -2669,25 +2764,24 @@ static XrIblock *XrExecuteJal(XrProcessor *proc, XrIblock *block, XrCachedInst *
 	XrIblock *iblock = block->TruePath;
 
 	if (iblock) {
-		DBGPRINT("true path jal %p\n", iblock);
-		return iblock;
+		goto dispatch;
 	}
 
 	iblock = XrDecodeInstructions(proc, proc->Pc);
 
 	if (!iblock) {
-		// Ifetch mishap.
-
-		return 0;
+		goto dispatch;
 	}
 
 	XrCreateCachedPointerToBlock(iblock, &block->TruePath);
 
-	return iblock;
+dispatch:
+
+	XR_DISPATCH(iblock);
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteJ(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteJ(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 61\n");
 
 	proc->Pc = inst->Imm32_1;
@@ -2695,25 +2789,24 @@ static XrIblock *XrExecuteJ(XrProcessor *proc, XrIblock *block, XrCachedInst *in
 	XrIblock *iblock = block->TruePath;
 
 	if (iblock) {
-		DBGPRINT("true path j %p\n", iblock);
-		return iblock;
+		goto dispatch;
 	}
 
 	iblock = XrDecodeInstructions(proc, proc->Pc);
 
 	if (!iblock) {
-		// Ifetch mishap.
-
-		return 0;
+		goto dispatch;
 	}
 
 	XrCreateCachedPointerToBlock(iblock, &block->TruePath);
 
-	return iblock;
+dispatch:
+
+	XR_DISPATCH(iblock);
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteVirtualLsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteVirtualLsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 101\n");
 
 	proc->Reg[XR_FAKE_SHIFT_SINK] = proc->Reg[inst->Imm8_1] << inst->Imm8_2;
@@ -2722,7 +2815,7 @@ static XrIblock *XrExecuteVirtualLsh(XrProcessor *proc, XrIblock *block, XrCache
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteVirtualRsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteVirtualRsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 102\n");
 
 	proc->Reg[XR_FAKE_SHIFT_SINK] = proc->Reg[inst->Imm8_1] >> inst->Imm8_2;
@@ -2731,7 +2824,7 @@ static XrIblock *XrExecuteVirtualRsh(XrProcessor *proc, XrIblock *block, XrCache
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteVirtualAsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteVirtualAsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 103\n");
 
 	proc->Reg[XR_FAKE_SHIFT_SINK] = (int32_t) proc->Reg[inst->Imm8_1] >> inst->Imm8_2;
@@ -2740,7 +2833,7 @@ static XrIblock *XrExecuteVirtualAsh(XrProcessor *proc, XrIblock *block, XrCache
 }
 
 XR_PRESERVE_NONE
-static XrIblock *XrExecuteVirtualRor(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrExecuteVirtualRor(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 104\n");
 
 	proc->Reg[XR_FAKE_SHIFT_SINK] = RoR(proc->Reg[inst->Imm8_1], inst->Imm8_2);
@@ -3510,7 +3603,7 @@ static XrDecodeInstructionF XrDecodeLowThree[8] = {
 };
 
 XR_PRESERVE_NONE
-XrIblock *XrSpecialLinkageInstruction(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+static void XrSpecialLinkageInstruction(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 0\n");
 
 	// This instruction is placed at the end of a basic block that didn't
@@ -3523,21 +3616,20 @@ XrIblock *XrSpecialLinkageInstruction(XrProcessor *proc, XrIblock *block, XrCach
 		// We already cached the pointer to the next Iblock, so return it
 		// directly.
 
-		DBGPRINT("true path linkage %p\n", iblock);
-		return iblock;
+		goto dispatch;
 	}
 
 	iblock = XrDecodeInstructions(proc, proc->Pc);
 
 	if (!iblock) {
-		// Ifetch mishap.
-
-		return 0;
+		goto dispatch;
 	}
 
 	XrCreateCachedPointerToBlock(iblock, &block->TruePath);
 
-	return iblock;
+dispatch:
+
+	XR_DISPATCH(iblock);
 }
 
 static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
@@ -3679,6 +3771,10 @@ done_no_linkage:
 }
 
 int XrExecuteFast(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
+	if (!proc->Running) {
+		return 0;
+	}
+
 #ifdef PROFCPU
 	if (XrPrintCache) {
 		proc->TimeToNextPrint -= dt;
@@ -3713,14 +3809,6 @@ int XrExecuteFast(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 
 	Lsic *lsic = &LsicTable[proc->Id];
 
-	if (proc->UserBreak && !proc->NmiMaskCounter) {
-		// There's a pending user-initiated NMI, so do that.
-
-		XrBasicException(proc, XR_EXC_NMI, proc->Pc);
-		proc->UserBreak = 0;
-		proc->Halted = 0;
-	}
-
 	if (proc->Halted) {
 		// We're halted.
 
@@ -3743,6 +3831,17 @@ int XrExecuteFast(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 		proc->Halted = 0;
 	}
 
+	proc->CyclesGoal = cycles;
+	proc->CyclesDone = 0;
+
+	if (proc->UserBreak && !proc->NmiMaskCounter) {
+		// There's a pending user-initiated NMI, so do that.
+
+		XrBasicException(proc, XR_EXC_NMI, proc->Pc);
+		proc->UserBreak = 0;
+		proc->Halted = 0;
+	}
+
 	if (proc->Progress <= 0) {
 		// This processor did a poll-y looking thing too many times this
 		// tick. Skip the rest of the tick so as not to eat up too much of
@@ -3753,124 +3852,17 @@ int XrExecuteFast(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 
 	proc->PauseCalls = 0;
 
-	uint32_t cyclesdone = 0;
+	while (proc->CyclesDone < proc->CyclesGoal) {
+		// Call XrCheckConditions to start the execution chain.
 
-	uint32_t currentpc;
-	uint32_t ir;
-	uint32_t maj;
-	uint32_t majoropcode;
-	uint32_t funct;
-	uint32_t shift;
-	uint32_t shifttype;
-	uint32_t val;
-	uint32_t rd;
-	uint32_t ra;
-	uint32_t rb;
-	uint32_t imm;
+		XrIblock *block = XrCheckConditions(proc, 0);
 
-	int status;
-
-	XrIblock *iblock = 0;
-
-	for (; cyclesdone < cycles && !proc->Halted && proc->Running && proc->PauseCalls < XR_PAUSE_MAX;) {
-		if (proc->NmiMaskCounter) {
-			// Decrement the NMI mask cycle counter.
-
-			proc->NmiMaskCounter -= 1;
-
-			if (proc->UserBreak && !proc->NmiMaskCounter) {
-				// There's a pending user-initiated NMI, so do that.
-
-				XrBasicException(proc, XR_EXC_NMI, proc->Pc);
-				proc->UserBreak = 0;
-				proc->Halted = 0;
-
-				// Make sure we re-lookup the Iblock.
-
-				iblock = 0;
-			}
+		if (!block) {
+			break;
 		}
 
-#if XR_SIMULATE_CACHE_STALLS
-		if (proc->StallCycles) {
-			// There's a simulated cache stall of some number of cycles, so
-			// decrement the remaining stall and loop.
-
-			proc->StallCycles--;
-
-			continue;
-		}
-#endif
-
-		if (lsic->InterruptPending && (proc->Cr[RS] & RS_INT)) {
-			// Interrupts are enabled and there's an interrupt pending, so cause
-			// an interrupt exception.
-
-			// N.B. There's an assumption here that the host platform will make
-			// writes by other host cores to the interrupt pending flag visible
-			// to us in a timely manner, without needing any barriers.
-
-			XrBasicException(proc, XR_EXC_INT, proc->Pc);
-
-			// Reset the poll counter so as not to penalize the processor for
-			// handling the interrupt.
-
-			proc->Progress = XR_POLL_MAX;
-
-			// Make sure we re-lookup the Iblock.
-
-			iblock = 0;
-		}
-
-		if (!iblock) {
-			iblock = XrDecodeInstructions(proc, proc->Pc);
-
-			if (!iblock) {
-				// An exception occurred while performing instruction fetch.
-				// Loop and let the exception handler execute.
-
-				cyclesdone += XR_IBLOCK_INSTS;
-
-				continue;
-			}
-
-			DBGPRINT("acquired %p\n", iblock);
-		}
-
-		DBGPRINT("running %x %p\n", proc->Pc, iblock);
-
-		uint32_t blockcycles = iblock->Cycles;
-
-		cyclesdone += blockcycles;
-
-#ifdef PROFCPU
-		proc->CycleCounter += blockcycles;
-#endif
-
-		// Move the basic block to the front of the LRU list.
-
-		RemoveEntryList(&iblock->LruEntry);
-
-		InsertAtHeadList(&proc->IblockLruList, &iblock->LruEntry);
-
-		// Execute the basic block.
-		// Each instruction execute function directly tail-calls the next until
-		// the final one returns the next Iblock to us.
-
-		iblock = iblock->Insts[0].Func(proc, iblock, &iblock->Insts[0]);
-
-		DBGPRINT("next %p\n", iblock);
-
-		if (XR_SIMULATE_CACHES && proc->WbCycles) {
-			if (proc->WbCycles <= blockcycles) {
-				// Time to write out a write buffer entry.
-				proc->WbCycles = 0;
-				XrWriteWbEntry(proc);
-			} else {
-				proc->WbCycles -= blockcycles;
-			}
-		}
+		block->Insts[0].Func(proc, block, &block->Insts[0]);
 	}
 
-	return cyclesdone;
+	return proc->CyclesDone;
 }

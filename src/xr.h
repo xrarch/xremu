@@ -138,9 +138,7 @@ typedef struct _XrProcessor XrProcessor;
 typedef struct _XrIblock XrIblock;
 typedef struct _XrCachedInst XrCachedInst;
 
-typedef uint32_t (*XrInstShiftF XR_PRESERVE_NONE)(uint32_t a, uint32_t b);
-
-typedef XrIblock *(*XrInstImplF XR_PRESERVE_NONE)(XrProcessor *proc, XrIblock *block, XrCachedInst *inst);
+typedef void (*XrInstImplF XR_PRESERVE_NONE)(XrProcessor *proc, XrIblock *block, XrCachedInst *inst);
 
 struct _XrCachedInst {
 	XrInstImplF Func;
@@ -219,7 +217,8 @@ struct _XrProcessor {
 #endif
 	uint32_t Id;
 	int32_t Progress;
-	uint32_t CycleCounter;
+	uint32_t CyclesDone;
+	uint32_t CyclesGoal;
 	uint32_t PauseCalls;
 	uint32_t Timeslice;
 	uint32_t PauseReward;
@@ -251,6 +250,7 @@ struct _XrProcessor {
 	uint8_t UserBreak;
 	uint8_t Halted;
 	uint8_t Running;
+	uint8_t Dispatches;
 };
 
 #define XR_SIMULATE_CACHES 1

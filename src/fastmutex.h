@@ -101,7 +101,7 @@ static inline int XrTryLockMutex(XrMutex *mutex) {
 			&counter,
 			1,
 			memory_order_acquire,
-			memory_order_seq_cst
+			memory_order_relaxed
 		)) {
 			return 1;
 		}
