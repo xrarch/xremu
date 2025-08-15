@@ -167,13 +167,12 @@ struct _XrIblock {
 
 	XrIblock **CachedBy[XR_IBLOCK_CACHEDBY_MAX];
 
-	XrJalrPredictionTable *Ptable;
-
 	uint32_t Asid;
 	uint32_t Pc;
 	uint8_t Cycles;
 	uint8_t CachedByFifoIndex;
 	uint8_t PteFlags;
+	uint8_t HasPtable;
 
 	// Two extra instructions. One is reserved for if a real instruction decodes
 	// into two virtual instructions (happens for example with inline shifts),

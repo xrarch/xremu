@@ -270,10 +270,10 @@ static inline void XrFreeIblock(XrProcessor *proc, XrIblock *iblock) {
 
 	// Free Ptable.
 
-	if (iblock->Ptable) {
+	if (iblock->HasPtable) {
 		// Free Ptable.
 
-		XrFreePtable(proc, iblock->Ptable);
+		XrFreePtable(proc, (void*)iblock->CachedPaths[0]);
 	}
 
 	// Insert in the free list.
@@ -2748,11 +2748,12 @@ static void XrExecuteJalr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst
 		XR_EARLY_EXIT();
 	}
 
-	XrJalrPredictionTable *ptable = block->Ptable;
+	XrJalrPredictionTable *ptable = (void*)block->CachedPaths[0];
 
 	if (XrUnlikely(!ptable)) {
 		ptable = XrAllocatePtable(proc);
-		block->Ptable = ptable;
+		block->CachedPaths[0] = (void*)ptable;
+		block->HasPtable = 1;
 	}
 
 	XrIblock *iblock;
@@ -3718,7 +3719,7 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 	iblock->Cycles = 0;
 	iblock->CachedByFifoIndex = 0;
 	iblock->PteFlags = flags;
-	iblock->Ptable = 0;
+	iblock->HasPtable = 0;
 
 	for (int i = 0; i < XR_CACHED_PATH_MAX; i++) {
 		iblock->CachedPaths[i] = 0;
