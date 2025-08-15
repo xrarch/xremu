@@ -76,7 +76,7 @@ int CpuLoop(void *context) {
 	while (1) {
 		// Wait until the next frame.
 
-		SDL_SemWait(CpuTable[id]->LoopSemaphore);
+		XrWaitSemaphore(&CpuTable[id]->LoopSemaphore);
 
 		// Start the processor ID at the preferred ID. This will make it so the
 		// same threads preferentially execute the same couple of processors,
@@ -239,12 +239,7 @@ void CpuInitialize(int id) {
 		XrInitializeMutex(&ScacheMutexes[i]);
 	}
 
-	proc->LoopSemaphore = SDL_CreateSemaphore(0);
-
-	if (!proc->LoopSemaphore) {
-		fprintf(stderr, "Unable to allocate loop semaphore: %s", SDL_GetError());
-		exit(1);
-	}
+	XrInitializeSemaphore(&proc->LoopSemaphore, 0);
 
 	XrInitializeMutex(&proc->InterruptLock);
 
@@ -502,7 +497,7 @@ int main(int argc, char *argv[]) {
 		}
 
 		for (int i = 0; i < CpuThreadCount; i++) {
-			SDL_SemPost(CpuTable[i]->LoopSemaphore);
+			XrPostSemaphore(&CpuTable[i]->LoopSemaphore);
 		}
 
 		tick_end = SDL_GetTicks();

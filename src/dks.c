@@ -8,9 +8,11 @@
 #include "pboard.h"
 #include "dks.h"
 
+#include "fastmutex.h"
+
 #include "lsic.h"
 
-SDL_mutex *ControllerMutex;
+XrMutex ControllerMutex;
 
 typedef struct _DKSDisk {
 	FILE *DiskImage;
@@ -114,7 +116,7 @@ void DKSCompleteTransfer(DKSDisk *disk) {
 
 	// Set parameters and send interrupt.
 
-	SDL_LockMutex(ControllerMutex);
+	XrLockMutex(&ControllerMutex);
 
 	DKSStatus &= ~(1 << disk->ID);
 	DKSCompleted |= 1 << disk->ID;
@@ -124,7 +126,7 @@ void DKSCompleteTransfer(DKSDisk *disk) {
 
 	DKSInfo();
 
-	SDL_UnlockMutex(ControllerMutex);
+	XrUnlockMutex(&ControllerMutex);
 }
 
 uint32_t DKSCallback(uint32_t interval, void *param) {
@@ -154,7 +156,7 @@ void DKSInterval(uint32_t dt) {
 		if (!disk->Present)
 			break;
 
-		SDL_LockMutex(ControllerMutex);
+		XrLockMutex(&ControllerMutex);
 
 		if ((DKSStatus & (1 << i)) == 0) {
 			if (disk->Spinning) {
@@ -167,7 +169,7 @@ void DKSInterval(uint32_t dt) {
 #endif
 		}
 
-		SDL_UnlockMutex(ControllerMutex);
+		XrUnlockMutex(&ControllerMutex);
 	}
 }
 
@@ -295,7 +297,7 @@ int DKSDispatchIO(uint32_t type) {
 int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 	int status;
 
-	SDL_LockMutex(ControllerMutex);
+	XrLockMutex(&ControllerMutex);
 
 	switch(value) {
 		case 1:
@@ -386,7 +388,7 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 			break;
 	}
 
-	SDL_UnlockMutex(ControllerMutex);
+	XrUnlockMutex(&ControllerMutex);
 
 	return status;
 }
@@ -398,9 +400,9 @@ int DKSReadCMD(uint32_t port, uint32_t type, uint32_t *value, void *proc) {
 }
 
 int DKSWritePortA(uint32_t port, uint32_t type, uint32_t value, void *proc) {
-	SDL_LockMutex(ControllerMutex);
+	XrLockMutex(&ControllerMutex);
 	DKSPortA = value;
-	SDL_UnlockMutex(ControllerMutex);
+	XrUnlockMutex(&ControllerMutex);
 
 	return EBUSSUCCESS;
 }
@@ -412,9 +414,9 @@ int DKSReadPortA(uint32_t port, uint32_t type, uint32_t *value, void *proc) {
 }
 
 int DKSWritePortB(uint32_t port, uint32_t type, uint32_t value, void *proc) {
-	SDL_LockMutex(ControllerMutex);
+	XrLockMutex(&ControllerMutex);
 	DKSPortB = value;
-	SDL_UnlockMutex(ControllerMutex);
+	XrUnlockMutex(&ControllerMutex);
 
 	return EBUSSUCCESS;
 }
@@ -516,11 +518,7 @@ void DKSInit() {
 		DKSDisks[i].ID = i;
 	}
 
-	ControllerMutex = SDL_CreateMutex();
-
-	if (!ControllerMutex) {
-		abort();
-	}
+	XrInitializeMutex(&ControllerMutex);
 
 	CitronPorts[0x19].Present = 1;
 	CitronPorts[0x19].ReadPort = DKSReadCMD;

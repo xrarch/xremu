@@ -179,7 +179,7 @@ struct _XrProcessor {
 	uint64_t DtbLastResult;
 
 	XrMutex CacheMutexes[XR_CACHE_MUTEXES];
-	void *LoopSemaphore;
+	XrSemaphore LoopSemaphore;
 	XrMutex InterruptLock;
 	XrMutex RunLock;
 
