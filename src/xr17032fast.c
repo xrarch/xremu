@@ -3550,9 +3550,12 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 
 	int mmuon = proc->Cr[RS] & RS_MMU;
 
-	if (mmuon) {
+	if (XrLikely(mmuon != 0)) {
 		asid = proc->Cr[ITBTAG] & 0xFFF00000;
 	} else {
+		// Use an impossible ASID value to represent Iblocks in the physical
+		// address space.
+
 		asid = 0xFFFFFFFF;
 	}
 
@@ -3582,7 +3585,7 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 
 	int flags = 0;
 
-	if (XrLikely(proc->Cr[RS] & RS_MMU)) {
+	if (XrLikely(mmuon != 0)) {
 		if (!XrTranslate(proc, fetchpc, &fetchpc, &flags, 0, 1)) {
 			return 0;
 		}
@@ -3622,7 +3625,7 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 	for (; fetchpc < maxaddr; fetchpc += XR_IC_LINE_SIZE) {
 		uint32_t *ir = XrIcacheAccess(proc, fetchpc);
 
-		if (!ir) {
+		if (XrUnlikely(!ir)) {
 			// A bus error occurred during the Icache fetch.
 
 			XrFreeIblock(proc, iblock);
@@ -3642,8 +3645,7 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 			XrCachedInst *nextinst = XrDecodeLowThree[ir[i] & 7](proc, inst, ir[i], pc);
 
 			if (nextinst == 0) {
-				inst++;
-				goto done;
+				goto done_no_linkage;
 			}
 
 			inst = nextinst;
@@ -3665,6 +3667,8 @@ done:
 	// make sure there's room for this.
 
 	inst->Func = &XrSpecialLinkageInstruction;
+
+done_no_linkage:
 
 	return iblock;
 }
