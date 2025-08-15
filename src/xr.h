@@ -117,7 +117,7 @@
 // because the instruction decode logic fetches lines at a time.
 
 #define XR_IBLOCK_INSTS_LOG 3
-#define XR_IBLOCK_HASH_BUCKETS 256
+#define XR_IBLOCK_HASH_BUCKETS 128
 #define XR_IBLOCK_COUNT 2048
 #define XR_IBLOCK_RECLAIM 32
 
@@ -150,10 +150,14 @@ struct _XrCachedInst {
 #define XR_TRUE_PATH 0
 #define XR_FALSE_PATH 1
 
-#define XR_JUMP_TARGET 0
-#define XR_RETURN_TARGET 1
-
 #define XR_CACHED_PATH_MAX 2
+
+#define XR_JALR_PREDICTION_TABLE_ENTRIES 8
+
+typedef struct _XrJalrPredictionTable {
+	XrIblock *Iblocks[XR_JALR_PREDICTION_TABLE_ENTRIES];
+	uint32_t Pcs[XR_JALR_PREDICTION_TABLE_ENTRIES];
+} XrJalrPredictionTable;
 
 struct _XrIblock {
 	ListEntry HashEntry;
@@ -162,6 +166,8 @@ struct _XrIblock {
 	XrIblock *CachedPaths[XR_CACHED_PATH_MAX];
 
 	XrIblock **CachedBy[XR_IBLOCK_CACHEDBY_MAX];
+
+	XrJalrPredictionTable *Ptable;
 
 	uint32_t Asid;
 	uint32_t Pc;
@@ -198,6 +204,8 @@ struct _XrProcessor {
 	XrMutex RunLock;
 
 	XrIblock *IblockFreeList;
+	XrJalrPredictionTable *PtableFreeList;
+	XrIblock *HazardIblock;
 
 	ListEntry IblockLruList;
 	ListEntry IblockHashBuckets[XR_IBLOCK_HASH_BUCKETS];

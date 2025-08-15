@@ -207,6 +207,7 @@ void CpuInitialize(int id) {
 	proc->Timeslice = 0;
 
 	proc->IblockFreeList = 0;
+	proc->PtableFreeList = 0;
 
 	InitializeList(&proc->IblockLruList);
 
@@ -226,6 +227,20 @@ void CpuInitialize(int id) {
 		proc->IblockFreeList = iblocks;
 
 		iblocks++;
+	}
+
+	XrJalrPredictionTable *ptable = malloc(sizeof(XrJalrPredictionTable) * XR_IBLOCK_COUNT);
+
+	if (!ptable) {
+		fprintf(stderr, "failed to allocate ptables for cpu %d\n", id);
+		exit(1);
+	}
+
+	for (int i = 0; i < XR_IBLOCK_COUNT; i++) {
+		ptable->Iblocks[0] = (void *)proc->PtableFreeList;
+		proc->PtableFreeList = ptable;
+
+		ptable++;
 	}
 
 	XrReset(proc);
