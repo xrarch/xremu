@@ -62,6 +62,7 @@
 //    lock acquisition with a single atomic operation, and then call SDL
 //    directly only if it fails.
 //
+//    DONE:
 // 7. Optimize the zero register. Maybe keep destination registers the same
 //    during decode, but replace any source register specified as zero, to be a
 //    virtual 33rd register with index 32 that always contains zero. Except for
@@ -108,6 +109,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <sched.h>
+#include <stdatomic.h>
 
 #include "xr.h"
 #include "lsic.h"
@@ -815,12 +817,18 @@ static inline void XrDowngradeLine(XrProcessor *proc, uint32_t tag, uint32_t new
 
 				DBGPRINT("forced wb write %x from cacheindex %d\n", tag, index);
 
-				EBusWrite(tag, &proc->Dc[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE, proc);
-
 				// Invalidate.
 
 				proc->WbIndices[wbindex] = XR_CACHE_INDEX_INVALID;
 				proc->DcIndexToWbIndex[index] = XR_WB_INDEX_INVALID;
+
+				// This memory barrier makes sure that the lockless Dcache store
+				// hit path notices that the line was invalidated before it can
+				// commit to the write.
+
+				atomic_thread_fence(memory_order_acq_rel);
+
+				EBusWrite(tag, &proc->Dc[index << XR_DC_LINE_SIZE_LOG], XR_DC_LINE_SIZE, proc);
 			}
 
 			proc->DcFlags[index] = newstate;
@@ -925,10 +933,6 @@ static int XrDcacheAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, u
 
 restart:
 
-	// Lock the cache tag.
-
-	XrLockCache(proc, tag);
-
 	if (dest == 0) {
 		// This is a write; find a write buffer entry.
 
@@ -952,7 +956,14 @@ restart:
 
 				CopyWithLength(&proc->Dc[cacheoff + lineoffset], &srcvalue, length);
 
-				XrUnlockCache(proc, tag);
+				atomic_thread_fence(memory_order_acq_rel);
+
+				if ((volatile uint32_t)proc->WbIndices[i] == XR_CACHE_INDEX_INVALID) {
+					// The cache line was invalidated while we were writing.
+					// Retry.
+
+					goto restart;
+				}
 
 				// DBGPRINT("write hit %x merge in writebuffer\n", tag);
 
@@ -964,8 +975,6 @@ restart:
 
 		if (freewbindex == -1) {
 			// Write buffer is full. Flush and retry.
-
-			XrUnlockCache(proc, tag);
 
 			proc->StallCycles += XR_UNCACHED_STALL * XR_WB_DEPTH;
 
@@ -1003,8 +1012,6 @@ restart:
 
 				CopyWithLengthZext(dest, &proc->Dc[cacheoff + lineoffset], length);
 
-				XrUnlockCache(proc, tag);
-
 				// DBGPRINT("read hit %x\n", tag);
 
 				return 1;
@@ -1013,6 +1020,16 @@ restart:
 			if (proc->DcFlags[index] == XR_LINE_EXCLUSIVE) {
 				// We're writing. We got a write buffer index earlier so set
 				// it as representing this cache line.
+
+				XrLockCache(proc, tag);
+
+				if ((volatile uint8_t)proc->DcFlags[index] != XR_LINE_EXCLUSIVE) {
+					// The state of the line changed.
+
+					XrUnlockCache(proc, tag);
+
+					goto restart;
+				}
 
 				proc->WbIndices[freewbindex] = index;
 				proc->DcIndexToWbIndex[index] = freewbindex;
@@ -1035,8 +1052,6 @@ restart:
 			// acquire the Scache lock.
 
 			DBGPRINT("write hit %x to exclusive from shared\n", tag);
-
-			XrUnlockCache(proc, tag);
 
 			// If the cache line is shared that actually doesn't violate the SC
 			// condition, since that means nobody else wrote to the cache line
@@ -1120,8 +1135,6 @@ restart:
 	DBGPRINT("miss on %x\n", tag);
 
 	// Cache miss. Unlock our cache.
-
-	XrUnlockCache(proc, tag);
 
 	if (sc) {
 		// We failed the SC condition since it was invalid.
@@ -1639,6 +1652,29 @@ static XrIblock *XrExecuteWmb(XrProcessor *proc, XrIblock *block, XrCachedInst *
 
 		XrFlushWriteBuffer(proc);
 	}
+
+	// Due to lockless codepaths in the Dcache simulation, we actually need to
+	// do an equivalent host memory barrier.
+
+	atomic_thread_fence(memory_order_release);
+
+	XR_NEXT();
+}
+
+XR_PRESERVE_NONE
+static XrIblock *XrExecuteMb(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 100\n");
+
+	if (XR_SIMULATE_CACHES) {
+		// Flush the write buffer.
+
+		XrFlushWriteBuffer(proc);
+	}
+
+	// Due to lockless codepaths in the Dcache simulation, we actually need to
+	// do an equivalent host memory barrier.
+
+	atomic_thread_fence(memory_order_acq_rel);
 
 	XR_NEXT();
 }
@@ -2837,7 +2873,7 @@ static int XrDecodeWmb(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint3
 }
 
 static int XrDecodeMb(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
-	inst->Func = &XrExecuteWmb;
+	inst->Func = &XrExecuteMb;
 
 	return 0;
 }
