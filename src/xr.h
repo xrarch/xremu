@@ -144,11 +144,9 @@ typedef XrIblock *(*XrInstImplF XR_PRESERVE_NONE)(XrProcessor *proc, XrIblock *b
 
 struct _XrCachedInst {
 	XrInstImplF Func;
-	XrInstShiftF ShiftFunc;
 	uint32_t Imm32_1;
 	uint8_t Imm8_1;
 	uint8_t Imm8_2;
-	uint8_t Imm8_3;
 };
 
 struct _XrIblock {
