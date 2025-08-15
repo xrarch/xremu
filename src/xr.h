@@ -166,10 +166,21 @@ struct _XrIblock {
 	uint8_t CachedByFifoIndex;
 	uint8_t PteFlags;
 
-	XrCachedInst Insts[XR_IBLOCK_INSTS + 1];
+	// Two extra instructions. One is reserved for if a real instruction decodes
+	// into two virtual instructions (happens for example with inline shifts),
+	// to avoid special casing if there's no room for the virtual instruction.
+	// The second is for the special linkage instruction placed at the end of a
+	// basic block that doesn't otherwise terminate naturally.
+
+	XrCachedInst Insts[XR_IBLOCK_INSTS + 2];
 };
 
-#define XR_FAKE_ZERO_REGISTER 32
+enum XrFakeRegisters {
+	XR_FAKE_ZERO_REGISTER = 32,
+	XR_FAKE_SHIFT_SINK,
+
+	XR_REG_MAX,
+};
 
 struct _XrProcessor {
 	uint64_t Itb[XR_ITB_SIZE];
@@ -201,7 +212,7 @@ struct _XrProcessor {
 	uint32_t WbWriteIndex;
 	uint32_t WbCycles;
 
-	uint32_t Reg[33];
+	uint32_t Reg[XR_REG_MAX];
 	uint32_t Cr[32];
 	uint32_t Pc;
 

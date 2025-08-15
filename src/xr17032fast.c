@@ -2748,40 +2748,40 @@ static XrInstShiftF XrShiftFunctionTable[4] = {
 
 #define XR_REDIRECT_ZERO_SRC(src) ((((proc->Cr[RS] & RS_TBMISS) == 0) && ((src) == 0)) ? XR_FAKE_ZERO_REGISTER : (src))
 
-typedef int (*XrDecodeInstructionF)(XrProcessor *proc, XrCachedInst *inst, uint32_t ir, uint32_t pc);
+typedef XrCachedInst *(*XrDecodeInstructionF)(XrProcessor *proc, XrCachedInst *inst, uint32_t ir, uint32_t pc);
 
-static int XrDecodeIllegalInstruction(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeIllegalInstruction(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteIllegalInstruction;
 
-	return 1;
+	return 0;
 }
 
-static int XrDecodeRfe(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeRfe(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteRfe;
 
-	return 1;
+	return 0;
 }
 
-static int XrDecodeHlt(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeHlt(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteHlt;
 
-	return 1;
+	return 0;
 }
 
-static int XrDecodeMtcr(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeMtcr(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteMtcr;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm8_2 = (ir >> 16) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeMfcr(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeMfcr(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteMfcr;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = (ir >> 16) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
 static XrDecodeInstructionF XrDecodeFunctions101001[16] = {
@@ -2803,54 +2803,54 @@ static XrDecodeInstructionF XrDecodeFunctions101001[16] = {
 	[15] = &XrDecodeMfcr,
 };
 
-static int XrDecodeSys(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeSys(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteSys;
 
-	return 1;
+	return inst + 1;
 }
 
-static int XrDecodeBrk(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeBrk(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteBrk;
 
-	return 1;
+	return inst + 1;
 }
 
-static int XrDecodeWmb(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeWmb(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteWmb;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeMb(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeMb(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteWmb;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodePause(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodePause(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecutePause;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeSC(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeSC(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteSC;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = XR_REDIRECT_ZERO_SRC((ir >> 16) & 31);
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeLL(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeLL(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteLL;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeMod(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeMod(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteMod;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -2859,10 +2859,10 @@ static int XrDecodeMod(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint3
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeDivSigned(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeDivSigned(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteDivSigned;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -2871,10 +2871,10 @@ static int XrDecodeDivSigned(XrProcessor* proc, XrCachedInst *inst, uint32_t ir,
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeDiv(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeDiv(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteDiv;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -2883,10 +2883,10 @@ static int XrDecodeDiv(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint3
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeMul(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeMul(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteMul;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -2895,7 +2895,7 @@ static int XrDecodeMul(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint3
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
 static XrDecodeInstructionF XrDecodeFunctions110001[16] = {
@@ -2917,7 +2917,7 @@ static XrDecodeInstructionF XrDecodeFunctions110001[16] = {
 	[15] = &XrDecodeMul,
 };
 
-static int XrDecodeNor(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeNor(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteNor;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -2926,10 +2926,10 @@ static int XrDecodeNor(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint3
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeOr(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeOr(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteOr;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -2938,10 +2938,10 @@ static int XrDecodeOr(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeXor(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeXor(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteXor;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -2950,10 +2950,10 @@ static int XrDecodeXor(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint3
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeAnd(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeAnd(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteAnd;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -2962,10 +2962,10 @@ static int XrDecodeAnd(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint3
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeSltSigned(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeSltSigned(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteSltSigned;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -2974,10 +2974,10 @@ static int XrDecodeSltSigned(XrProcessor* proc, XrCachedInst *inst, uint32_t ir,
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeSlt(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeSlt(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteSlt;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -2986,10 +2986,10 @@ static int XrDecodeSlt(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint3
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeSub(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeSub(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteSub;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -2998,10 +2998,10 @@ static int XrDecodeSub(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint3
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeAdd(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeAdd(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteAdd;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -3010,19 +3010,19 @@ static int XrDecodeAdd(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint3
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeRegShifts(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeRegShifts(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = XrRegShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = XR_REDIRECT_ZERO_SRC((ir >> 16) & 31);
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeStoreLongRegOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeStoreLongRegOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteStoreLongRegOffset;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -3031,10 +3031,10 @@ static int XrDecodeStoreLongRegOffset(XrProcessor* proc, XrCachedInst *inst, uin
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeStoreIntRegOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeStoreIntRegOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteStoreIntRegOffset;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -3043,10 +3043,10 @@ static int XrDecodeStoreIntRegOffset(XrProcessor* proc, XrCachedInst *inst, uint
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeStoreByteRegOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeStoreByteRegOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteStoreByteRegOffset;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -3055,10 +3055,10 @@ static int XrDecodeStoreByteRegOffset(XrProcessor* proc, XrCachedInst *inst, uin
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeLoadLongRegOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeLoadLongRegOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteLoadLongRegOffset;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -3067,10 +3067,10 @@ static int XrDecodeLoadLongRegOffset(XrProcessor* proc, XrCachedInst *inst, uint
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeLoadIntRegOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeLoadIntRegOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteLoadIntRegOffset;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -3079,10 +3079,10 @@ static int XrDecodeLoadIntRegOffset(XrProcessor* proc, XrCachedInst *inst, uint3
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeLoadByteRegOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeLoadByteRegOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteLoadByteRegOffset;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
@@ -3091,7 +3091,7 @@ static int XrDecodeLoadByteRegOffset(XrProcessor* proc, XrCachedInst *inst, uint
 	inst->ShiftFunc = XrShiftFunctionTable[(ir >> 26) & 3];
 	inst->Imm8_3 = (ir >> 21) & 31;
 
-	return 0;
+	return inst + 1;
 }
 
 static XrDecodeInstructionF XrDecodeFunctions111001[16] = {
@@ -3113,237 +3113,237 @@ static XrDecodeInstructionF XrDecodeFunctions111001[16] = {
 	[15] = &XrDecodeLoadByteRegOffset,
 };
 
-static int XrDecodeLui(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeLui(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteOri;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = (ir >> 16) << 16;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeBpo(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeBpo(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteBpo;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
 
-	return 1;
+	return 0;
 }
 
-static int XrDecodeStoreLongImmOffsetImm(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeStoreLongImmOffsetImm(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteStoreLongImmOffsetImm;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = (ir >> 16) << 2;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeOri(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeOri(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteOri;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeBpe(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeBpe(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteBpe;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
 
-	return 1;
+	return 0;
 }
 
-static int XrDecodeStoreIntImmOffsetImm(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeStoreIntImmOffsetImm(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteStoreIntImmOffsetImm;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = (ir >> 16) << 1;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeXori(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeXori(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteXori;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeBge(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeBge(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteBge;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
 
-	return 1;
+	return 0;
 }
 
-static int XrDecodeStoreByteImmOffsetImm(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeStoreByteImmOffsetImm(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteStoreByteImmOffsetImm;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 	inst->Imm8_2 = (ir >> 11) & 31;
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeAndi(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeAndi(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteAndi;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeBle(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeBle(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteBle;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
 
-	return 1;
+	return 0;
 }
 
-static int XrDecodeSltiSigned(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeSltiSigned(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteSltiSigned;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = SignExt16(ir >> 16);
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeBgt(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeBgt(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteBgt;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
 
-	return 1;
+	return 0;
 }
 
-static int XrDecode101001(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecode101001(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	return XrDecodeFunctions101001[ir >> 28](proc, inst, ir, pc);
 }
 
-static int XrDecodeStoreLongImmOffsetReg(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeStoreLongImmOffsetReg(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteStoreLongImmOffsetReg;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = (ir >> 16) << 2;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeLoadLongImmOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeLoadLongImmOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteLoadLongImmOffset;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = (ir >> 16) << 2;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeSlti(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeSlti(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteSlti;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeBlt(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeBlt(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteBlt;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
 
-	return 1;
+	return 0;
 }
 
-static int XrDecode110001(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecode110001(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	return XrDecodeFunctions110001[ir >> 28](proc, inst, ir, pc);
 }
 
-static int XrDecodeStoreIntImmOffsetReg(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeStoreIntImmOffsetReg(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteStoreIntImmOffsetReg;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = (ir >> 16) << 1;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeLoadIntImmOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeLoadIntImmOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteLoadIntImmOffset;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = (ir >> 16) << 1;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeSubi(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeSubi(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteSubi;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeBne(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeBne(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteBne;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
 
-	return 1;
+	return 0;
 }
 
-static int XrDecodeJalr(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeJalr(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteJalr;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = SignExt18((ir >> 16) << 2);
 
-	return 1;
+	return 0;
 }
 
-static int XrDecode111001(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecode111001(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	return XrDecodeFunctions111001[ir >> 28](proc, inst, ir, pc);
 }
 
-static int XrDecodeStoreByteImmOffsetReg(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeStoreByteImmOffsetReg(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteStoreByteImmOffsetReg;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeLoadByteImmOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeLoadByteImmOffset(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteLoadByteImmOffset;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeAddi(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeAddi(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteAddi;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = ir >> 16;
 
-	return 0;
+	return inst + 1;
 }
 
-static int XrDecodeBeq(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeBeq(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 
@@ -3354,12 +3354,12 @@ static int XrDecodeBeq(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint3
 
 		inst->Func = &XrExecuteB;
 
-		return 1;
+		return 0;
 	}
 
 	inst->Func = &XrExecuteBeq;
 
-	return 1;
+	return 0;
 }
 
 static XrDecodeInstructionF XrDecodeLowSix[64] = {
@@ -3429,21 +3429,21 @@ static XrDecodeInstructionF XrDecodeLowSix[64] = {
 	[63] = &XrDecodeIllegalInstruction,
 };
 
-static int XrDecodeJal(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeJal(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteJal;
 	inst->Imm32_1 = (pc & 0x80000000) | ((ir >> 3) << 2);
 
-	return 1;
+	return 0;
 }
 
-static int XrDecodeJ(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeJ(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteJ;
 	inst->Imm32_1 = (pc & 0x80000000) | ((ir >> 3) << 2);
 
-	return 1;
+	return 0;
 }
 
-static int XrDecodeMajor(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+static XrCachedInst *XrDecodeMajor(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	return XrDecodeLowSix[ir & 63](proc, inst, ir, pc);
 }
 
@@ -3581,15 +3581,23 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 
 		for (int i = instindex;
 			i < XR_IC_INST_PER_LINE;
-			i++, inst++, pc += 4) {
+			i++, pc += 4) {
 
 			iblock->Cycles++;
 
-			// The decode routine returns 1 if the instruction terminates the basic
-			// block.
+			// The decode routine returns the number of instructions to advance
+			// by. If it's zero, we should terminate the basic block and leave.
 
-			if (XrDecodeLowThree[ir[i] & 7](proc, inst, ir[i], pc)) {
+			XrCachedInst *nextinst = XrDecodeLowThree[ir[i] & 7](proc, inst, ir[i], pc);
+
+			if (nextinst == 0) {
 				inst++;
+				goto done;
+			}
+
+			inst = nextinst;
+
+			if (inst >= &iblock->Insts[XR_IBLOCK_INSTS]) {
 				goto done;
 			}
 		}
