@@ -205,7 +205,9 @@ struct _XrProcessor {
 	uint32_t Cr[32];
 	uint32_t Pc;
 
+#if XR_SIMULATE_CACHE_STALLS
 	uint32_t StallCycles;
+#endif
 	uint32_t Id;
 	int32_t Progress;
 	uint32_t CycleCounter;
@@ -215,9 +217,6 @@ struct _XrProcessor {
 
 	uint32_t IcReplacementIndex;
 	uint32_t DcReplacementIndex;
-
-	uint32_t IcLastTag;
-	uint32_t IcLastOffset;
 
 #ifdef PROFCPU
 	uint32_t DcMissCount;

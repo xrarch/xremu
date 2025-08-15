@@ -38,11 +38,13 @@
 //    completely eliminated, with its functions replaced by another tail-called
 //    routine (such as checking for interrupts on basic block boundaries).
 //
+//    DONE
 // 5. I do an unnecessary copy from the Icache while doing instruction decoding
 //    that could be replaced with directly examining the instruction data within
 //    the Icache. It's also probably unnecessary to support noncached
 //    instruction fetch and I can eliminate some branches if I just don't.
 //
+//    ????
 //    This raises a more interesting notion where the entire memory access model
 //    of the emulator should maybe be replaced with a phys addr -> host addr
 //    translation scheme, potentially even with its own cache, so I can easily
@@ -56,6 +58,7 @@
 //    simulation and virtual memory translation machinery that can be more
 //    specialized and optimized in the new cached interpreter world.
 //
+//    DONE
 //    The cache mutexes currently take up an undue amount of time even when
 //    uncontended because of dynamic calls from xremu -> SDL -> pthreads.
 //    It is likely worth it to replace this with our own attempt at an inline
@@ -362,8 +365,6 @@ void XrReset(XrProcessor *proc) {
 	proc->ItbLastVpn = -1;
 	proc->DtbLastVpn = -1;
 
-	proc->IcLastTag = -1;
-
 	proc->IcReplacementIndex = 0;
 	proc->DcReplacementIndex = 0;
 
@@ -389,7 +390,9 @@ void XrReset(XrProcessor *proc) {
 		proc->DcIndexToWbIndex[i] = XR_WB_INDEX_INVALID;
 	}
 
+#if XR_SIMULATE_CACHE_STALLS
 	proc->StallCycles = 0;
+#endif
 	proc->PauseCalls = 0;
 
 	proc->NmiMaskCounter = NMI_MASK_CYCLES;
@@ -624,7 +627,9 @@ static uint32_t XrAccessMasks[5] = {
 };
 
 static inline int XrNoncachedAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length) {
+#if XR_SIMULATE_CACHE_STALLS
 	proc->StallCycles += XR_UNCACHED_STALL;
+#endif
 
 	int result;
 
@@ -644,25 +649,13 @@ static inline int XrNoncachedAccess(XrProcessor *proc, uint32_t address, uint32_
 	return 1;
 }
 
-static inline int XrIcacheAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t length) {
+static inline uint32_t *XrIcacheAccess(XrProcessor *proc, uint32_t address) {
 	// Access Icache. Quite fast, don't need to take any locks or anything
-	// as there is no coherence, plus its always a 32-bit read, so we
-	// duplicate some logic here as a fast path.
+	// as there is no coherence. Returns a pointer to the data within the
+	// Icache for direct access, or NULLPTR if a bus error occurred.
 
 	uint32_t tag = address & ~(XR_IC_LINE_SIZE - 1);
 	uint32_t lineoffset = address & (XR_IC_LINE_SIZE - 1);
-
-	if (tag == proc->IcLastTag) {
-		// Matches the lookup hint, nice.
-
-#ifdef PROFCPU
-		proc->IcHitCount++;
-#endif
-
-		CopyWithLength(dest, &proc->Ic[proc->IcLastOffset + lineoffset], length);
-
-		return 1;
-	}
 
 	uint32_t setnumber = XR_IC_SET_NUMBER(address);
 	uint32_t cacheindex = setnumber << XR_IC_WAY_LOG;
@@ -677,12 +670,7 @@ static inline int XrIcacheAccess(XrProcessor *proc, uint32_t address, uint32_t *
 
 			uint32_t cacheoff = (cacheindex + i) << XR_IC_LINE_SIZE_LOG;
 
-			CopyWithLength(dest, &proc->Ic[cacheoff + lineoffset], length);
-
-			proc->IcLastTag = tag;
-			proc->IcLastOffset = cacheoff;
-
-			return 1;
+			return (uint32_t*)(&proc->Ic[cacheoff + lineoffset]);
 		}
 	}
 
@@ -690,9 +678,11 @@ static inline int XrIcacheAccess(XrProcessor *proc, uint32_t address, uint32_t *
 	proc->IcMissCount++;
 #endif
 
+#if XR_SIMULATE_CACHE_STALLS
 	// Unfortunately there was a miss. Incur a penalty.
 
 	proc->StallCycles += XR_MISS_STALL;
+#endif
 
 	// Replace a random-ish line within the set.
 
@@ -715,12 +705,7 @@ static inline int XrIcacheAccess(XrProcessor *proc, uint32_t address, uint32_t *
 	proc->IcFlags[newindex] = XR_LINE_SHARED;
 	proc->IcTags[newindex] = tag;
 
-	proc->IcLastTag = tag;
-	proc->IcLastOffset = cacheoff;
-
-	CopyWithLength(dest, &proc->Ic[cacheoff + lineoffset], length);
-
-	return 1;
+	return (uint32_t*)(&proc->Ic[cacheoff + lineoffset]);
 }
 
 static inline void XrFlushWriteBuffer(XrProcessor *proc) {
@@ -965,7 +950,9 @@ restart:
 
 			XrUnlockCache(proc, tag);
 
+#if XR_SIMULATE_CACHE_STALLS
 			proc->StallCycles += XR_UNCACHED_STALL * XR_WB_DEPTH;
+#endif
 
 			XrFlushWriteBuffer(proc);
 
@@ -1219,9 +1206,11 @@ restart:
 	proc->DcFlags[index] = newstate;
 	proc->DcTags[index] = tag;
 
+#if XR_SIMULATE_CACHE_STALLS
 	// Incur a stall.
 
 	proc->StallCycles += XR_MISS_STALL;
+#endif
 
 	// Read in the cache line contents.
 
@@ -1847,10 +1836,6 @@ static XrIblock *XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst 
 					}
 				}
 			}
-
-			// Reset the lookup hint.
-
-			proc->IcLastTag = -1;
 
 			// Dump the whole Iblock cache.
 
@@ -3535,22 +3520,12 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 		return iblock;
 	}
 
-	uint32_t ir[XR_IBLOCK_INSTS];
-
 	// Round down to the last Icache line boundary so that we can fetch one line
 	// at a time.
 
 	uint32_t fetchpc = pc & ~(XR_IC_LINE_SIZE - 1);
 
 	int instindex = (pc - fetchpc) >> 2;
-
-	int instcount = XR_IBLOCK_INSTS;
-
-	// Don't allow fetches to cross page boundaries.
-
-	if (((fetchpc + XR_IBLOCK_INSTS_BYTES) & 0xFFFFF000) != (pc & 0xFFFFF000)) {
-		instcount = (((pc + 0xFFF) & 0xFFFFF000) - fetchpc) >> 2;
-	}
 
 	// Translate the program counter.
 
@@ -3560,38 +3535,14 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 		if (!XrTranslate(proc, fetchpc, &fetchpc, &flags, 0, 1)) {
 			return 0;
 		}
-	} else if (XrUnlikely(fetchpc >= XR_NONCACHED_PHYS_BASE)) {
-		flags |= PTE_NONCACHED;
 	}
 
-	if (!XR_SIMULATE_CACHES) {
-		flags |= PTE_NONCACHED;
-	}
+	uint32_t maxaddr = fetchpc + XR_IBLOCK_INSTS_BYTES;
 
-	// Fetch instructions one line at a time.
+	// Don't allow fetches to cross page boundaries.
 
-	if (XrUnlikely(flags & PTE_NONCACHED)) {
-		for (int offset = 0;
-			offset < instcount;
-			offset += XR_IC_INST_PER_LINE, fetchpc += XR_IC_LINE_SIZE) {
-
-			int status = XrNoncachedAccess(proc, fetchpc, &ir[offset], 0, XR_IC_LINE_SIZE);
-
-			if (XrUnlikely(!status)) {
-				return 0;
-			}
-		}
-	} else {
-		for (int offset = 0;
-			offset < instcount;
-			offset += XR_IC_INST_PER_LINE, fetchpc += XR_IC_LINE_SIZE) {
-
-			int status = XrIcacheAccess(proc, fetchpc, &ir[offset], XR_IC_LINE_SIZE);
-
-			if (XrUnlikely(!status)) {
-				return 0;
-			}
-		}
+	if (((maxaddr - 1) & 0xFFFFF000) != (fetchpc & 0xFFFFF000)) {
+		maxaddr = (fetchpc + 0x1000) & ~0xFFF;
 	}
 
 	// Allocate an Iblock.
@@ -3613,28 +3564,40 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 	InsertAtHeadList(&proc->IblockHashBuckets[XR_IBLOCK_HASH(pc)], &iblock->HashEntry);
 	InsertAtHeadList(&proc->IblockLruList, &iblock->LruEntry);
 
-	// Decode instructions starting at the offset of the program counter within
-	// the fetched chunk, until we reach either a branch, an illegal
-	// instruction, or the end of the chunk.
-
-	DBGPRINT("decode %x %x %x %x\n", instindex, pc, fetchpc, ir[instindex]);
+	// Decode instructions one Icache line at a time.
 
 	XrCachedInst *inst = &iblock->Insts[0];
 
-	for (;
-		instindex < instcount;
-		instindex++, inst++, pc += 4) {
+	for (; fetchpc < maxaddr; fetchpc += XR_IC_LINE_SIZE) {
+		uint32_t *ir = XrIcacheAccess(proc, fetchpc);
 
-		iblock->Cycles++;
+		if (!ir) {
+			// A bus error occurred during the Icache fetch.
 
-		// The decode routine returns 1 if the instruction terminates the basic
-		// block.
+			XrFreeIblock(proc, iblock);
 
-		if (XrDecodeLowThree[ir[instindex] & 7](proc, inst, ir[instindex], pc)) {
-			inst++;
-			break;
+			return 0;
 		}
+
+		for (int i = instindex;
+			i < XR_IC_INST_PER_LINE;
+			i++, inst++, pc += 4) {
+
+			iblock->Cycles++;
+
+			// The decode routine returns 1 if the instruction terminates the basic
+			// block.
+
+			if (XrDecodeLowThree[ir[i] & 7](proc, inst, ir[i], pc)) {
+				inst++;
+				goto done;
+			}
+		}
+
+		instindex = 0;
 	}
+
+done:
 
 	// In case we went right up to the end of the basic block's maximum extent
 	// without running into a control flow instruction, we want this special
@@ -3760,7 +3723,8 @@ int XrExecuteFast(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 			}
 		}
 
-		if (XR_SIMULATE_CACHE_STALLS && proc->StallCycles) {
+#if XR_SIMULATE_CACHE_STALLS
+		if (proc->StallCycles) {
 			// There's a simulated cache stall of some number of cycles, so
 			// decrement the remaining stall and loop.
 
@@ -3768,6 +3732,7 @@ int XrExecuteFast(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 
 			continue;
 		}
+#endif
 
 		if (lsic->InterruptPending && (proc->Cr[RS] & RS_INT)) {
 			// Interrupts are enabled and there's an interrupt pending, so cause
