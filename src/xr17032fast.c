@@ -925,12 +925,10 @@ static int XrDcacheAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, u
 
 restart:
 
-	// Lock the cache tag.
-
-	XrLockCache(proc, tag);
-
 	if (dest == 0) {
 		// This is a write; find a write buffer entry.
+
+		XrLockCache(proc, tag);
 
 		for (int i = 0; i < XR_WB_DEPTH; i++) {
 			uint32_t index = proc->WbIndices[i];
@@ -1002,8 +1000,6 @@ restart:
 				// We're reading. Copy out the data.
 
 				CopyWithLengthZext(dest, &proc->Dc[cacheoff + lineoffset], length);
-
-				XrUnlockCache(proc, tag);
 
 				// DBGPRINT("read hit %x\n", tag);
 
@@ -1119,9 +1115,13 @@ restart:
 
 	DBGPRINT("miss on %x\n", tag);
 
-	// Cache miss. Unlock our cache.
+	if (!dest) {
+		// Cache miss. Unlock our cache.
+		// Only need to do this if we're writing, since on a read, we didn't
+		// lock it to begin with.
 
-	XrUnlockCache(proc, tag);
+		XrUnlockCache(proc, tag);
+	}
 
 	if (sc) {
 		// We failed the SC condition since it was invalid.
