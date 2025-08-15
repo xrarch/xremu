@@ -147,6 +147,7 @@ typedef void (*XrInstImplF XR_PRESERVE_NONE)(XrProcessor *proc, XrIblock *block,
 struct _XrCachedInst {
 	XrInstImplF Func;
 	uint32_t Imm32_1;
+	uint32_t Imm32_2;
 	uint8_t Imm8_1;
 	uint8_t Imm8_2;
 };
