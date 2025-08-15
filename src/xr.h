@@ -1,8 +1,8 @@
 #ifndef XR_H
 #define XR_H
 
-#include <SDL.h>
 #include "queue.h"
+#include "fastmutex.h"
 
 #define XrLikely(x)       __builtin_expect(!!(x), 1)
 #define XrUnlikely(x)     __builtin_expect(!!(x), 0)
@@ -178,10 +178,10 @@ struct _XrProcessor {
 	uint64_t ItbLastResult;
 	uint64_t DtbLastResult;
 
-	void *CacheMutexes[XR_CACHE_MUTEXES];
+	XrMutex CacheMutexes[XR_CACHE_MUTEXES];
 	void *LoopSemaphore;
-	void *InterruptLock;
-	void *RunLock;
+	XrMutex InterruptLock;
+	XrMutex RunLock;
 
 	XrIblock *IblockFreeList;
 
@@ -259,32 +259,30 @@ extern int XrExecuteFast(XrProcessor *proc, uint32_t cycles, uint32_t dt);
 
 #ifndef EMSCRIPTEN
 
-extern SDL_mutex *ScacheMutexes[XR_CACHE_MUTEXES];
-
-extern SDL_sem* CpuSemaphore;
+extern XrMutex ScacheMutexes[XR_CACHE_MUTEXES];
 
 static inline void XrLockCache(XrProcessor *proc, uint32_t tag) {
-	SDL_LockMutex(proc->CacheMutexes[XR_MUTEX_INDEX(tag)]);
+	XrLockMutex(&proc->CacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 static inline void XrUnlockCache(XrProcessor *proc, uint32_t tag) {
-	SDL_UnlockMutex(proc->CacheMutexes[XR_MUTEX_INDEX(tag)]);
+	XrUnlockMutex(&proc->CacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 static inline void XrLockScache(uint32_t tag) {
-	SDL_LockMutex(ScacheMutexes[XR_MUTEX_INDEX(tag)]);
+	XrLockMutex(&ScacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 static inline void XrUnlockScache(uint32_t tag) {
-	SDL_UnlockMutex(ScacheMutexes[XR_MUTEX_INDEX(tag)]);
+	XrUnlockMutex(&ScacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 static inline void XrLockInterrupt(XrProcessor *proc) {
-	SDL_LockMutex(proc->InterruptLock);
+	XrLockMutex(&proc->InterruptLock);
 }
 
 static inline void XrUnlockInterrupt(XrProcessor *proc) {
-	SDL_UnlockMutex(proc->InterruptLock);
+	XrUnlockMutex(&proc->InterruptLock);
 }
 
 #else

@@ -19,6 +19,7 @@ ifdef DBG
 endif
 
 CFILES = src/main.c \
+	src/fastmutex.h src/queue.h \
 	src/xr17032fast.c src/xr.h \
 	src/ebus.c src/ebus.h \
 	src/ram256.c src/ram256.h \

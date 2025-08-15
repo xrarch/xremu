@@ -31,7 +31,7 @@ XrProcessor *CpuTable[XR_PROC_MAX];
 
 #ifndef EMSCRIPTEN
 
-SDL_mutex *ScacheMutexes[XR_CACHE_MUTEXES];
+XrMutex ScacheMutexes[XR_CACHE_MUTEXES];
 
 #else
 
@@ -121,7 +121,7 @@ int CpuLoop(void *context) {
 
 			// Trylock the CPU's run lock.
 
-			if (SDL_TryLockMutex(proc->RunLock) == SDL_MUTEX_TIMEDOUT) {
+			if (!XrTryLockMutex(&proc->RunLock)) {
 				// Failed to lock it. This means another thread is executing
 				// this CPU. Don't increment the done count because there's
 				// an invariant that thread count <= cpu count, so we're
@@ -187,7 +187,7 @@ int CpuLoop(void *context) {
 				done++;
 			}
 
-			SDL_UnlockMutex(proc->RunLock);
+			XrUnlockMutex(&proc->RunLock);
 		}
 	}
 }
@@ -232,21 +232,11 @@ void CpuInitialize(int id) {
 
 #ifndef EMSCRIPTEN
 	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
-		proc->CacheMutexes[i] = SDL_CreateMutex();
-
-		if (!proc->CacheMutexes[i]) {
-			fprintf(stderr, "Failed to create cache mutex\n");
-			exit(1);
-		}
+		XrInitializeMutex(&proc->CacheMutexes[i]);
 	}
 
 	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
-		ScacheMutexes[i] = SDL_CreateMutex();
-
-		if (!ScacheMutexes[i]) {
-			fprintf(stderr, "Failed to create Scache mutex\n");
-			exit(1);
-		}
+		XrInitializeMutex(&ScacheMutexes[i]);
 	}
 
 	proc->LoopSemaphore = SDL_CreateSemaphore(0);
@@ -256,19 +246,9 @@ void CpuInitialize(int id) {
 		exit(1);
 	}
 
-	proc->InterruptLock = SDL_CreateMutex();
+	XrInitializeMutex(&proc->InterruptLock);
 
-	if (!proc->InterruptLock) {
-		fprintf(stderr, "Failed to create interrupt mutex\n");
-		exit(1);
-	}
-
-	proc->RunLock = SDL_CreateMutex();
-
-	if (!proc->RunLock) {
-		fprintf(stderr, "Failed to create run mutex\n");
-		exit(1);
-	}
+	XrInitializeMutex(&proc->RunLock);
 #endif
 }
 
@@ -496,7 +476,7 @@ int main(int argc, char *argv[]) {
 		// thread is asleep waiting for its next timeslice.
 
 		for (int i = 0; i < XrProcessorCount; i++) {
-			SDL_LockMutex(CpuTable[i]->RunLock);
+			XrLockMutex(&CpuTable[i]->RunLock);
 
 			CpuTable[i]->Timeslice += CPUSTEPMS;
 			CpuTable[i]->Progress = XR_POLL_MAX;
@@ -518,7 +498,7 @@ int main(int argc, char *argv[]) {
 				CpuTable[i]->Timeslice = CPUSTEPMS;
 			}
 
-			SDL_UnlockMutex(CpuTable[i]->RunLock);
+			XrUnlockMutex(&CpuTable[i]->RunLock);
 		}
 
 		for (int i = 0; i < CpuThreadCount; i++) {
