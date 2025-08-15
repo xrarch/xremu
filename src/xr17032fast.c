@@ -38,7 +38,8 @@
 //    completely eliminated, with its functions replaced by another tail-called
 //    routine (such as checking for interrupts on basic block boundaries).
 //
-//    DONE
+//    DONE, THEN PARTLY REVERTED: Putting the decode loop inside the Ifetch loop
+//                                caused some inscrutable performance regression
 // 5. I do an unnecessary copy from the Icache while doing instruction decoding
 //    that could be replaced with directly examining the instruction data within
 //    the Icache. It's also probably unnecessary to support noncached
@@ -3573,12 +3574,22 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 		return iblock;
 	}
 
+	uint32_t ir[XR_IBLOCK_INSTS];
+
 	// Round down to the last Icache line boundary so that we can fetch one line
 	// at a time.
 
 	uint32_t fetchpc = pc & ~(XR_IC_LINE_SIZE - 1);
 
 	int instindex = (pc - fetchpc) >> 2;
+
+	int instcount = XR_IBLOCK_INSTS;
+
+	// Don't allow fetches to cross page boundaries.
+
+	if (((fetchpc + XR_IBLOCK_INSTS_BYTES - 1) & 0xFFFFF000) != (pc & 0xFFFFF000)) {
+		instcount = (((pc + 0x1000) & 0xFFFFF000) - fetchpc) >> 2;
+	}
 
 	// Translate the program counter.
 
@@ -3590,12 +3601,19 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 		}
 	}
 
-	uint32_t maxaddr = fetchpc + XR_IBLOCK_INSTS_BYTES;
+	// Fetch instructions one line at a time.
 
-	// Don't allow fetches to cross page boundaries.
+	for (int offset = 0;
+		offset < instcount;
+		offset += XR_IC_INST_PER_LINE, fetchpc += XR_IC_LINE_SIZE) {
 
-	if (((maxaddr - 1) & 0xFFFFF000) != (fetchpc & 0xFFFFF000)) {
-		maxaddr = (fetchpc + 0x1000) & ~0xFFF;
+		uint32_t *instptr = XrIcacheAccess(proc, fetchpc);
+
+		if (XrUnlikely(!instptr)) {
+			return 0;
+		}
+
+		CopyWithLength(&ir[offset], instptr, XR_IC_LINE_SIZE);
 	}
 
 	// Allocate an Iblock.
@@ -3617,47 +3635,35 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 	InsertAtHeadList(&proc->IblockHashBuckets[XR_IBLOCK_HASH(pc)], &iblock->HashEntry);
 	InsertAtHeadList(&proc->IblockLruList, &iblock->LruEntry);
 
-	// Decode instructions one Icache line at a time.
+	// Decode instructions starting at the offset of the program counter within
+	// the fetched chunk, until we reach either a branch, an illegal
+	// instruction, or the end of the chunk.
+
+	DBGPRINT("decode %x %x %x %x\n", instindex, pc, fetchpc, ir[instindex]);
 
 	XrCachedInst *inst = &iblock->Insts[0];
 
-	for (; fetchpc < maxaddr; fetchpc += XR_IC_LINE_SIZE) {
-		uint32_t *ir = XrIcacheAccess(proc, fetchpc);
+	for (;
+		instindex < instcount;
+		instindex++, pc += 4) {
 
-		if (XrUnlikely(!ir)) {
-			// A bus error occurred during the Icache fetch.
+		iblock->Cycles++;
 
-			XrFreeIblock(proc, iblock);
+		// The decode routine returns a pointer to the next cached instruction,
+		// or 0 if the basic block should be terminated.
 
-			return 0;
+		XrCachedInst *nextinst = XrDecodeLowThree[ir[instindex] & 7](proc, inst, ir[instindex], pc);
+
+		if (nextinst == 0) {
+			goto done_no_linkage;
 		}
 
-		for (int i = instindex;
-			i < XR_IC_INST_PER_LINE;
-			i++, pc += 4) {
+		inst = nextinst;
 
-			iblock->Cycles++;
-
-			// The decode routine returns the number of instructions to advance
-			// by. If it's zero, we should terminate the basic block and leave.
-
-			XrCachedInst *nextinst = XrDecodeLowThree[ir[i] & 7](proc, inst, ir[i], pc);
-
-			if (nextinst == 0) {
-				goto done_no_linkage;
-			}
-
-			inst = nextinst;
-
-			if (inst >= &iblock->Insts[XR_IBLOCK_INSTS]) {
-				goto done;
-			}
+		if (inst >= &iblock->Insts[XR_IBLOCK_INSTS]) {
+			break;
 		}
-
-		instindex = 0;
 	}
-
-done:
 
 	// In case we went right up to the end of the basic block's maximum extent
 	// without running into a control flow instruction, we want this special
