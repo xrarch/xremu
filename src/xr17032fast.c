@@ -312,7 +312,7 @@ static void XrInvalidateIblockCache(XrProcessor *proc) {
 static inline XrIblock *XrAllocateIblock(XrProcessor *proc) {
 	XrIblock *iblock = proc->IblockFreeList;
 
-	if (iblock == 0) {
+	if (XrUnlikely(iblock == 0)) {
 		// Populate the Iblock free list.
 
 		XrPopulateIblockList(proc);
@@ -434,7 +434,7 @@ static inline void XrVectorException(XrProcessor *proc, uint32_t exc) {
 	// Note that it does NOT push the mode stack, save PC into EPC, or set the
 	// exception code in RS.
 
-	if (proc->Cr[EB] == 0) {
+	if (XrUnlikely(proc->Cr[EB] == 0)) {
 		// Reset the processor.
 
 		XrReset(proc);
@@ -450,7 +450,7 @@ static inline void XrVectorException(XrProcessor *proc, uint32_t exc) {
 
 	uint32_t newmode = proc->Cr[RS] & 0xFC;
 
-	if (proc->Cr[RS] & RS_LEGACY) {
+	if (XrUnlikely((proc->Cr[RS] & RS_LEGACY) != 0)) {
 		// Legacy exceptions are enabled, so disable virtual addressing. This is
 		// NOT part of the "official" xr17032 architecture and is a hack to
 		// continue running AISIX in emulation.
@@ -507,7 +507,7 @@ static inline uint8_t XrLookupItb(XrProcessor *proc, uint32_t virtual, uint64_t 
 	proc->Cr[ITBADDR] = (proc->Cr[ITBADDR] & 0xFFC00000) | (vpn << 2);
 	proc->LastTbMissWasWrite = 0;
 
-	if ((proc->Cr[RS] & RS_TBMISS) == 0) {
+	if (XrLikely((proc->Cr[RS] & RS_TBMISS) == 0)) {
 		XrPushMode(proc);
 		proc->Cr[TBMISSADDR] = virtual;
 		proc->Cr[TBPC] = proc->Pc;
@@ -541,7 +541,7 @@ static inline uint8_t XrLookupDtb(XrProcessor *proc, uint32_t virtual, uint64_t 
 	proc->Cr[DTBADDR] = (proc->Cr[DTBADDR] & 0xFFC00000) | (vpn << 2);
 	proc->LastTbMissWasWrite = writing;
 
-	if ((proc->Cr[RS] & RS_TBMISS) == 0) {
+	if (XrLikely((proc->Cr[RS] & RS_TBMISS) == 0)) {
 		XrPushMode(proc);
 		proc->Cr[TBMISSADDR] = virtual;
 		proc->Cr[TBPC] = proc->Pc;
@@ -558,27 +558,27 @@ static inline int XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t *phy
 	uint32_t vpn = virtual >> 12;
 
 	if (ifetch) {
-		if (proc->ItbLastVpn == vpn) {
+		if (XrLikely(proc->ItbLastVpn == vpn)) {
 			// This matches the last lookup, avoid searching the whole ITB.
 
 			tbe = proc->ItbLastResult;
-		} else if (!XrLookupItb(proc, virtual, &tbe)) {
+		} else if (XrUnlikely(!XrLookupItb(proc, virtual, &tbe))) {
 			return 0;
 		}
 	} else {
-		if (proc->DtbLastVpn == vpn) {
+		if (XrLikely(proc->DtbLastVpn == vpn)) {
 			// This matches the last lookup, avoid searching the whole DTB.
 
 			tbe = proc->DtbLastResult;
-		} else if (!XrLookupDtb(proc, virtual, &tbe, writing)) {
+		} else if (XrUnlikely(!XrLookupDtb(proc, virtual, &tbe, writing))) {
 			return 0;
 		}
 	}
 
-	if ((tbe & PTE_VALID) == 0) {
+	if (XrUnlikely((tbe & PTE_VALID) == 0)) {
 		// Not valid! Page fault time.
 
-		if (proc->Cr[RS] & RS_TBMISS) {
+		if (XrUnlikely((proc->Cr[RS] & RS_TBMISS) != 0)) {
 			// This page fault happened while handling a TB miss, which means
 			// it was a fault on a page table. Clear the TBMISS flag from RS and
 			// report the original missed address as the faulting address. Also,
@@ -601,7 +601,7 @@ static inline int XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t *phy
 		return 0;
 	}
 
-	if ((tbe & PTE_KERNEL) && (proc->Cr[RS] & RS_USER)) {
+	if (XrUnlikely((tbe & PTE_KERNEL) && (proc->Cr[RS] & RS_USER))) {
 		// Kernel mode page and we're in usermode! 
 
 		proc->Cr[EBADADDR] = virtual;
@@ -610,7 +610,7 @@ static inline int XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t *phy
 		return 0;
 	}
 
-	if (writing && !(tbe & PTE_WRITABLE)) {
+	if (XrUnlikely(writing && !(tbe & PTE_WRITABLE))) {
 		proc->Cr[EBADADDR] = virtual;
 		XrBasicException(proc, writing ? XR_EXC_PGW : XR_EXC_PGF, proc->Pc);
 
@@ -654,7 +654,7 @@ static inline int XrNoncachedAccess(XrProcessor *proc, uint32_t address, uint32_
 		result = EBusWrite(address, &srcvalue, length, proc);
 	}
 
-	if (result == EBUSERROR) {
+	if (XrUnlikely(result == EBUSERROR)) {
 		proc->Cr[EBADADDR] = address;
 		XrBasicException(proc, XR_EXC_BUS, proc->Pc);
 
@@ -707,7 +707,7 @@ static inline uint32_t *XrIcacheAccess(XrProcessor *proc, uint32_t address) {
 
 	int result = EBusRead(tag, &proc->Ic[cacheoff], XR_IC_LINE_SIZE, proc);
 
-	if (result == EBUSERROR) {
+	if (XrUnlikely(result == EBUSERROR)) {
 		proc->IcFlags[newindex] = XR_LINE_INVALID;
 
 		proc->Cr[EBADADDR] = address;
@@ -1232,7 +1232,7 @@ restart:
 
 	int result = EBusRead(tag, &proc->Dc[cacheoff], XR_DC_LINE_SIZE, proc);
 
-	if (result == EBUSERROR) {
+	if (XrUnlikely(result == EBUSERROR)) {
 		// We failed. Back out.
 
 		XrScacheFlags[scacheindex] = XR_LINE_INVALID;
@@ -1282,7 +1282,7 @@ restart:
 }
 
 static inline int XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, uint32_t srcvalue, uint32_t length, int sc) {
-	if (address & (length - 1)) {
+	if (XrUnlikely((address & (length - 1)) != 0)) {
 		// Unaligned access.
 
 		proc->Cr[EBADADDR] = address;
@@ -1293,7 +1293,7 @@ static inline int XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, 
 
 	int flags = 0;
 
-	if (proc->Cr[RS] & RS_MMU) {
+	if (XrLikely((proc->Cr[RS] & RS_MMU) != 0)) {
 		if (!XrTranslate(proc, address, &address, &flags, dest ? 0 : 1, 0)) {
 			return 0;
 		}
@@ -1306,7 +1306,7 @@ static inline int XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, 
 	}
 
 	if (flags & PTE_NONCACHED) {
-		if (sc && XR_SIMULATE_CACHES) {
+		if (XrUnlikely(sc && XR_SIMULATE_CACHES)) {
 			// Attempt to use SC on noncached memory. Nonsense! Just kill the
 			// evildoer with a bus error.
 
@@ -1318,7 +1318,7 @@ static inline int XrAccess(XrProcessor *proc, uint32_t address, uint32_t *dest, 
 
 		int status = XrNoncachedAccess(proc, address, dest, srcvalue, length);
 
-		if (!status) {
+		if (XrUnlikely(!status)) {
 			return 0;
 		}
 
@@ -1390,7 +1390,8 @@ static inline void XrWriteWbEntry(XrProcessor *proc) {
 
 static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc);
 
-static XrIblock *XrCheckConditions(XrProcessor *proc, XrIblock *nextblock) {
+XR_PRESERVE_NONE
+static void XrCheckConditions(XrProcessor *proc, XrIblock *nextblock, XrCachedInst *inst) {
 	// Check if any conditions are true that indicate we should terminate
 	// the execution chain.
 
@@ -1404,26 +1405,29 @@ static XrIblock *XrCheckConditions(XrProcessor *proc, XrIblock *nextblock) {
 
 retry:
 
-	if (proc->CyclesDone >= proc->CyclesGoal) {
-		return 0;
+	if (XrUnlikely(proc->CyclesDone >= proc->CyclesGoal)) {
+		proc->NoMore = 1;
+		return;
 	}
 
-	if (proc->Halted) {
-		return 0;
+	if (XrUnlikely(proc->Halted)) {
+		proc->NoMore = 1;
+		return;
 	}
 
-	if (proc->PauseCalls >= XR_PAUSE_MAX) {
+	if (XrUnlikely(proc->PauseCalls >= XR_PAUSE_MAX)) {
 		proc->PauseCalls = 0;
-		return 0;
+		proc->NoMore = 1;
+		return;
 	}
 
-	if (proc->NmiMaskCounter) {
+	if (XrUnlikely(proc->NmiMaskCounter != 0)) {
 		proc->NmiMaskCounter--;
 	}
 
 	Lsic *lsic = &LsicTable[proc->Id];
 
-	if (lsic->InterruptPending && (proc->Cr[RS] & RS_INT)) {
+	if (XrUnlikely(lsic->InterruptPending && (proc->Cr[RS] & RS_INT))) {
 		// Interrupts are enabled and there's an interrupt pending, so cause
 		// an interrupt exception.
 
@@ -1443,10 +1447,10 @@ retry:
 		nextblock = 0;
 	}
 
-	if (!nextblock) {
+	if (XrUnlikely(!nextblock)) {
 		nextblock = XrDecodeInstructions(proc, proc->Pc);
 
-		if (!nextblock) {
+		if (XrUnlikely(!nextblock)) {
 			// An exception occurred while performing instruction fetch.
 			// Loop and let the exception handler execute.
 
@@ -1462,7 +1466,9 @@ retry:
 
 	InsertAtHeadList(&proc->IblockLruList, &nextblock->LruEntry);
 
-	return nextblock;
+	// Call it directly.
+
+	XR_TAIL return nextblock->Insts[0].Func(proc, nextblock, &nextblock->Insts[0]);
 }
 
 #define XR_NEXT_NO_PC() inst++; XR_TAIL return inst->Func(proc, block, inst);
@@ -1470,16 +1476,24 @@ retry:
 
 #define XR_DISPATCH(nextblock) \
 	proc->CyclesDone += block->Cycles; \
-	XrIblock *_nextblock = (nextblock); \
-	if (!(nextblock) || ((proc->Dispatches++ & 31) == 0)) { \
-		_nextblock = XrCheckConditions(proc, _nextblock); \
-		if (!_nextblock) return; \
+	if (XrUnlikely((proc->Dispatches++ & 31) == 0)) { \
+		return; \
 	} \
-	return _nextblock->Insts[0].Func(proc, _nextblock, &_nextblock->Insts[0]);
+	XR_TAIL return nextblock->Insts[0].Func(proc, nextblock, &nextblock->Insts[0]);
+
+#define XR_TRIVIAL_EXIT() \
+	proc->CyclesDone += block->Cycles; \
+	XR_TAIL return XrCheckConditions(proc, 0, 0);
+
+#define XR_EARLY_EXIT() \
+	proc->CyclesDone += inst - &block->Insts[0]; \
+	return;
 
 #define XR_REG_RD() proc->Reg[inst->Imm8_1]
 #define XR_REG_RA() proc->Reg[inst->Imm8_2]
 #define XR_REG_RB() proc->Reg[inst->Imm32_1]
+
+#define XR_CURRENT_ASID() ((XrLikely(proc->Cr[RS] & RS_MMU) != 0) ? (proc->Cr[ITBTAG] & 0xFFF00000) : 0xFFFFFFFF)
 
 XR_PRESERVE_NONE
 static void XrExecuteIllegalInstruction(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
@@ -1487,7 +1501,7 @@ static void XrExecuteIllegalInstruction(XrProcessor *proc, XrIblock *block, XrCa
 
 	XrBasicException(proc, XR_EXC_INV, proc->Pc);
 
-	XR_DISPATCH(0);
+	XR_TRIVIAL_EXIT();
 }
 
 XR_PRESERVE_NONE
@@ -1613,10 +1627,10 @@ static void XrExecuteStoreLongRegOffset(XrProcessor *proc, XrIblock *block, XrCa
 
 	int status = XrWriteLong(proc, XR_REG_RA() + XR_REG_RB(), XR_REG_RD());
 
-	if (!status) {
+	if (XrUnlikely(!status)) {
 		// An exception occurred, so perform an early exit from the basic block.
 
-		return;
+		XR_EARLY_EXIT();
 	}
 
 	XR_NEXT();
@@ -1628,10 +1642,10 @@ static void XrExecuteStoreIntRegOffset(XrProcessor *proc, XrIblock *block, XrCac
 
 	int status = XrWriteInt(proc, XR_REG_RA() + XR_REG_RB(), XR_REG_RD());
 
-	if (!status) {
+	if (XrUnlikely(!status)) {
 		// An exception occurred, so perform an early exit from the basic block.
 
-		return;
+		XR_EARLY_EXIT();
 	}
 
 	XR_NEXT();
@@ -1643,10 +1657,10 @@ static void XrExecuteStoreByteRegOffset(XrProcessor *proc, XrIblock *block, XrCa
 
 	int status = XrWriteByte(proc, XR_REG_RA() + XR_REG_RB(), XR_REG_RD());
 
-	if (!status) {
+	if (XrUnlikely(!status)) {
 		// An exception occurred, so perform an early exit from the basic block.
 
-		return;
+		XR_EARLY_EXIT();
 	}
 
 	XR_NEXT();
@@ -1658,10 +1672,10 @@ static void XrExecuteLoadLongRegOffset(XrProcessor *proc, XrIblock *block, XrCac
 
 	int status = XrReadLong(proc, XR_REG_RA() + XR_REG_RB(), &XR_REG_RD());
 
-	if (!status) {
+	if (XrUnlikely(!status)) {
 		// An exception occurred, so perform an early exit from the basic block.
 
-		return;
+		XR_EARLY_EXIT();
 	}
 
 	XR_NEXT();
@@ -1673,10 +1687,10 @@ static void XrExecuteLoadIntRegOffset(XrProcessor *proc, XrIblock *block, XrCach
 
 	int status = XrReadInt(proc, XR_REG_RA() + XR_REG_RB(), &XR_REG_RD());
 
-	if (!status) {
+	if (XrUnlikely(!status)) {
 		// An exception occurred, so perform an early exit from the basic block.
 
-		return;
+		XR_EARLY_EXIT();
 	}
 
 	XR_NEXT();
@@ -1688,10 +1702,10 @@ static void XrExecuteLoadByteRegOffset(XrProcessor *proc, XrIblock *block, XrCac
 
 	int status = XrReadByte(proc, XR_REG_RA() + XR_REG_RB(), &XR_REG_RD());
 
-	if (!status) {
+	if (XrUnlikely(!status)) {
 		// An exception occurred, so perform an early exit from the basic block.
 
-		return;
+		XR_EARLY_EXIT();
 	}
 
 	XR_NEXT();
@@ -1703,7 +1717,7 @@ static void XrExecuteSys(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 
 	XrBasicException(proc, XR_EXC_SYS, proc->Pc + 4);
 
-	XR_DISPATCH(0);
+	XR_TRIVIAL_EXIT();
 }
 
 XR_PRESERVE_NONE
@@ -1712,7 +1726,7 @@ static void XrExecuteBrk(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 
 	XrBasicException(proc, XR_EXC_BRK, proc->Pc + 4);
 
-	XR_DISPATCH(0);
+	XR_TRIVIAL_EXIT();
 }
 
 XR_PRESERVE_NONE
@@ -1737,7 +1751,7 @@ static void XrExecutePause(XrProcessor *proc, XrIblock *block, XrCachedInst *ins
 
 		proc->Pc += 4;
 
-		return;
+		XR_EARLY_EXIT();
 	}
 
 	XR_NEXT();
@@ -1747,7 +1761,7 @@ XR_PRESERVE_NONE
 static void XrExecuteSC(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 24\n");
 
-	if (!proc->Locked) {
+	if (XrUnlikely(!proc->Locked)) {
 		// Something happened on this processor that caused the
 		// lock to go away.
 
@@ -1761,10 +1775,10 @@ static void XrExecuteSC(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) 
 
 		uint8_t status = XrAccess(proc, XR_REG_RA(), 0, XR_REG_RB(), 4, 1);
 
-		if (!status) {
-			return;
+		if (XrUnlikely(!status)) {
+			XR_EARLY_EXIT();
 		}
-
+		
 		XR_REG_RD() = (status == 2) ? 0 : 1;
 	}
 
@@ -1777,8 +1791,8 @@ static void XrExecuteLL(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) 
 
 	int status = XrReadLong(proc, XR_REG_RA(), &XR_REG_RD());
 
-	if (!status) {
-		return;
+	if (XrUnlikely(!status)) {
+		XR_EARLY_EXIT();
 	}
 
 	proc->Locked = 1;
@@ -1848,15 +1862,15 @@ static void XrExecuteRfe(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 
 	uint32_t oldrs = proc->Cr[RS];
 
-	if (oldrs & RS_USER) {
+	if (XrUnlikely((oldrs & RS_USER) != 0)) {
 		// Ope, privilege violation.
 
 		XrBasicException(proc, XR_EXC_PRV, proc->Pc);
 
-		return;
+		XR_EARLY_EXIT();
 	}
 
-	if (proc->Cr[RS] & RS_TBMISS) {
+	if (XrUnlikely((proc->Cr[RS] & RS_TBMISS) != 0)) {
 		proc->Pc = proc->Cr[TBPC];
 	} else {
 		proc->Pc = proc->Cr[EPC];
@@ -1864,43 +1878,38 @@ static void XrExecuteRfe(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 
 	proc->Cr[RS] = (proc->Cr[RS] & 0xF0000000) | ((proc->Cr[RS] >> 8) & 0xFFFF);
 
-	if ((proc->Cr[RS] & RS_TBMISS) == 0) {
-		// Make sure the zero register is still zero after the TB miss handler.
-		proc->Reg[0] = 0;
-	}
-
-	XR_DISPATCH(0);
+	XR_TRIVIAL_EXIT();
 }
 
 XR_PRESERVE_NONE
 static void XrExecuteHlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 31\n");
 
-	if (proc->Cr[RS] & RS_USER) {
+	if (XrUnlikely((proc->Cr[RS] & RS_USER) != 0)) {
 		// Ope, privilege violation.
 
 		XrBasicException(proc, XR_EXC_PRV, proc->Pc);
 
-		return;
+		XR_EARLY_EXIT();
 	}
 
 	proc->Halted = true;
 
 	proc->Pc += 4;
 
-	XR_DISPATCH(0);
+	XR_TRIVIAL_EXIT();
 }
 
 XR_PRESERVE_NONE
 static void XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 32\n");
 
-	if (proc->Cr[RS] & RS_USER) {
+	if (XrUnlikely((proc->Cr[RS] & RS_USER) != 0)) {
 		// Ope, privilege violation.
 
 		XrBasicException(proc, XR_EXC_PRV, proc->Pc);
 
-		return;
+		XR_EARLY_EXIT();
 	}
 
 	// Reset the NMI mask counter.
@@ -1945,7 +1954,7 @@ static void XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst
 
 			proc->Pc += 4;
 
-			return;
+			XR_EARLY_EXIT();
 
 		case DCACHECTRL:
 			if (!XR_SIMULATE_CACHES)
@@ -2028,7 +2037,7 @@ static void XrExecuteMtcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst
 
 			proc->Pc += 4;
 
-			return;
+			XR_EARLY_EXIT();
 
 		case DTBCTRL:
 			if ((proc->Reg[ra] & 3) == 3) {
@@ -2154,7 +2163,7 @@ static void XrExecuteMfcr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst
 
 		XrBasicException(proc, XR_EXC_PRV, proc->Pc);
 
-		return;
+		XR_EARLY_EXIT();
 	}
 
 	// Reset the NMI mask counter.
@@ -2177,27 +2186,23 @@ static void XrExecuteBpo(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 
 	if (proc->Reg[rd] & 1) {
 		proc->Pc += inst->Imm32_1;
-		referrent = &block->TruePath;
+		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		proc->Pc += 4;
-		referrent = &block->FalsePath;
+		referrent = &block->CachedPaths[XR_FALSE_PATH];
 	}
 
 	iblock = *referrent;
 
-	if (iblock) {
-		goto dispatch;
+	if (XrUnlikely(!iblock)) {
+		iblock = XrDecodeInstructions(proc, proc->Pc);
+
+		if (XrUnlikely(!iblock)) {
+			XR_EARLY_EXIT();
+		}
+
+		XrCreateCachedPointerToBlock(iblock, referrent);
 	}
-
-	iblock = XrDecodeInstructions(proc, proc->Pc);
-
-	if (!iblock) {
-		goto dispatch;
-	}
-
-	XrCreateCachedPointerToBlock(iblock, referrent);
-
-dispatch:
 
 	XR_DISPATCH(iblock);
 }
@@ -2213,27 +2218,23 @@ static void XrExecuteBpe(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 
 	if ((proc->Reg[rd] & 1) == 0) {
 		proc->Pc += inst->Imm32_1;
-		referrent = &block->TruePath;
+		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		proc->Pc += 4;
-		referrent = &block->FalsePath;
+		referrent = &block->CachedPaths[XR_FALSE_PATH];
 	}
 
 	iblock = *referrent;
 
-	if (iblock) {
-		goto dispatch;
+	if (XrUnlikely(!iblock)) {
+		iblock = XrDecodeInstructions(proc, proc->Pc);
+
+		if (XrUnlikely(!iblock)) {
+			XR_EARLY_EXIT();
+		}
+
+		XrCreateCachedPointerToBlock(iblock, referrent);
 	}
-
-	iblock = XrDecodeInstructions(proc, proc->Pc);
-
-	if (!iblock) {
-		goto dispatch;
-	}
-
-	XrCreateCachedPointerToBlock(iblock, referrent);
-
-dispatch:
 
 	XR_DISPATCH(iblock);
 }
@@ -2249,27 +2250,23 @@ static void XrExecuteBge(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 
 	if ((int32_t)proc->Reg[rd] >= 0) {
 		proc->Pc += inst->Imm32_1;
-		referrent = &block->TruePath;
+		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		proc->Pc += 4;
-		referrent = &block->FalsePath;
+		referrent = &block->CachedPaths[XR_FALSE_PATH];
 	}
 
 	iblock = *referrent;
 
-	if (iblock) {
-		goto dispatch;
+	if (XrUnlikely(!iblock)) {
+		iblock = XrDecodeInstructions(proc, proc->Pc);
+
+		if (XrUnlikely(!iblock)) {
+			XR_EARLY_EXIT();
+		}
+
+		XrCreateCachedPointerToBlock(iblock, referrent);
 	}
-
-	iblock = XrDecodeInstructions(proc, proc->Pc);
-
-	if (!iblock) {
-		goto dispatch;
-	}
-
-	XrCreateCachedPointerToBlock(iblock, referrent);
-
-dispatch:
 
 	XR_DISPATCH(iblock);
 }
@@ -2285,27 +2282,23 @@ static void XrExecuteBle(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 
 	if ((int32_t)proc->Reg[rd] <= 0) {
 		proc->Pc += inst->Imm32_1;
-		referrent = &block->TruePath;
+		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		proc->Pc += 4;
-		referrent = &block->FalsePath;
+		referrent = &block->CachedPaths[XR_FALSE_PATH];
 	}
 
 	iblock = *referrent;
 
-	if (iblock) {
-		goto dispatch;
+	if (XrUnlikely(!iblock)) {
+		iblock = XrDecodeInstructions(proc, proc->Pc);
+
+		if (XrUnlikely(!iblock)) {
+			XR_EARLY_EXIT();
+		}
+
+		XrCreateCachedPointerToBlock(iblock, referrent);
 	}
-
-	iblock = XrDecodeInstructions(proc, proc->Pc);
-
-	if (!iblock) {
-		goto dispatch;
-	}
-
-	XrCreateCachedPointerToBlock(iblock, referrent);
-
-dispatch:
 
 	XR_DISPATCH(iblock);
 }
@@ -2321,27 +2314,23 @@ static void XrExecuteBgt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 
 	if ((int32_t)proc->Reg[rd] > 0) {
 		proc->Pc += inst->Imm32_1;
-		referrent = &block->TruePath;
+		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		proc->Pc += 4;
-		referrent = &block->FalsePath;
+		referrent = &block->CachedPaths[XR_FALSE_PATH];
 	}
 
 	iblock = *referrent;
 
-	if (iblock) {
-		goto dispatch;
+	if (XrUnlikely(!iblock)) {
+		iblock = XrDecodeInstructions(proc, proc->Pc);
+
+		if (XrUnlikely(!iblock)) {
+			XR_EARLY_EXIT();
+		}
+
+		XrCreateCachedPointerToBlock(iblock, referrent);
 	}
-
-	iblock = XrDecodeInstructions(proc, proc->Pc);
-
-	if (!iblock) {
-		goto dispatch;
-	}
-
-	XrCreateCachedPointerToBlock(iblock, referrent);
-
-dispatch:
 
 	XR_DISPATCH(iblock);
 }
@@ -2357,27 +2346,23 @@ static void XrExecuteBlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 
 	if ((int32_t)proc->Reg[rd] < 0) {
 		proc->Pc += inst->Imm32_1;
-		referrent = &block->TruePath;
+		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		proc->Pc += 4;
-		referrent = &block->FalsePath;
+		referrent = &block->CachedPaths[XR_FALSE_PATH];
 	}
 
 	iblock = *referrent;
 
-	if (iblock) {
-		goto dispatch;
+	if (XrUnlikely(!iblock)) {
+		iblock = XrDecodeInstructions(proc, proc->Pc);
+
+		if (XrUnlikely(!iblock)) {
+			XR_EARLY_EXIT();
+		}
+
+		XrCreateCachedPointerToBlock(iblock, referrent);
 	}
-
-	iblock = XrDecodeInstructions(proc, proc->Pc);
-
-	if (!iblock) {
-		goto dispatch;
-	}
-
-	XrCreateCachedPointerToBlock(iblock, referrent);
-
-dispatch:
 
 	XR_DISPATCH(iblock);
 }
@@ -2393,27 +2378,23 @@ static void XrExecuteBne(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 
 	if (proc->Reg[rd] != 0) {
 		proc->Pc += inst->Imm32_1;
-		referrent = &block->TruePath;
+		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		proc->Pc += 4;
-		referrent = &block->FalsePath;
+		referrent = &block->CachedPaths[XR_FALSE_PATH];
 	}
 
 	iblock = *referrent;
 
-	if (iblock) {
-		goto dispatch;
+	if (XrUnlikely(!iblock)) {
+		iblock = XrDecodeInstructions(proc, proc->Pc);
+
+		if (XrUnlikely(!iblock)) {
+			XR_EARLY_EXIT();
+		}
+
+		XrCreateCachedPointerToBlock(iblock, referrent);
 	}
-
-	iblock = XrDecodeInstructions(proc, proc->Pc);
-
-	if (!iblock) {
-		goto dispatch;
-	}
-
-	XrCreateCachedPointerToBlock(iblock, referrent);
-
-dispatch:
 
 	XR_DISPATCH(iblock);
 }
@@ -2429,27 +2410,23 @@ static void XrExecuteBeq(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 
 	if (proc->Reg[rd] == 0) {
 		proc->Pc += inst->Imm32_1;
-		referrent = &block->TruePath;
+		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		proc->Pc += 4;
-		referrent = &block->FalsePath;
+		referrent = &block->CachedPaths[XR_FALSE_PATH];
 	}
 
 	iblock = *referrent;
 
-	if (iblock) {
-		goto dispatch;
+	if (XrUnlikely(!iblock)) {
+		iblock = XrDecodeInstructions(proc, proc->Pc);
+
+		if (XrUnlikely(!iblock)) {
+			XR_EARLY_EXIT();
+		}
+
+		XrCreateCachedPointerToBlock(iblock, referrent);
 	}
-
-	iblock = XrDecodeInstructions(proc, proc->Pc);
-
-	if (!iblock) {
-		goto dispatch;
-	}
-
-	XrCreateCachedPointerToBlock(iblock, referrent);
-
-dispatch:
 
 	XR_DISPATCH(iblock);
 }
@@ -2460,21 +2437,17 @@ static void XrExecuteB(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 
 	proc->Pc += inst->Imm32_1;
 
-	XrIblock *iblock = block->TruePath;
+	XrIblock *iblock = block->CachedPaths[XR_TRUE_PATH];
 
-	if (iblock) {
-		goto dispatch;
+	if (XrUnlikely(!iblock)) {
+		iblock = XrDecodeInstructions(proc, proc->Pc);
+
+		if (XrUnlikely(!iblock)) {
+			XR_EARLY_EXIT();
+		}
+
+		XrCreateCachedPointerToBlock(iblock, &block->CachedPaths[XR_TRUE_PATH]);
 	}
-
-	iblock = XrDecodeInstructions(proc, proc->Pc);
-
-	if (!iblock) {
-		goto dispatch;
-	}
-
-	XrCreateCachedPointerToBlock(iblock, &block->TruePath);
-
-dispatch:
 
 	XR_DISPATCH(iblock);
 }
@@ -2588,8 +2561,8 @@ static void XrExecuteStoreLongImmOffsetImm(XrProcessor *proc, XrIblock *block, X
 
 	int status = XrWriteLong(proc, proc->Reg[rd] + imm, SignExt5(ra));
 
-	if (!status) {
-		return;
+	if (XrUnlikely(!status)) {
+		XR_EARLY_EXIT();
 	}
 
 	XR_NEXT();
@@ -2605,8 +2578,8 @@ static void XrExecuteStoreIntImmOffsetImm(XrProcessor *proc, XrIblock *block, Xr
 
 	int status = XrWriteInt(proc, proc->Reg[rd] + imm, SignExt5(ra));
 
-	if (!status) {
-		return;
+	if (XrUnlikely(!status)) {
+		XR_EARLY_EXIT();
 	}
 
 	XR_NEXT();
@@ -2622,8 +2595,8 @@ static void XrExecuteStoreByteImmOffsetImm(XrProcessor *proc, XrIblock *block, X
 
 	int status = XrWriteByte(proc, proc->Reg[rd] + imm, SignExt5(ra));
 
-	if (!status) {
-		return;
+	if (XrUnlikely(!status)) {
+		XR_EARLY_EXIT();
 	}
 
 	XR_NEXT();
@@ -2639,8 +2612,8 @@ static void XrExecuteStoreLongImmOffsetReg(XrProcessor *proc, XrIblock *block, X
 
 	int status = XrWriteLong(proc, proc->Reg[rd] + imm, proc->Reg[ra]);
 
-	if (!status) {
-		return;
+	if (XrUnlikely(!status)) {
+		XR_EARLY_EXIT();
 	}
 
 	XR_NEXT();
@@ -2656,8 +2629,8 @@ static void XrExecuteStoreIntImmOffsetReg(XrProcessor *proc, XrIblock *block, Xr
 
 	int status = XrWriteInt(proc, proc->Reg[rd] + imm, proc->Reg[ra]);
 
-	if (!status) {
-		return;
+	if (XrUnlikely(!status)) {
+		XR_EARLY_EXIT();
 	}
 
 	XR_NEXT();
@@ -2673,8 +2646,8 @@ static void XrExecuteStoreByteImmOffsetReg(XrProcessor *proc, XrIblock *block, X
 
 	int status = XrWriteByte(proc, proc->Reg[rd] + imm, proc->Reg[ra]);
 
-	if (!status) {
-		return;
+	if (XrUnlikely(!status)) {
+		XR_EARLY_EXIT();
 	}
 
 	XR_NEXT();
@@ -2690,8 +2663,8 @@ static void XrExecuteLoadLongImmOffset(XrProcessor *proc, XrIblock *block, XrCac
 	
 	int status = XrReadLong(proc, proc->Reg[ra] + imm, &proc->Reg[rd]);
 
-	if (!status) {
-		return;
+	if (XrUnlikely(!status)) {
+		XR_EARLY_EXIT();
 	}
 
 	XR_NEXT();
@@ -2707,8 +2680,8 @@ static void XrExecuteLoadIntImmOffset(XrProcessor *proc, XrIblock *block, XrCach
 	
 	int status = XrReadInt(proc, proc->Reg[ra] + imm, &proc->Reg[rd]);
 
-	if (!status) {
-		return;
+	if (XrUnlikely(!status)) {
+		XR_EARLY_EXIT();
 	}
 
 	XR_NEXT();
@@ -2724,8 +2697,8 @@ static void XrExecuteLoadByteImmOffset(XrProcessor *proc, XrIblock *block, XrCac
 	
 	int status = XrReadByte(proc, proc->Reg[ra] + imm, &proc->Reg[rd]);
 
-	if (!status) {
-		return;
+	if (XrUnlikely(!status)) {
+		XR_EARLY_EXIT();
 	}
 
 	XR_NEXT();
@@ -2751,7 +2724,37 @@ static void XrExecuteJalr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst
 		XrBasicException(proc, XR_EXC_UNA, proc->Pc);
 	}
 
-	XR_DISPATCH(0);
+	XR_TRIVIAL_EXIT();
+}
+
+XR_PRESERVE_NONE
+static void XrExecuteCallReg(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 59 @ %x\n", proc->Pc);
+
+	proc->Reg[LR] = proc->Pc + 4;
+
+	proc->Pc = proc->Reg[inst->Imm8_2] + inst->Imm32_1;
+
+	// This is the only time where the program counter can become unaligned, so
+	// check for that condition here.
+
+	if (XrUnlikely((proc->Pc & 3) != 0)) {
+		// Unaligned access.
+
+		proc->Cr[EBADADDR] = proc->Pc;
+		XrBasicException(proc, XR_EXC_UNA, proc->Pc);
+	}
+
+	XR_TRIVIAL_EXIT();
+}
+
+XR_PRESERVE_NONE
+static void XrExecuteRet(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 59 @ %x\n", proc->Pc);
+
+	proc->Pc = proc->Reg[LR];
+
+	XR_TRIVIAL_EXIT();
 }
 
 XR_PRESERVE_NONE
@@ -2761,21 +2764,17 @@ static void XrExecuteJal(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	proc->Reg[LR] = proc->Pc + 4;
 	proc->Pc = inst->Imm32_1;
 
-	XrIblock *iblock = block->TruePath;
+	XrIblock *iblock = block->CachedPaths[XR_JUMP_TARGET];
 
-	if (iblock) {
-		goto dispatch;
+	if (XrUnlikely(!iblock)) {
+		iblock = XrDecodeInstructions(proc, proc->Pc);
+
+		if (XrUnlikely(!iblock)) {
+			XR_EARLY_EXIT();
+		}
+
+		XrCreateCachedPointerToBlock(iblock, &block->CachedPaths[XR_JUMP_TARGET]);
 	}
-
-	iblock = XrDecodeInstructions(proc, proc->Pc);
-
-	if (!iblock) {
-		goto dispatch;
-	}
-
-	XrCreateCachedPointerToBlock(iblock, &block->TruePath);
-
-dispatch:
 
 	XR_DISPATCH(iblock);
 }
@@ -2786,21 +2785,17 @@ static void XrExecuteJ(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 
 	proc->Pc = inst->Imm32_1;
 
-	XrIblock *iblock = block->TruePath;
+	XrIblock *iblock = block->CachedPaths[XR_TRUE_PATH];
 
-	if (iblock) {
-		goto dispatch;
+	if (XrUnlikely(!iblock)) {
+		iblock = XrDecodeInstructions(proc, proc->Pc);
+
+		if (XrUnlikely(!iblock)) {
+			XR_EARLY_EXIT();
+		}
+
+		XrCreateCachedPointerToBlock(iblock, &block->CachedPaths[XR_TRUE_PATH]);
 	}
-
-	iblock = XrDecodeInstructions(proc, proc->Pc);
-
-	if (!iblock) {
-		goto dispatch;
-	}
-
-	XrCreateCachedPointerToBlock(iblock, &block->TruePath);
-
-dispatch:
 
 	XR_DISPATCH(iblock);
 }
@@ -3453,6 +3448,18 @@ static XrCachedInst *XrDecodeJalr(XrProcessor* proc, XrCachedInst *inst, uint32_
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = SignExt18((ir >> 16) << 2);
 
+	if ((inst->Imm8_1 == 0) && (inst->Imm8_2 == LR) && (inst->Imm32_1 == 0)) {
+		// This is a canonical RET instruction, so redirect to the virtual
+		// instruction for that.
+
+		inst->Func = &XrExecuteRet;
+	} else if (inst->Imm8_1 == LR) {
+		// This is a canonical CALLREG instruction, so redirect to the virtual
+		// instruction for that.
+
+		inst->Func = &XrExecuteCallReg;
+	}
+
 	return 0;
 }
 
@@ -3610,24 +3617,17 @@ static void XrSpecialLinkageInstruction(XrProcessor *proc, XrIblock *block, XrCa
 	// terminate in a natural way (with a branch or illegal instruction).
 	// It just directs the outer loop to look up the next block.
 
-	XrIblock *iblock = block->TruePath;
+	XrIblock *iblock = block->CachedPaths[XR_TRUE_PATH];
 
-	if (XrLikely(iblock != 0)) {
-		// We already cached the pointer to the next Iblock, so return it
-		// directly.
+	if (XrUnlikely(!iblock)) {
+		iblock = XrDecodeInstructions(proc, proc->Pc);
 
-		goto dispatch;
+		if (XrUnlikely(!iblock)) {
+			XR_EARLY_EXIT();
+		}
+
+		XrCreateCachedPointerToBlock(iblock, &block->CachedPaths[XR_TRUE_PATH]);
 	}
-
-	iblock = XrDecodeInstructions(proc, proc->Pc);
-
-	if (!iblock) {
-		goto dispatch;
-	}
-
-	XrCreateCachedPointerToBlock(iblock, &block->TruePath);
-
-dispatch:
 
 	XR_DISPATCH(iblock);
 }
@@ -3638,18 +3638,7 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 	// that an exception occurred, such as an ITB miss, page fault, or bus
 	// error.
 
-	uint32_t asid;
-
-	int mmuon = proc->Cr[RS] & RS_MMU;
-
-	if (XrLikely(mmuon != 0)) {
-		asid = proc->Cr[ITBTAG] & 0xFFF00000;
-	} else {
-		// Use an impossible ASID value to represent Iblocks in the physical
-		// address space.
-
-		asid = 0xFFFFFFFF;
-	}
+	uint32_t asid = XR_CURRENT_ASID();
 
 	XrIblock *iblock = XrLookupIblock(proc, pc, asid);
 
@@ -3679,7 +3668,7 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 
 	// Don't allow fetches to cross page boundaries.
 
-	if (((fetchpc + XR_IBLOCK_INSTS_BYTES - 1) & 0xFFFFF000) != (pc & 0xFFFFF000)) {
+	if (XrUnlikely(((fetchpc + XR_IBLOCK_INSTS_BYTES - 1) & 0xFFFFF000) != (pc & 0xFFFFF000))) {
 		instcount = (((pc + 0x1000) & 0xFFFFF000) - fetchpc) >> 2;
 	}
 
@@ -3687,8 +3676,8 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 
 	int flags = 0;
 
-	if (XrLikely(mmuon != 0)) {
-		if (!XrTranslate(proc, fetchpc, &fetchpc, &flags, 0, 1)) {
+	if (XrLikely((proc->Cr[RS] & RS_MMU) != 0)) {
+		if (XrUnlikely(!XrTranslate(proc, fetchpc, &fetchpc, &flags, 0, 1))) {
 			return 0;
 		}
 	}
@@ -3715,10 +3704,12 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
 	iblock->Pc = pc;
 	iblock->Asid = asid;
 	iblock->Cycles = 0;
-	iblock->TruePath = 0;
-	iblock->FalsePath = 0;
 	iblock->CachedByFifoIndex = 0;
 	iblock->PteFlags = flags;
+
+	for (int i = 0; i < XR_CACHED_PATH_MAX; i++) {
+		iblock->CachedPaths[i] = 0;
+	}
 
 	for (int i = 0; i < XR_IBLOCK_CACHEDBY_MAX; i++) {
 		iblock->CachedBy[i] = 0;
@@ -3851,17 +3842,14 @@ int XrExecuteFast(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 	}
 
 	proc->PauseCalls = 0;
+	proc->NoMore = 0;
 
-	while (proc->CyclesDone < proc->CyclesGoal) {
+	while (!proc->NoMore) {
 		// Call XrCheckConditions to start the execution chain.
+		// It can return early if the tail-call chain fails due to some
+		// exceptional event. In that case we want to just continue.
 
-		XrIblock *block = XrCheckConditions(proc, 0);
-
-		if (!block) {
-			break;
-		}
-
-		block->Insts[0].Func(proc, block, &block->Insts[0]);
+		XrCheckConditions(proc, 0, 0);
 	}
 
 	return proc->CyclesDone;

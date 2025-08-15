@@ -147,12 +147,19 @@ struct _XrCachedInst {
 	uint8_t Imm8_2;
 };
 
+#define XR_TRUE_PATH 0
+#define XR_FALSE_PATH 1
+
+#define XR_JUMP_TARGET 0
+#define XR_RETURN_TARGET 1
+
+#define XR_CACHED_PATH_MAX 2
+
 struct _XrIblock {
 	ListEntry HashEntry;
 	ListEntry LruEntry;
 
-	XrIblock *TruePath;
-	XrIblock *FalsePath;
+	XrIblock *CachedPaths[XR_CACHED_PATH_MAX];
 
 	XrIblock **CachedBy[XR_IBLOCK_CACHEDBY_MAX];
 
@@ -212,6 +219,8 @@ struct _XrProcessor {
 	uint32_t Cr[32];
 	uint32_t Pc;
 
+	uint8_t Dispatches;
+
 #if XR_SIMULATE_CACHE_STALLS
 	uint32_t StallCycles;
 #endif
@@ -250,7 +259,7 @@ struct _XrProcessor {
 	uint8_t UserBreak;
 	uint8_t Halted;
 	uint8_t Running;
-	uint8_t Dispatches;
+	uint8_t NoMore;
 };
 
 #define XR_SIMULATE_CACHES 1
