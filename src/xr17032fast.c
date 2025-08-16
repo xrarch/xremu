@@ -244,7 +244,7 @@ static inline XrJalrPredictionTable *XrAllocatePtable(XrProcessor *proc) {
 	// we don't need to check if there are free Ptables.
 
 	XrJalrPredictionTable *ptable = proc->PtableFreeList;
-	proc->PtableFreeList = (void*)ptable->Iblocks[0];
+	proc->PtableFreeList = (void *)ptable->Iblocks[0];
 
 	for (int i = 0; i < XR_JALR_PREDICTION_TABLE_ENTRIES; i++) {
 		ptable->Iblocks[i] = 0;
@@ -256,8 +256,25 @@ static inline XrJalrPredictionTable *XrAllocatePtable(XrProcessor *proc) {
 static inline void XrFreePtable(XrProcessor *proc, XrJalrPredictionTable *ptable) {
 	// Insert in the free list.
 
-	ptable->Iblocks[0] = (void*)proc->PtableFreeList;
+	ptable->Iblocks[0] = (void *)proc->PtableFreeList;
 	proc->PtableFreeList = ptable;
+}
+
+static inline XrVirtualPage *XrAllocateVpage(XrProcessor *proc) {
+	// There are as many Vpages as Iblocks, so since the caller got an Iblock,
+	// we don't need to check if there are free Vpages.
+
+	XrVirtualPage *vpage = proc->VpageFreeList;
+	proc->VpageFreeList = (void *)vpage->VpnHashEntry.Next;
+
+	return vpage;
+}
+
+static inline void XrFreeVpage(XrProcessor *proc, XrVirtualPage *vpage) {
+	// Insert in the free list.
+
+	vpage->VpnHashEntry.Next = (void *)proc->VpageFreeList;
+	proc->VpageFreeList = vpage;
 }
 
 static inline void XrFreeIblock(XrProcessor *proc, XrIblock *iblock) {
@@ -269,16 +286,23 @@ static inline void XrFreeIblock(XrProcessor *proc, XrIblock *iblock) {
 
 	RemoveEntryList(&iblock->HashEntry);
 
-	// Remove from the VPN table.
+	// Remove from the Vpage list.
 
-	RemoveEntryList(&iblock->VpnEntry);
+	RemoveEntryList(&iblock->VpageEntry);
+
+	// Decrement the Vpage's reference count and delete it if this was the final
+	// Iblock within the virtual page.
+
+	if (--iblock->Vpage->References == 0) {
+		RemoveEntryList(&iblock->Vpage->VpnHashEntry);
+
+		XrFreeVpage(proc, iblock->Vpage);
+	}
 
 	// Free Ptable.
 
 	if (iblock->HasPtable) {
-		// Free Ptable.
-
-		XrFreePtable(proc, (void*)iblock->CachedPaths[0]);
+		XrFreePtable(proc, (void *)iblock->CachedPaths[0]);
 	}
 
 	// Insert in the free list.
@@ -344,29 +368,99 @@ static void XrInvalidateIblockCache(XrProcessor *proc) {
 	}
 }
 
-static void XrInvalidateIblockCacheByVpn(XrProcessor *proc, uint32_t vpn) {
-	// Invalidate the Iblocks that match the given VPN.
+static inline void XrInvalidateVpage(XrProcessor *proc, XrVirtualPage *vpage) {
+	// Invalidate all of the Iblocks that reside within the VPN represented by
+	// the given Vpage.
 
-	ListEntry *listentry = proc->IblockVpnBuckets[XR_IBLOCK_VPN(vpn)].Next;
+	ListEntry *listentry = vpage->IblockVpnList.Next;
 
-	while (listentry != &proc->IblockVpnBuckets[XR_IBLOCK_VPN(vpn)]) {
-		XrIblock *iblock = ContainerOf(listentry, XrIblock, VpnEntry);
+	while (listentry != &vpage->IblockVpnList) {
+		XrIblock *iblock = ContainerOf(listentry, XrIblock, VpageEntry);
 
-		if ((iblock->Pc & 0xFFF00000) == vpn) {
-			// Invalidate the pointers to this Iblock.
+		// Invalidate the pointers to this Iblock.
 
-			XrInvalidateIblockPointers(iblock);
+		XrInvalidateIblockPointers(iblock);
 
-			// Free the Iblock. Note that this doesn't modify the VPN list links so
-			// we don't need to stash them.
+		// Free the Iblock. Note that this doesn't modify the VPN list links so
+		// we don't need to stash them.
 
-			XrFreeIblock(proc, iblock);
-		}
-
-		// Advance to the next Iblock.
+		XrFreeIblock(proc, iblock);
 
 		listentry = listentry->Next;
 	}
+}
+
+static void XrInvalidateIblockCacheByVpn(XrProcessor *proc, uint32_t vpn) {
+	// Invalidate the Iblocks that match the given VPN.
+
+	ListEntry *listentry = proc->VpageHashBuckets[XR_VPN_BUCKET_INDEX(vpn)].Next;
+
+	while (listentry != &proc->VpageHashBuckets[XR_VPN_BUCKET_INDEX(vpn)]) {
+		XrVirtualPage *vpage = ContainerOf(listentry, XrVirtualPage, VpnHashEntry);
+
+		if (vpage->Vpn == vpn) {
+			// Invalidate the Iblocks within this virtual page.
+
+			XrInvalidateVpage(proc, vpage);
+
+			return;
+		}
+
+		// Advance to the next virtual page.
+
+		listentry = listentry->Next;
+	}
+}
+
+static inline void XrInsertIblockInVpage(XrProcessor* proc, XrIblock *iblock, uint32_t pc) {
+	// Insert the Iblock in a Vpage or create a new one if this is the first
+	// one in that virtual page.
+
+	XrVirtualPage *vpage;
+
+	int searches = 0;
+
+	uint32_t vpn = pc & ~0xFFF;
+	uint32_t hash = XR_VPN_BUCKET_INDEX(vpn);
+
+	ListEntry *listentry = proc->VpageHashBuckets[hash].Next;
+
+	while (listentry != &proc->VpageHashBuckets[hash]) {
+		vpage = ContainerOf(listentry, XrVirtualPage, VpnHashEntry);
+
+		if (vpage->Vpn == vpn) {
+			// Found it.
+
+			vpage->References++;
+
+			// Insert the Iblock in the Vpage's list.
+
+			iblock->Vpage = vpage;
+			InsertAtHeadList(&vpage->IblockVpnList, &iblock->VpageEntry);
+
+			return;
+		}
+
+		searches++;
+		listentry = listentry->Next;
+	}
+
+	// Failed to find a Vpage, so allocate a new one.
+
+	vpage = XrAllocateVpage(proc);
+
+	vpage->Vpn = vpn;
+	vpage->References = 1;
+
+	// No need to initialize the Iblock list head, it was done at init time.
+	// InitializeList(&vpage->IblockVpnList);
+
+	InsertAtHeadList(&proc->VpageHashBuckets[hash], &vpage->VpnHashEntry);
+
+	// Insert the Iblock in the Vpage's list.
+
+	iblock->Vpage = vpage;
+	InsertAtHeadList(&vpage->IblockVpnList, &iblock->VpageEntry);
 }
 
 static inline XrIblock *XrAllocateIblock(XrProcessor *proc, XrIblock *hazard) {
@@ -3775,7 +3869,8 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, XrIblock *hazard) {
 
 	InsertAtHeadList(&proc->IblockHashBuckets[XR_IBLOCK_HASH(pc)], &iblock->HashEntry);
 	InsertAtHeadList(&proc->IblockLruList, &iblock->LruEntry);
-	InsertAtHeadList(&proc->IblockVpnBuckets[XR_IBLOCK_VPN(pc)], &iblock->VpnEntry);
+
+	XrInsertIblockInVpage(proc, iblock, pc);
 
 	// Decode instructions starting at the offset of the program counter within
 	// the fetched chunk, until we reach either a branch, an illegal

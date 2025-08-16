@@ -208,6 +208,7 @@ void CpuInitialize(int id) {
 
 	proc->IblockFreeList = 0;
 	proc->PtableFreeList = 0;
+	proc->VpageFreeList = 0;
 
 	InitializeList(&proc->IblockLruList);
 
@@ -215,8 +216,8 @@ void CpuInitialize(int id) {
 		InitializeList(&proc->IblockHashBuckets[i]);
 	}
 
-	for (int i = 0; i < XR_IBLOCK_VPN_BUCKETS; i++) {
-		InitializeList(&proc->IblockVpnBuckets[i]);
+	for (int i = 0; i < XR_VPN_BUCKETS; i++) {
+		InitializeList(&proc->VpageHashBuckets[i]);
 	}
 
 	XrIblock *iblocks = malloc(sizeof(XrIblock) * XR_IBLOCK_COUNT);
@@ -245,6 +246,22 @@ void CpuInitialize(int id) {
 		proc->PtableFreeList = ptable;
 
 		ptable++;
+	}
+
+	XrVirtualPage *vpage = malloc(sizeof(XrVirtualPage) * XR_IBLOCK_COUNT);
+
+	if (!vpage) {
+		fprintf(stderr, "failed to allocate virtual page trackers for cpu %d\n", id);
+		exit(1);
+	}
+
+	for (int i = 0; i < XR_IBLOCK_COUNT; i++) {
+		vpage->VpnHashEntry.Next = (void *)proc->VpageFreeList;
+		proc->VpageFreeList = vpage;
+
+		InitializeList(&vpage->IblockVpnList);
+
+		vpage++;
 	}
 
 	XrReset(proc);

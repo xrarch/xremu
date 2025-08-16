@@ -121,9 +121,8 @@
 #define XR_IBLOCK_COUNT 2048
 #define XR_IBLOCK_RECLAIM 32
 
-#define XR_IBLOCK_VPN_BUCKETS 128
-
-#define XR_IBLOCK_VPN(pc) ((pc >> 12) & (XR_IBLOCK_VPN_BUCKETS - 1))
+#define XR_VPN_BUCKETS 32
+#define XR_VPN_BUCKET_INDEX(pc) ((pc >> 12) & (XR_VPN_BUCKETS - 1))
 
 #define XR_IBLOCK_CACHEDBY_MAX 4
 
@@ -142,6 +141,20 @@ typedef struct _XrProcessor XrProcessor;
 typedef struct _XrIblock XrIblock;
 typedef struct _XrCachedInst XrCachedInst;
 
+#define XR_JALR_PREDICTION_TABLE_ENTRIES 8
+
+typedef struct _XrJalrPredictionTable {
+	XrIblock *Iblocks[XR_JALR_PREDICTION_TABLE_ENTRIES];
+	uint32_t Pcs[XR_JALR_PREDICTION_TABLE_ENTRIES];
+} XrJalrPredictionTable;
+
+typedef struct _XrVirtualPage {
+	ListEntry VpnHashEntry;
+	ListEntry IblockVpnList;
+	uint32_t Vpn;
+	uint32_t References;
+} XrVirtualPage;
+
 typedef void (*XrInstImplF XR_PRESERVE_NONE)(XrProcessor *proc, XrIblock *block, XrCachedInst *inst);
 
 struct _XrCachedInst {
@@ -156,17 +169,12 @@ struct _XrCachedInst {
 
 #define XR_CACHED_PATH_MAX 2
 
-#define XR_JALR_PREDICTION_TABLE_ENTRIES 8
-
-typedef struct _XrJalrPredictionTable {
-	XrIblock *Iblocks[XR_JALR_PREDICTION_TABLE_ENTRIES];
-	uint32_t Pcs[XR_JALR_PREDICTION_TABLE_ENTRIES];
-} XrJalrPredictionTable;
-
 struct _XrIblock {
-	ListEntry VpnEntry;
+	ListEntry VpageEntry;
 	ListEntry HashEntry;
 	ListEntry LruEntry;
+
+	XrVirtualPage *Vpage;
 
 	XrIblock *CachedPaths[XR_CACHED_PATH_MAX];
 
@@ -178,8 +186,8 @@ struct _XrIblock {
 
 	XrIblock **CachedBy[XR_IBLOCK_CACHEDBY_MAX];
 
-	uint32_t Asid;
 	uint32_t Pc;
+	uint32_t Asid;
 	uint8_t Cycles;
 	uint8_t CachedByFifoIndex;
 	uint8_t PteFlags;
@@ -216,6 +224,7 @@ struct _XrProcessor {
 
 	XrIblock *IblockFreeList;
 	XrJalrPredictionTable *PtableFreeList;
+	XrVirtualPage *VpageFreeList;
 
 	ListEntry IblockLruList;
 	ListEntry IblockHashBuckets[XR_IBLOCK_HASH_BUCKETS];
@@ -279,7 +288,7 @@ struct _XrProcessor {
 	uint8_t Running;
 	uint8_t NoMore;
 
-	ListEntry IblockVpnBuckets[XR_IBLOCK_VPN_BUCKETS];
+	ListEntry VpageHashBuckets[XR_VPN_BUCKETS];
 };
 
 #define XR_SIMULATE_CACHES 1
