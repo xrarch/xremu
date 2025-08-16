@@ -1436,11 +1436,11 @@ static inline void XrWriteWbEntry(XrProcessor *proc) {
 	}
 }
 
-static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc);
+static XrIblock *XrDecodeInstructions(XrProcessor *proc);
 
-static inline XrIblock *XrDecodeInstructionsWithHazard(XrProcessor *proc, uint32_t pc, XrIblock *hazard) {
+static inline XrIblock *XrDecodeInstructionsWithHazard(XrProcessor *proc, XrIblock *hazard) {
 	proc->HazardIblock = hazard;
-	XrIblock *iblock = XrDecodeInstructions(proc, pc);
+	XrIblock *iblock = XrDecodeInstructions(proc);
 	proc->HazardIblock = 0;
 	return iblock;
 }
@@ -1503,7 +1503,7 @@ retry:
 	}
 
 	if (XrUnlikely(!nextblock)) {
-		nextblock = XrDecodeInstructions(proc, proc->Pc);
+		nextblock = XrDecodeInstructions(proc);
 
 		if (XrUnlikely(!nextblock)) {
 			// An exception occurred while performing instruction fetch.
@@ -2261,7 +2261,7 @@ static void XrExecuteBpo(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	iblock = *referrent;
 
 	if (XrUnlikely(!iblock)) {
-		iblock = XrDecodeInstructionsWithHazard(proc, proc->Pc, block);
+		iblock = XrDecodeInstructionsWithHazard(proc, block);
 
 		if (XrUnlikely(!iblock)) {
 			XR_EARLY_EXIT();
@@ -2293,7 +2293,7 @@ static void XrExecuteBpe(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	iblock = *referrent;
 
 	if (XrUnlikely(!iblock)) {
-		iblock = XrDecodeInstructionsWithHazard(proc, proc->Pc, block);
+		iblock = XrDecodeInstructionsWithHazard(proc, block);
 
 		if (XrUnlikely(!iblock)) {
 			XR_EARLY_EXIT();
@@ -2325,7 +2325,7 @@ static void XrExecuteBge(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	iblock = *referrent;
 
 	if (XrUnlikely(!iblock)) {
-		iblock = XrDecodeInstructionsWithHazard(proc, proc->Pc, block);
+		iblock = XrDecodeInstructionsWithHazard(proc, block);
 
 		if (XrUnlikely(!iblock)) {
 			XR_EARLY_EXIT();
@@ -2357,7 +2357,7 @@ static void XrExecuteBle(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	iblock = *referrent;
 
 	if (XrUnlikely(!iblock)) {
-		iblock = XrDecodeInstructionsWithHazard(proc, proc->Pc, block);
+		iblock = XrDecodeInstructionsWithHazard(proc, block);
 
 		if (XrUnlikely(!iblock)) {
 			XR_EARLY_EXIT();
@@ -2389,7 +2389,7 @@ static void XrExecuteBgt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	iblock = *referrent;
 
 	if (XrUnlikely(!iblock)) {
-		iblock = XrDecodeInstructionsWithHazard(proc, proc->Pc, block);
+		iblock = XrDecodeInstructionsWithHazard(proc, block);
 
 		if (XrUnlikely(!iblock)) {
 			XR_EARLY_EXIT();
@@ -2421,7 +2421,7 @@ static void XrExecuteBlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	iblock = *referrent;
 
 	if (XrUnlikely(!iblock)) {
-		iblock = XrDecodeInstructionsWithHazard(proc, proc->Pc, block);
+		iblock = XrDecodeInstructionsWithHazard(proc, block);
 
 		if (XrUnlikely(!iblock)) {
 			XR_EARLY_EXIT();
@@ -2453,7 +2453,7 @@ static void XrExecuteBne(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	iblock = *referrent;
 
 	if (XrUnlikely(!iblock)) {
-		iblock = XrDecodeInstructionsWithHazard(proc, proc->Pc, block);
+		iblock = XrDecodeInstructionsWithHazard(proc, block);
 
 		if (XrUnlikely(!iblock)) {
 			XR_EARLY_EXIT();
@@ -2485,7 +2485,7 @@ static void XrExecuteBeq(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	iblock = *referrent;
 
 	if (XrUnlikely(!iblock)) {
-		iblock = XrDecodeInstructionsWithHazard(proc, proc->Pc, block);
+		iblock = XrDecodeInstructionsWithHazard(proc, block);
 
 		if (XrUnlikely(!iblock)) {
 			XR_EARLY_EXIT();
@@ -2506,7 +2506,7 @@ static void XrExecuteB(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	XrIblock *iblock = block->CachedPaths[XR_TRUE_PATH];
 
 	if (XrUnlikely(!iblock)) {
-		iblock = XrDecodeInstructionsWithHazard(proc, proc->Pc, block);
+		iblock = XrDecodeInstructionsWithHazard(proc, block);
 
 		if (XrUnlikely(!iblock)) {
 			XR_EARLY_EXIT();
@@ -2814,7 +2814,7 @@ static void XrExecuteJalr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst
 		}
 	}
 
-	iblock = XrDecodeInstructionsWithHazard(proc, pc, block);
+	iblock = XrDecodeInstructionsWithHazard(proc, block);
 
 	if (XrUnlikely(!iblock)) {
 		XR_EARLY_EXIT();
@@ -2839,7 +2839,7 @@ static void XrExecuteJal(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrIblock *iblock = block->CachedPaths[XR_TRUE_PATH];
 
 	if (XrUnlikely(!iblock)) {
-		iblock = XrDecodeInstructionsWithHazard(proc, proc->Pc, block);
+		iblock = XrDecodeInstructionsWithHazard(proc, block);
 
 		if (XrUnlikely(!iblock)) {
 			XR_EARLY_EXIT();
@@ -2860,7 +2860,7 @@ static void XrExecuteJ(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	XrIblock *iblock = block->CachedPaths[XR_TRUE_PATH];
 
 	if (XrUnlikely(!iblock)) {
-		iblock = XrDecodeInstructionsWithHazard(proc, proc->Pc, block);
+		iblock = XrDecodeInstructionsWithHazard(proc, block);
 
 		if (XrUnlikely(!iblock)) {
 			XR_EARLY_EXIT();
@@ -3680,7 +3680,7 @@ static void XrSpecialLinkageInstruction(XrProcessor *proc, XrIblock *block, XrCa
 	XrIblock *iblock = block->CachedPaths[XR_TRUE_PATH];
 
 	if (XrUnlikely(!iblock)) {
-		iblock = XrDecodeInstructions(proc, proc->Pc);
+		iblock = XrDecodeInstructions(proc);
 
 		if (XrUnlikely(!iblock)) {
 			XR_EARLY_EXIT();
@@ -3692,11 +3692,13 @@ static void XrSpecialLinkageInstruction(XrProcessor *proc, XrIblock *block, XrCa
 	XR_DISPATCH(iblock);
 }
 
-static XrIblock *XrDecodeInstructions(XrProcessor *proc, uint32_t pc) {
-	// Decode some instructions starting at the given virtual PC.
+static XrIblock *XrDecodeInstructions(XrProcessor *proc) {
+	// Decode some instructions starting at the current virtual PC.
 	// Return NULLPTR if we fail to fetch the first instruction. This implies
 	// that an exception occurred, such as an ITB miss, page fault, or bus
 	// error.
+
+	uint32_t pc = proc->Pc;
 
 	uint32_t asid = XR_CURRENT_ASID();
 
