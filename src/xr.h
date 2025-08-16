@@ -209,7 +209,6 @@ struct _XrProcessor {
 
 	XrIblock *IblockFreeList;
 	XrJalrPredictionTable *PtableFreeList;
-	XrIblock *HazardIblock;
 
 	ListEntry IblockLruList;
 	ListEntry IblockHashBuckets[XR_IBLOCK_HASH_BUCKETS];
