@@ -170,6 +170,12 @@ struct _XrIblock {
 
 	XrIblock *CachedPaths[XR_CACHED_PATH_MAX];
 
+	// The CachedBy array stores a list of backpointers to pointers to this
+	// block. When this block is invalidated, we can iterate this array and
+	// zero out these pointers, thereby invalidating cached pointers to this
+	// Iblock from other Iblocks. The CachedByFifoIndex field is used to
+	// implement the "replacement policy".
+
 	XrIblock **CachedBy[XR_IBLOCK_CACHEDBY_MAX];
 
 	uint32_t Asid;
@@ -179,11 +185,12 @@ struct _XrIblock {
 	uint8_t PteFlags;
 	uint8_t HasPtable;
 
-	// Two extra instructions. One is reserved for if a real instruction decodes
+	// TWO extra instructions: One is reserved for if a real instruction decodes
 	// into two virtual instructions (happens for example with inline shifts),
 	// to avoid special casing if there's no room for the virtual instruction.
 	// The second is for the special linkage instruction placed at the end of a
-	// basic block that doesn't otherwise terminate naturally.
+	// basic block that doesn't otherwise terminate naturally. Both slots are
+	// needed for the case where both of these situations occur.
 
 	XrCachedInst Insts[XR_IBLOCK_INSTS + 2];
 };

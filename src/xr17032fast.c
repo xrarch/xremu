@@ -289,7 +289,10 @@ static inline void XrFreeIblock(XrProcessor *proc, XrIblock *iblock) {
 
 static void XrPopulateIblockList(XrProcessor *proc, XrIblock *hazard) {
 	// The Iblock free list is empty. We need to repopulate by striking down
-	// some active ones from the tail of the LRU list.
+	// some active ones from the tail of the LRU list. The hazard pointer
+	// parameter is provided to specify an Iblock which may not be reclaimed.
+	// This is usually an Iblock currently in use by a caller whose invalidation
+	// at this time would cause problems.
 	//
 	// We know that there are at least XR_IBLOCK_RECLAIM Iblocks on the LRU list
 	// because all active Iblocks are on the LRU list, all Iblocks are currently
