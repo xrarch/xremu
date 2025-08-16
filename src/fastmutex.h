@@ -19,8 +19,7 @@ typedef struct _XrSemaphore {
 } XrSemaphore;
 
 
-static inline void XrInitializeSemaphore(XrSemaphore *s, uint32_t value)
-{
+static inline void XrInitializeSemaphore(XrSemaphore *s, uint32_t value) {
 #ifdef __APPLE__
     s->Semaphore = dispatch_semaphore_create(value);
 #else
@@ -28,9 +27,7 @@ static inline void XrInitializeSemaphore(XrSemaphore *s, uint32_t value)
 #endif
 }
 
-static inline void XrWaitSemaphore(XrSemaphore *s)
-{
-
+static inline void XrWaitSemaphore(XrSemaphore *s) {
 #ifdef __APPLE__
     dispatch_semaphore_wait(s->Semaphore, DISPATCH_TIME_FOREVER);
 #else
@@ -42,9 +39,7 @@ static inline void XrWaitSemaphore(XrSemaphore *s)
 #endif
 }
 
-static inline void XrPostSemaphore(XrSemaphore *s)
-{
-
+static inline void XrPostSemaphore(XrSemaphore *s) {
 #ifdef __APPLE__
     dispatch_semaphore_signal(s->Semaphore);
 #else
