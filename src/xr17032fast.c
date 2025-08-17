@@ -2342,13 +2342,13 @@ static void XrExecuteBpo(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrIblock **referrent;
 
 	if (proc->Reg[rd] & 1) {
-		proc->Pc += inst->Imm32_1;
+		proc->Pc = inst->Imm32_1;
 		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		if (inst->Imm32_2) {
 			DBGPRINT("take peephole branch %x at %p\n", inst->Imm32_2, proc->Pc);
 		}
-		proc->Pc += 4 + inst->Imm32_2;
+		proc->Pc = inst->Imm32_2;
 		referrent = &block->CachedPaths[XR_FALSE_PATH];
 	}
 
@@ -2377,13 +2377,13 @@ static void XrExecuteBpe(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrIblock **referrent;
 
 	if ((proc->Reg[rd] & 1) == 0) {
-		proc->Pc += inst->Imm32_1;
+		proc->Pc = inst->Imm32_1;
 		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		if (inst->Imm32_2) {
 			DBGPRINT("take peephole branch %x at %p\n", inst->Imm32_2, proc->Pc);
 		}
-		proc->Pc += 4 + inst->Imm32_2;
+		proc->Pc = inst->Imm32_2;
 		referrent = &block->CachedPaths[XR_FALSE_PATH];
 	}
 
@@ -2412,13 +2412,13 @@ static void XrExecuteBge(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrIblock **referrent;
 
 	if ((int32_t)proc->Reg[rd] >= 0) {
-		proc->Pc += inst->Imm32_1;
+		proc->Pc = inst->Imm32_1;
 		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		if (inst->Imm32_2) {
 			DBGPRINT("take peephole branch %x at %p\n", inst->Imm32_2, proc->Pc);
 		}
-		proc->Pc += 4 + inst->Imm32_2;
+		proc->Pc = inst->Imm32_2;
 		referrent = &block->CachedPaths[XR_FALSE_PATH];
 	}
 
@@ -2447,13 +2447,13 @@ static void XrExecuteBle(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrIblock **referrent;
 
 	if ((int32_t)proc->Reg[rd] <= 0) {
-		proc->Pc += inst->Imm32_1;
+		proc->Pc = inst->Imm32_1;
 		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		if (inst->Imm32_2) {
 			DBGPRINT("take peephole branch %x at %p\n", inst->Imm32_2, proc->Pc);
 		}
-		proc->Pc += 4 + inst->Imm32_2;
+		proc->Pc = inst->Imm32_2;
 		referrent = &block->CachedPaths[XR_FALSE_PATH];
 	}
 
@@ -2482,13 +2482,13 @@ static void XrExecuteBgt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrIblock **referrent;
 
 	if ((int32_t)proc->Reg[rd] > 0) {
-		proc->Pc += inst->Imm32_1;
+		proc->Pc = inst->Imm32_1;
 		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		if (inst->Imm32_2) {
 			DBGPRINT("take peephole branch %x at %p\n", inst->Imm32_2, proc->Pc);
 		}
-		proc->Pc += 4 + inst->Imm32_2;
+		proc->Pc = inst->Imm32_2;
 		referrent = &block->CachedPaths[XR_FALSE_PATH];
 	}
 
@@ -2517,13 +2517,13 @@ static void XrExecuteBlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrIblock **referrent;
 
 	if ((int32_t)proc->Reg[rd] < 0) {
-		proc->Pc += inst->Imm32_1;
+		proc->Pc = inst->Imm32_1;
 		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		if (inst->Imm32_2) {
 			DBGPRINT("take peephole branch %x at %p\n", inst->Imm32_2, proc->Pc);
 		}
-		proc->Pc += 4 + inst->Imm32_2;
+		proc->Pc = inst->Imm32_2;
 		referrent = &block->CachedPaths[XR_FALSE_PATH];
 	}
 
@@ -2552,13 +2552,13 @@ static void XrExecuteBne(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrIblock **referrent;
 
 	if (proc->Reg[rd] != 0) {
-		proc->Pc += inst->Imm32_1;
+		proc->Pc = inst->Imm32_1;
 		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		if (inst->Imm32_2) {
 			DBGPRINT("take peephole branch %x at %p\n", inst->Imm32_2, proc->Pc);
 		}
-		proc->Pc += 4 + inst->Imm32_2;
+		proc->Pc = inst->Imm32_2;
 		referrent = &block->CachedPaths[XR_FALSE_PATH];
 	}
 
@@ -2587,13 +2587,13 @@ static void XrExecuteBeq(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrIblock **referrent;
 
 	if (proc->Reg[rd] == 0) {
-		proc->Pc += inst->Imm32_1;
+		proc->Pc = inst->Imm32_1;
 		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		if (inst->Imm32_2) {
 			DBGPRINT("take peephole branch %x at %p\n", inst->Imm32_2, proc->Pc);
 		}
-		proc->Pc += 4 + inst->Imm32_2;
+		proc->Pc = inst->Imm32_2;
 		referrent = &block->CachedPaths[XR_FALSE_PATH];
 	}
 
@@ -3457,14 +3457,13 @@ static XrCachedInst *XrDecodeBpo(XrProcessor* proc, XrCachedInst *inst, uint32_t
 	uint32_t ir = irstream[0];
 	inst->Func = &XrExecuteBpo;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
-	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+	inst->Imm32_1 = SignExt23((ir >> 11) << 2) + pc;
 
 	if (info->IrIndex + 1 < XR_IBLOCK_INSTS && XR_INST_IS_B(irstream[1])) {
-		inst->Imm32_2 = SignExt23((irstream[1] >> 11) << 2);
-		DBGPRINT("decode peephole branch %x at %p\n", inst->Imm32_2, pc);
+		inst->Imm32_2 = SignExt23((irstream[1] >> 11) << 2) + pc + 4;
 		info->IrIndex = 2;
 	} else {
-		inst->Imm32_2 = 0;
+		inst->Imm32_2 = pc + 4;
 	}
 
 	return 0;
@@ -3494,14 +3493,13 @@ static XrCachedInst *XrDecodeBpe(XrProcessor* proc, XrCachedInst *inst, uint32_t
 	uint32_t ir = irstream[0];
 	inst->Func = &XrExecuteBpe;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
-	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+	inst->Imm32_1 = SignExt23((ir >> 11) << 2) + pc;
 
 	if (info->IrIndex + 1 < XR_IBLOCK_INSTS && XR_INST_IS_B(irstream[1])) {
-		inst->Imm32_2 = SignExt23((irstream[1] >> 11) << 2);
-		DBGPRINT("decode peephole branch %x at %p\n", inst->Imm32_2, pc);
+		inst->Imm32_2 = SignExt23((irstream[1] >> 11) << 2) + pc + 4;
 		info->IrIndex = 2;
 	} else {
-		inst->Imm32_2 = 0;
+		inst->Imm32_2 = pc + 4;
 	}
 
 	return 0;
@@ -3531,14 +3529,13 @@ static XrCachedInst *XrDecodeBge(XrProcessor* proc, XrCachedInst *inst, uint32_t
 	uint32_t ir = irstream[0];
 	inst->Func = &XrExecuteBge;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
-	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+	inst->Imm32_1 = SignExt23((ir >> 11) << 2) + pc;
 
 	if (info->IrIndex + 1 < XR_IBLOCK_INSTS && XR_INST_IS_B(irstream[1])) {
-		inst->Imm32_2 = SignExt23((irstream[1] >> 11) << 2);
-		DBGPRINT("decode peephole branch %x at %p\n", inst->Imm32_2, pc);
+		inst->Imm32_2 = SignExt23((irstream[1] >> 11) << 2) + pc + 4;
 		info->IrIndex = 2;
 	} else {
-		inst->Imm32_2 = 0;
+		inst->Imm32_2 = pc + 4;
 	}
 
 	return 0;
@@ -3568,14 +3565,13 @@ static XrCachedInst *XrDecodeBle(XrProcessor* proc, XrCachedInst *inst, uint32_t
 	uint32_t ir = irstream[0];
 	inst->Func = &XrExecuteBle;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
-	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+	inst->Imm32_1 = SignExt23((ir >> 11) << 2) + pc;
 
 	if (info->IrIndex + 1 < XR_IBLOCK_INSTS && XR_INST_IS_B(irstream[1])) {
-		inst->Imm32_2 = SignExt23((irstream[1] >> 11) << 2);
-		DBGPRINT("decode peephole branch %x at %p\n", inst->Imm32_2, pc);
+		inst->Imm32_2 = SignExt23((irstream[1] >> 11) << 2) + pc + 4;
 		info->IrIndex = 2;
 	} else {
-		inst->Imm32_2 = 0;
+		inst->Imm32_2 = pc + 4;
 	}
 
 	return 0;
@@ -3595,14 +3591,13 @@ static XrCachedInst *XrDecodeBgt(XrProcessor* proc, XrCachedInst *inst, uint32_t
 	uint32_t ir = irstream[0];
 	inst->Func = &XrExecuteBgt;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
-	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+	inst->Imm32_1 = SignExt23((ir >> 11) << 2) + pc;
 
 	if (info->IrIndex + 1 < XR_IBLOCK_INSTS && XR_INST_IS_B(irstream[1])) {
-		inst->Imm32_2 = SignExt23((irstream[1] >> 11) << 2);
-		DBGPRINT("decode peephole branch %x at %p\n", inst->Imm32_2, pc);
+		inst->Imm32_2 = SignExt23((irstream[1] >> 11) << 2) + pc + 4;
 		info->IrIndex = 2;
 	} else {
-		inst->Imm32_2 = 0;
+		inst->Imm32_2 = pc + 4;
 	}
 
 	return 0;
@@ -3646,14 +3641,13 @@ static XrCachedInst *XrDecodeBlt(XrProcessor* proc, XrCachedInst *inst, uint32_t
 	uint32_t ir = irstream[0];
 	inst->Func = &XrExecuteBlt;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
-	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+	inst->Imm32_1 = SignExt23((ir >> 11) << 2) + pc;
 
 	if (info->IrIndex + 1 < XR_IBLOCK_INSTS && XR_INST_IS_B(irstream[1])) {
-		inst->Imm32_2 = SignExt23((irstream[1] >> 11) << 2);
-		DBGPRINT("decode peephole branch %x at %p\n", inst->Imm32_2, pc);
+		inst->Imm32_2 = SignExt23((irstream[1] >> 11) << 2) + pc + 4;
 		info->IrIndex = 2;
 	} else {
-		inst->Imm32_2 = 0;
+		inst->Imm32_2 = pc + 4;
 	}
 
 	return 0;
@@ -3697,14 +3691,13 @@ static XrCachedInst *XrDecodeBne(XrProcessor* proc, XrCachedInst *inst, uint32_t
 	uint32_t ir = irstream[0];
 	inst->Func = &XrExecuteBne;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
-	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+	inst->Imm32_1 = SignExt23((ir >> 11) << 2) + pc;
 
 	if (info->IrIndex + 1 < XR_IBLOCK_INSTS && XR_INST_IS_B(irstream[1])) {
-		inst->Imm32_2 = SignExt23((irstream[1] >> 11) << 2);
-		DBGPRINT("decode peephole branch %x at %p\n", inst->Imm32_2, pc);
+		inst->Imm32_2 = SignExt23((irstream[1] >> 11) << 2) + pc + 4;
 		info->IrIndex = 2;
 	} else {
-		inst->Imm32_2 = 0;
+		inst->Imm32_2 = pc + 4;
 	}
 
 	return 0;
@@ -3756,15 +3749,15 @@ static XrCachedInst *XrDecodeAddi(XrProcessor* proc, XrCachedInst *inst, uint32_
 
 static XrCachedInst *XrDecodeBeq(XrProcessor* proc, XrCachedInst *inst, uint32_t pc, uint32_t *irstream, XrDecodeInfo *info) {
 	uint32_t ir = irstream[0];
-	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
+	inst->Imm32_1 = SignExt23((ir >> 11) << 2) + pc;
 
 	if (inst->Imm8_1 == XR_FAKE_ZERO_REGISTER) {
 		// This is a BEQ, ZERO, XXX instruction.
 		// This is the canonical unconditional branch, generated by the B
 		// pseudo-instruction. We can optimize this a bit.
 
-		inst->Imm32_1 += pc;
+		// inst->Imm32_1 += pc;
 
 		inst->Func = &XrExecuteJ;
 
@@ -3772,11 +3765,10 @@ static XrCachedInst *XrDecodeBeq(XrProcessor* proc, XrCachedInst *inst, uint32_t
 	}
 
 	if (info->IrIndex + 1 < XR_IBLOCK_INSTS && XR_INST_IS_B(irstream[1])) {
-		inst->Imm32_2 = SignExt23((irstream[1] >> 11) << 2);
-		DBGPRINT("decode peephole branch %x at %p\n", inst->Imm32_2, pc);
-		info->IrIndex = 2;
+		inst->Imm32_2 = SignExt23((irstream[1] >> 11) << 2) + pc + 4;
+		info->NumConsumed = 2;
 	} else {
-		inst->Imm32_2 = 0;
+		inst->Imm32_2 = pc + 4;
 	}
 
 	inst->Func = &XrExecuteBeq;
