@@ -67,6 +67,16 @@ int RAMRead(uint32_t address, void *dest, uint32_t length, void *proc) {
 	return EBUSSUCCESS;
 }
 
+void *RAMTranslate(uint32_t address) {
+	int slot = address >> 25;
+	int offset = address & (RAMSLOTSIZE-1);
+
+	if (offset >= RAMSlotSizes[slot])
+		return 0;
+
+	return &RAMSlots[slot][offset];
+}
+
 int RAMWriteExt(uint32_t address, void *src, uint32_t length, void *proc) {
 	address += EBUSBRANCHSIZE;
 
@@ -97,6 +107,18 @@ int RAMReadExt(uint32_t address, void *dest, uint32_t length, void *proc) {
 	return EBUSSUCCESS;
 }
 
+void *RAMTranslateExt(uint32_t address) {
+	address += EBUSBRANCHSIZE;
+
+	int slot = address >> 25;
+	int offset = address & (RAMSLOTSIZE-1);
+
+	if (offset >= RAMSlotSizes[slot])
+		return 0;
+
+	return &RAMSlots[slot][offset];
+}
+
 int RAMInit(uint32_t memsize) {
 	if (memsize > RAMMAXIMUM) {
 		fprintf(stderr, "RAMInit: maximum is %d bytes (%d bytes given)\n", RAMMAXIMUM, memsize);
@@ -108,11 +130,13 @@ int RAMInit(uint32_t memsize) {
 	EBusBranches[0].Present = 1;
 	EBusBranches[0].Write = RAMWrite;
 	EBusBranches[0].Read = RAMRead;
+	EBusBranches[0].Translate = RAMTranslate;
 	EBusBranches[0].Reset = 0;
 
 	EBusBranches[1].Present = 1;
 	EBusBranches[1].Write = RAMWriteExt;
 	EBusBranches[1].Read = RAMReadExt;
+	EBusBranches[1].Translate = RAMTranslateExt;
 	EBusBranches[1].Reset = 0;
 
 	// try to stack the RAM into slots in units of 4MB.

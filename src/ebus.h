@@ -18,12 +18,14 @@ extern void EnqueueCallback(uint32_t interval, uint32_t (*callback)(uint32_t, vo
 
 typedef int (*EBusWriteF)(uint32_t address, void *src, uint32_t length, void *proc);
 typedef int (*EBusReadF)(uint32_t address, void *dest, uint32_t length, void *proc);
+typedef void *(*EBusTranslateF)(uint32_t address);
 typedef void (*EBusResetF)();
 
 struct EBusBranch {
 	int Present;
 	EBusWriteF Write;
 	EBusReadF Read;
+	EBusTranslateF Translate;
 	EBusResetF Reset;
 };
 
@@ -35,6 +37,10 @@ static inline int EBusRead(uint32_t address, void *dest, uint32_t length, void *
 
 static inline int EBusWrite(uint32_t address, void *src, uint32_t length, void *proc) {
 	return EBusBranches[address >> 27].Write(address & 0x7FFFFFF, src, length, proc);
+}
+
+static inline void *EBusTranslate(uint32_t address) {
+	return EBusBranches[address >> 27].Translate(address & 0x7FFFFFF);
 }
 
 static inline void CopyWithLength(void *dest, void *src, uint32_t length) {

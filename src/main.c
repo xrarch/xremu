@@ -31,7 +31,11 @@ XrProcessor *CpuTable[XR_PROC_MAX];
 
 #ifndef EMSCRIPTEN
 
+#if XR_SIMULATE_CACHES
+
 XrMutex ScacheMutexes[XR_CACHE_MUTEXES];
+
+#endif
 
 #else
 
@@ -267,6 +271,8 @@ void CpuInitialize(int id) {
 	XrReset(proc);
 
 #ifndef EMSCRIPTEN
+
+#if XR_SIMULATE_CACHES
 	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
 		XrInitializeMutex(&proc->CacheMutexes[i]);
 	}
@@ -274,6 +280,7 @@ void CpuInitialize(int id) {
 	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
 		XrInitializeMutex(&ScacheMutexes[i]);
 	}
+#endif
 
 	XrInitializeSemaphore(&proc->LoopSemaphore, 0);
 
@@ -444,11 +451,6 @@ int main(int argc, char *argv[]) {
 
 	if (XrProcessorCount <= 0 || XrProcessorCount > XR_PROC_MAX) {
 		fprintf(stderr, "Bad processor count %d, should be between 1 and %d\n", XrProcessorCount, XR_PROC_MAX);
-		return 1;
-	}
-
-	if (!XR_SIMULATE_CACHES && XrProcessorCount > 1) {
-		fprintf(stderr, "Can't simulate multiprocessor with disabled caches\n");
 		return 1;
 	}
 
