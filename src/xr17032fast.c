@@ -1149,7 +1149,7 @@ static void XrExecuteSC(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) 
 
 		//DBGPRINT("%d: SC %d\n", proc->Id, proc->Reg[rb]);
 
-		uint8_t status = XrAccess(proc, XR_REG_RA(), 0, XR_REG_RB(), 4, 1);
+		int status = XrWriteLongSc(proc, XR_REG_RA(), XR_REG_RB());
 
 		if (XrUnlikely(!status)) {
 			XR_EARLY_EXIT();
@@ -3034,7 +3034,7 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, XrIblock *hazard) {
 
 		if (XrUnlikely((iblock->PteFlags & PTE_KERNEL) && (proc->Cr[RS] & RS_USER))) {
 			proc->Cr[EBADADDR] = pc;
-			XrBasicException(proc, XR_EXC_PGF, proc->Pc);
+			XrBasicException(proc, XR_EXC_PGF, pc);
 
 			return 0;
 		}
@@ -3042,14 +3042,19 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, XrIblock *hazard) {
 		return iblock;
 	}
 
-	uint32_t ir[XR_IBLOCK_INSTS];
+#if !XR_SIMULATE_CACHES
+	uint32_t fetchpc = pc;
 
+	int instindex = 0;
+
+#else
 	// Round down to the last Icache line boundary so that we can fetch one line
 	// at a time.
 
 	uint32_t fetchpc = pc & ~(XR_IC_LINE_SIZE - 1);
 
 	int instindex = (pc - fetchpc) >> 2;
+#endif
 
 	int instcount = XR_IBLOCK_INSTS;
 
@@ -3069,7 +3074,19 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, XrIblock *hazard) {
 		}
 	}
 
+#if !XR_SIMULATE_CACHES
+	uint32_t *ir = EBusTranslate(fetchpc);
+
+	if (XrUnlikely(!ir)) {
+		proc->Cr[EBADADDR] = pc;
+		XrBasicException(proc, XR_EXC_BUS, pc);
+
+		return 0;
+	}
+#else
 	// Fetch instructions one line at a time.
+
+	uint32_t ir[XR_IBLOCK_INSTS];
 
 	for (int offset = 0;
 		offset < instcount;
@@ -3083,6 +3100,7 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, XrIblock *hazard) {
 
 		CopyWithLength(&ir[offset], instptr, XR_IC_LINE_SIZE);
 	}
+#endif
 
 	// Allocate an Iblock.
 
@@ -3112,7 +3130,7 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, XrIblock *hazard) {
 	// the fetched chunk, until we reach either a branch, an illegal
 	// instruction, or the end of the chunk.
 
-	DBGPRINT("decode %x %x %x %x\n", instindex, pc, fetchpc, ir[instindex]);
+	// printf("decode %x %x %x %x %x %p\n", instindex, pc, fetchpc, ir[instindex], ir[instindex+1], ir);
 
 	XrCachedInst *inst = &iblock->Insts[0];
 

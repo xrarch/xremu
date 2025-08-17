@@ -16,6 +16,7 @@ uint8_t XrScacheExclusiveIds[XR_SC_LINE_COUNT];
 #define XrWriteByte(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 1, 0);
 #define XrWriteInt(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 2, 0);
 #define XrWriteLong(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 4, 0);
+#define XrWriteLongSc(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 4, 1);
 
 static uint32_t XrAccessMasks[5] = {
 	0x00000000,

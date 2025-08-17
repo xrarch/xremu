@@ -398,8 +398,10 @@ int main(int argc, char *argv[]) {
 				return 1;
 			}
 
+#if XR_SIMULATE_CACHES
 		} else if (strcmp(argv[i], "-cacheprint") == 0) {
 			XrPrintCache = true;
+#endif
 
 		} else if (strcmp(argv[i], "-diskprint") == 0) {
 			DKSPrint = true;
@@ -509,8 +511,6 @@ int main(int argc, char *argv[]) {
 		// thread is asleep waiting for its next timeslice.
 
 		for (int i = 0; i < XrProcessorCount; i++) {
-			XrLockMutex(&CpuTable[i]->RunLock);
-
 			CpuTable[i]->Timeslice += CPUSTEPMS;
 			CpuTable[i]->Progress = XR_POLL_MAX;
 			CpuTable[i]->PauseCalls = 0;
@@ -530,8 +530,6 @@ int main(int argc, char *argv[]) {
 
 				CpuTable[i]->Timeslice = CPUSTEPMS;
 			}
-
-			XrUnlockMutex(&CpuTable[i]->RunLock);
 		}
 
 		for (int i = 0; i < CpuThreadCount; i++) {
