@@ -138,6 +138,20 @@ int PBoardRead(uint32_t address, void *dest, uint32_t length, void *proc) {
 	return EBUSERROR;
 }
 
+void *PBoardTranslate(uint32_t address) {
+	if (address >= 0x7FE0000) {
+		address -= 0x7FE0000;
+
+		if (address >= ROMSIZE) {
+			return 0;
+		}
+
+		return &BootROM[address];
+	}
+
+	return 0;
+}
+
 void PBoardReset() {
 	RTCReset();
 	SerialReset();
@@ -209,6 +223,7 @@ int PBoardInit() {
 	EBusBranches[31].Present = 1;
 	EBusBranches[31].Write = PBoardWrite;
 	EBusBranches[31].Read = PBoardRead;
+	EBusBranches[31].Translate = PBoardTranslate;
 	EBusBranches[31].Reset = PBoardReset;
 
 	PBoardRegisters[0] = 0x00030001; // pboard version

@@ -16,6 +16,8 @@ Make sure you have SDL2 installed.
 
 Building the emulator should be as simple as typing `make`.
 
+    NOTE: A newish clang is required. Older versions have a code generation bug that breaks the emulator core. (Found this out the hard way).
+
 Then, type `./graphical.sh` in the project directory.
 
 Striking the right ALT key will switch the display between the framebuffer and the serial TTYs.

@@ -22,6 +22,10 @@ int EmptyWrite(uint32_t address, void *dest, uint32_t length, void *proc) {
 	return EBUSSUCCESS;
 }
 
+void *EmptyTranslate(uint32_t address) {
+	return 0;
+}
+
 int EmptyMemRead(uint32_t address, void *dest, uint32_t length, void *proc) {
 	return EBUSERROR;
 }
@@ -30,11 +34,16 @@ int EmptyMemWrite(uint32_t address, void *dest, uint32_t length, void *proc) {
 	return EBUSERROR;
 }
 
+void *EmptyMemTranslate(uint32_t address) {
+	return 0;
+}
+
 int EBusInit(uint32_t memsize) {
 	for (int i = 0; i < 24; i++) {
 		EBusBranches[i].Present = 0;
 		EBusBranches[i].Read = EmptyMemRead;
 		EBusBranches[i].Write = EmptyMemWrite;
+		EBusBranches[i].Translate = EmptyMemTranslate;
 		EBusBranches[i].Reset = 0;
 	}
 
@@ -42,6 +51,7 @@ int EBusInit(uint32_t memsize) {
 		EBusBranches[i].Present = 0;
 		EBusBranches[i].Read = EmptyRead;
 		EBusBranches[i].Write = EmptyWrite;
+		EBusBranches[i].Translate = EmptyTranslate;
 		EBusBranches[i].Reset = 0;
 	}
 

@@ -3,6 +3,7 @@ ifndef EMSCRIPTEN
 	SDL2_CONFIG = sdl2-config
 	RISC_CFLAGS = $(CFLAGS) -std=c99 `$(SDL2_CONFIG) --cflags --libs`
 	TARGET=xremu
+	CC = clang
 else
 	CFLAGS = -g -O3 -sUSE_SDL=2 -sINITIAL_MEMORY=33554432 -sALLOW_MEMORY_GROWTH=1
 	RISC_CFLAGS = $(CFLAGS) -std=c99 --preload-file bin
@@ -12,6 +13,10 @@ endif
 
 ifdef PROFCPU
 	CFLAGS += -DPROFCPU
+endif
+
+ifdef FASTMEMORY
+	CFLAGS += -DFASTMEMORY
 endif
 
 ifdef DBG

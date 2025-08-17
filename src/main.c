@@ -31,7 +31,11 @@ XrProcessor *CpuTable[XR_PROC_MAX];
 
 #ifndef EMSCRIPTEN
 
+#if XR_SIMULATE_CACHES
+
 XrMutex ScacheMutexes[XR_CACHE_MUTEXES];
+
+#endif
 
 #else
 
@@ -267,6 +271,8 @@ void CpuInitialize(int id) {
 	XrReset(proc);
 
 #ifndef EMSCRIPTEN
+
+#if XR_SIMULATE_CACHES
 	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
 		XrInitializeMutex(&proc->CacheMutexes[i]);
 	}
@@ -274,6 +280,7 @@ void CpuInitialize(int id) {
 	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
 		XrInitializeMutex(&ScacheMutexes[i]);
 	}
+#endif
 
 	XrInitializeSemaphore(&proc->LoopSemaphore, 0);
 
@@ -391,8 +398,10 @@ int main(int argc, char *argv[]) {
 				return 1;
 			}
 
+#if XR_SIMULATE_CACHES
 		} else if (strcmp(argv[i], "-cacheprint") == 0) {
 			XrPrintCache = true;
+#endif
 
 		} else if (strcmp(argv[i], "-diskprint") == 0) {
 			DKSPrint = true;
@@ -444,11 +453,6 @@ int main(int argc, char *argv[]) {
 
 	if (XrProcessorCount <= 0 || XrProcessorCount > XR_PROC_MAX) {
 		fprintf(stderr, "Bad processor count %d, should be between 1 and %d\n", XrProcessorCount, XR_PROC_MAX);
-		return 1;
-	}
-
-	if (!XR_SIMULATE_CACHES && XrProcessorCount > 1) {
-		fprintf(stderr, "Can't simulate multiprocessor with disabled caches\n");
 		return 1;
 	}
 
@@ -507,8 +511,6 @@ int main(int argc, char *argv[]) {
 		// thread is asleep waiting for its next timeslice.
 
 		for (int i = 0; i < XrProcessorCount; i++) {
-			XrLockMutex(&CpuTable[i]->RunLock);
-
 			CpuTable[i]->Timeslice += CPUSTEPMS;
 			CpuTable[i]->Progress = XR_POLL_MAX;
 			CpuTable[i]->PauseCalls = 0;
@@ -528,8 +530,6 @@ int main(int argc, char *argv[]) {
 
 				CpuTable[i]->Timeslice = CPUSTEPMS;
 			}
-
-			XrUnlockMutex(&CpuTable[i]->RunLock);
 		}
 
 		for (int i = 0; i < CpuThreadCount; i++) {

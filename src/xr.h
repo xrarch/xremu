@@ -220,6 +220,18 @@ enum XrFakeRegisters {
 	XR_REG_MAX,
 };
 
+#ifdef FASTMEMORY
+
+#define XR_SIMULATE_CACHES 0
+#define XR_SIMULATE_CACHE_STALLS 0
+
+#else
+
+#define XR_SIMULATE_CACHES 1
+#define XR_SIMULATE_CACHE_STALLS 0
+
+#endif
+
 struct _XrProcessor {
 	uint64_t Itb[XR_ITB_SIZE];
 	uint64_t Dtb[XR_DTB_SIZE];
@@ -227,7 +239,9 @@ struct _XrProcessor {
 	uint64_t ItbLastResult;
 	uint64_t DtbLastResult;
 
+#if XR_SIMULATE_CACHES
 	XrMutex CacheMutexes[XR_CACHE_MUTEXES];
+#endif
 	XrSemaphore LoopSemaphore;
 	XrMutex InterruptLock;
 	XrMutex RunLock;
@@ -239,9 +253,11 @@ struct _XrProcessor {
 	ListEntry IblockLruList;
 	ListEntry IblockHashBuckets[XR_IBLOCK_HASH_BUCKETS];
 
+#if XR_SIMULATE_CACHES
 	uint32_t IcTags[XR_IC_LINE_COUNT];
 	uint32_t DcTags[XR_DC_LINE_COUNT];
 	uint32_t WbIndices[XR_WB_DEPTH];
+#endif
 
 	uint32_t TimerInterruptCounter;
 
@@ -269,8 +285,10 @@ struct _XrProcessor {
 	uint32_t Timeslice;
 	uint32_t PauseReward;
 
+#if XR_SIMULATE_CACHES
 	uint32_t IcReplacementIndex;
 	uint32_t DcReplacementIndex;
+#endif
 
 #ifdef PROFCPU
 	uint32_t DcMissCount;
@@ -282,12 +300,15 @@ struct _XrProcessor {
 	int32_t TimeToNextPrint;
 #endif
 
+
+#if XR_SIMULATE_CACHES
 	uint8_t Ic[XR_IC_BYTE_COUNT];
 	uint8_t Dc[XR_DC_BYTE_COUNT];
 
 	uint8_t IcFlags[XR_IC_LINE_COUNT];
 	uint8_t DcFlags[XR_DC_LINE_COUNT];
 	uint8_t DcIndexToWbIndex[XR_DC_LINE_COUNT];
+#endif
 
 	uint8_t NmiMaskCounter;
 	uint8_t DcLastFlags;
@@ -301,9 +322,6 @@ struct _XrProcessor {
 	ListEntry VpageHashBuckets[XR_VPN_BUCKETS];
 };
 
-#define XR_SIMULATE_CACHES 1
-#define XR_SIMULATE_CACHE_STALLS 0
-
 extern uint8_t XrPrintCache;
 
 extern uint32_t XrProcessorCount;
@@ -314,6 +332,8 @@ extern void XrReset(XrProcessor *proc);
 extern int XrExecuteFast(XrProcessor *proc, uint32_t cycles, uint32_t dt);
 
 #ifndef EMSCRIPTEN
+
+#if XR_SIMULATE_CACHES
 
 extern XrMutex ScacheMutexes[XR_CACHE_MUTEXES];
 
@@ -332,6 +352,8 @@ static inline void XrLockScache(uint32_t tag) {
 static inline void XrUnlockScache(uint32_t tag) {
 	XrUnlockMutex(&ScacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
+
+#endif
 
 static inline void XrLockInterrupt(XrProcessor *proc) {
 	XrLockMutex(&proc->InterruptLock);
