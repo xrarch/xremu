@@ -130,6 +130,7 @@
 #include <pthread.h>
 #include <sched.h>
 
+#include "queue.h"
 #include "xr.h"
 #include "lsic.h"
 #include "ebus.h"
@@ -4051,7 +4052,7 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, XrIblock *hazard) {
 			break;
 		}
 	}
-
+	
 	// In case we went right up to the end of the basic block's maximum extent
 	// without running into a control flow instruction, we want this special
 	// linkage instruction at the end which just directs the interpreter to the
@@ -4061,6 +4062,22 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, XrIblock *hazard) {
 	inst->Func = &XrSpecialLinkageInstruction;
 
 done_no_linkage:
+
+	// Check if the block is just a single branch.
+	if (inst == &iblock->Insts[1] && iblock->Insts[0].Func == &XrExecuteB) {
+
+		// get destination
+		uint32_t dest_pc = pc + iblock->Insts[0].Imm32_1 + 4;
+
+		// free current iblock
+		XrFreeIblock(proc, iblock);
+
+		proc->Pc = dest_pc;
+		
+		DBGPRINT("hit isolated branch block!\n");
+
+		XR_TAIL return XrDecodeInstructions(proc,NULL);
+	}
 
 	return iblock;
 }
