@@ -151,6 +151,7 @@ extern XrClaimTableEntry XrClaimTable[XR_CLAIM_TABLE_SIZE];
 typedef struct _XrProcessor XrProcessor;
 typedef struct _XrIblock XrIblock;
 typedef struct _XrCachedInst XrCachedInst;
+typedef struct _XrDecodeInfo XrDecodeInfo;
 
 #define XR_JALR_PREDICTION_TABLE_ENTRIES 8
 
@@ -171,6 +172,7 @@ typedef void (*XrInstImplF XR_PRESERVE_NONE)(XrProcessor *proc, XrIblock *block,
 struct _XrCachedInst {
 	XrInstImplF Func;
 	uint32_t Imm32_1;
+	uint32_t Imm32_2;
 	uint8_t Imm8_1;
 	uint8_t Imm8_2;
 };
@@ -225,6 +227,14 @@ struct _XrIblock {
 	// needed for the case where both of these situations occur.
 
 	XrCachedInst Insts[XR_IBLOCK_INSTS + 2];
+};
+
+// Extra info that advanced decode instructions can take in and return.
+struct _XrDecodeInfo {
+	// Index of current raw instruction being decoded.
+	int IrIndex;
+	// 1 by default, modified if decoder consumes more than 1 inst.
+	int NumConsumed;
 };
 
 enum XrFakeRegisters {
