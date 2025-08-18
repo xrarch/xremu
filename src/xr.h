@@ -113,6 +113,10 @@
 #define XR_WB_INDEX_INVALID 255
 #define XR_CACHE_INDEX_INVALID 0xFFFFFFFF
 
+#define XR_IBLOCK_DTB_CACHE_SIZE 4
+
+#define XR_IBLOCK_DTB_CACHE_INDEX(address) ((address >> 12) & (XR_IBLOCK_DTB_CACHE_SIZE - 1))
+
 // XR_IBLOCK_INSTS should be defined as a multiple of the Icache line size,
 // because the instruction decode logic fetches lines at a time.
 
@@ -132,10 +136,6 @@
 #define XR_IBLOCK_INSTS_BYTES (XR_IBLOCK_INSTS * 4)
 
 #define XR_IBLOCK_HASH(pc) ((pc >> 2) & (XR_IBLOCK_HASH_BUCKETS - 1))
-
-#define XR_PRESERVE_NONE [[clang::preserve_none]]
-
-#define XR_TAIL [[clang::musttail]]
 
 typedef struct _XrProcessor XrProcessor;
 typedef struct _XrIblock XrIblock;
@@ -164,12 +164,24 @@ struct _XrCachedInst {
 	uint8_t Imm8_2;
 };
 
+#define XR_INVALID_DTB_INDEX 0xFFFFFFFF
+
+typedef struct _XrIblockDtbEntry {
+	void *HostPointer;
+	uint64_t MatchingDtbe;
+	uint32_t Index;
+} XrIblockDtbEntry;
+
 #define XR_TRUE_PATH 0
 #define XR_FALSE_PATH 1
 
 #define XR_CACHED_PATH_MAX 2
 
 struct _XrIblock {
+#ifdef FASTMEMORY
+	XrIblockDtbEntry DtbCache[XR_IBLOCK_DTB_CACHE_SIZE];
+#endif
+
 	ListEntry VpageEntry;
 	ListEntry HashEntry;
 	ListEntry LruEntry;
