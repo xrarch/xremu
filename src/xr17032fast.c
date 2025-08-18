@@ -1983,7 +1983,7 @@ static void XrExecuteJalr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst
 
 	XrIblock *iblock;
 
-	int index = ((pc >> 12) ^ (pc >> 2)) & (XR_JALR_PREDICTION_TABLE_ENTRIES - 1);
+	int index = (pc >> 2) & (XR_JALR_PREDICTION_TABLE_ENTRIES - 1);
 
 	if (XrLikely(ptable->Pcs[index] == pc)) {
 		iblock = ptable->Iblocks[index];

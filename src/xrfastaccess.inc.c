@@ -132,11 +132,16 @@ static int XrTranslateDstream(XrProcessor *proc, uint32_t virtual, XrIblockDtbEn
 	uint32_t vpn = virtual >> 12;
 
 	uint64_t tbe;
+	int index;
 
-	int index = XrLookupDtb(proc, virtual, &tbe, writing);
+	if (vpn == proc->DtbLastVpn) {
+		tbe = proc->DtbLastEntry.MatchingDtbe;
+	} else {
+		index = XrLookupDtb(proc, virtual, &tbe, writing);
 
-	if (index == -1) {
-		return 0;
+		if (index == -1) {
+			return 0;
+		}
 	}
 
 	if (XrUnlikely((tbe & PTE_VALID) == 0)) {
@@ -165,9 +170,21 @@ static int XrTranslateDstream(XrProcessor *proc, uint32_t virtual, XrIblockDtbEn
 		return 0;
 	}
 
-	entry->MatchingDtbe = tbe;
-	entry->Index = index;
-	entry->HostPointer = EBusTranslate(entry->MatchingDtbe >> 5 << 12);
+	if (vpn != proc->DtbLastVpn) {
+		proc->DtbLastEntry.MatchingDtbe = tbe;
+		proc->DtbLastEntry.Index = index;
+		proc->DtbLastEntry.HostPointer = EBusTranslate((tbe >> 5) << 12);
+		proc->DtbLastVpn = vpn;
+
+		entry->MatchingDtbe = tbe;
+		entry->Index = index;
+		entry->HostPointer = proc->DtbLastEntry.HostPointer;
+	} else {
+		entry->MatchingDtbe = tbe;
+		entry->Index = proc->DtbLastEntry.Index;
+		entry->HostPointer = proc->DtbLastEntry.HostPointer;
+
+	}
 
 	//DBGPRINT("virt=%x phys=%x\n", virt, *phys);
 
@@ -211,24 +228,24 @@ static XR_ALWAYS_INLINE int XrAccessWrite(XrProcessor *proc, XrIblock *iblock, u
 
 		uint32_t matching = (proc->Cr[DTBTAG] & 0xFFF00000) | (address >> 12);
 
-		XrIblockDtbEntry *entry = &iblock->DtbCache[XR_IBLOCK_DTB_CACHE_INDEX(address)];
+		int index = XR_IBLOCK_DTB_CACHE_INDEX(address);
+		XrIblockDtbEntry *entry = &iblock->DtbCache[index];
 
-		if (XrLikely(((entry->MatchingDtbe >> 32) == matching) &&
-			(proc->Dtb[entry->Index] == entry->MatchingDtbe) &&
-			(entry->MatchingDtbe & PTE_WRITABLE))) {
+		if (XrUnlikely(((entry->MatchingDtbe >> 32) != matching) ||
+			(proc->Dtb[entry->Index] != entry->MatchingDtbe) ||
+			!(entry->MatchingDtbe & PTE_WRITABLE))) {
 
-			// We hit in the lookup cache and verified that the DTB still
-			// contains the same entry.
-
-			if (XrLikely(entry->HostPointer != 0)) {
-				// We can do the access inline directly through the pointer.
-
-				CopyWithLength(entry->HostPointer + (address & 0xFFF), &srcvalue, length);
-
-				return 1;
+			if (!XrTranslateDstream(proc, address, entry, 1)) {
+				return 0;
 			}
-		} else if (!XrTranslateDstream(proc, address, entry, 1)) {
-			return 0;
+		}
+
+		if (XrLikely(entry->HostPointer != 0)) {
+			// We can do the access inline directly through the pointer.
+
+			CopyWithLength(entry->HostPointer + (address & 0xFFF), &srcvalue, length);
+
+			return 1;
 		}
 
 		address = ((entry->MatchingDtbe >> 5) << 12) | (address & 0xFFF);
@@ -259,23 +276,23 @@ static XR_ALWAYS_INLINE int XrAccessRead(XrProcessor *proc, XrIblock *iblock, ui
 
 		uint32_t matching = (proc->Cr[DTBTAG] & 0xFFF00000) | (address >> 12);
 
-		XrIblockDtbEntry *entry = &iblock->DtbCache[XR_IBLOCK_DTB_CACHE_INDEX(address)];
+		int index = XR_IBLOCK_DTB_CACHE_INDEX(address);
+		XrIblockDtbEntry *entry = &iblock->DtbCache[index];
 
-		if (XrLikely(((entry->MatchingDtbe >> 32) == matching) &&
-			(proc->Dtb[entry->Index] == entry->MatchingDtbe))) {
+		if (XrLikely(((entry->MatchingDtbe >> 32) != matching) ||
+			(proc->Dtb[entry->Index] != entry->MatchingDtbe))) {
 
-			// We hit in the lookup cache and verified that the DTB still
-			// contains the same entry.
-
-			if (XrLikely(entry->HostPointer != 0)) {
-				// We can do the access inline directly through the pointer.
-
-				CopyWithLengthZext(dest, entry->HostPointer + (address & 0xFFF), length);
-
-				return 1;
+			if (!XrTranslateDstream(proc, address, entry, 0)) {
+				return 0;
 			}
-		} else if (!XrTranslateDstream(proc, address, entry, 0)) {
-			return 0;
+		}
+
+		if (XrLikely(entry->HostPointer != 0)) {
+			// We can do the access inline directly through the pointer.
+
+			CopyWithLengthZext(dest, entry->HostPointer + (address & 0xFFF), length);
+
+			return 1;
 		}
 
 		address = ((entry->MatchingDtbe >> 5) << 12) | (address & 0xFFF);
@@ -291,11 +308,11 @@ static XR_ALWAYS_INLINE int XrAccessRead(XrProcessor *proc, XrIblock *iblock, ui
 	return status;
 }
 
-#define XrReadByte(_proc, _address, _value) XrAccessRead(_proc, block, _address, _value, 1);
-#define XrReadInt(_proc, _address, _value) XrAccessRead(_proc, block, _address, _value, 2);
-#define XrReadLong(_proc, _address, _value) XrAccessRead(_proc, block, _address, _value, 4);
+#define XrReadByte(_proc, _address, _value) XrAccessRead(_proc, block, _address, _value, 1)
+#define XrReadInt(_proc, _address, _value) XrAccessRead(_proc, block, _address, _value, 2)
+#define XrReadLong(_proc, _address, _value) XrAccessRead(_proc, block, _address, _value, 4)
 
-#define XrWriteByte(_proc, _address, _value) XrAccessWrite(_proc, block, _address, _value, 1, 0);
-#define XrWriteInt(_proc, _address, _value) XrAccessWrite(_proc, block, _address, _value, 2, 0);
-#define XrWriteLong(_proc, _address, _value) XrAccessWrite(_proc, block, _address, _value, 4, 0);
-#define XrWriteLongSc(_proc, _address, _value) XrAccessWrite(_proc, block, _address,  _value, 4, 1);
+#define XrWriteByte(_proc, _address, _value) XrAccessWrite(_proc, block, _address, _value, 1, 0)
+#define XrWriteInt(_proc, _address, _value) XrAccessWrite(_proc, block, _address, _value, 2, 0)
+#define XrWriteLong(_proc, _address, _value) XrAccessWrite(_proc, block, _address, _value, 4, 0)
+#define XrWriteLongSc(_proc, _address, _value) XrAccessWrite(_proc, block, _address,  _value, 4, 1)

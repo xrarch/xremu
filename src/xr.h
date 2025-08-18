@@ -239,7 +239,10 @@ struct _XrProcessor {
 	uint64_t Dtb[XR_DTB_SIZE];
 
 	uint64_t ItbLastResult;
-	uint64_t DtbLastResult;
+	uint32_t ItbLastVpn;
+
+	uint32_t DtbLastVpn;
+	XrIblockDtbEntry DtbLastEntry;
 
 #if XR_SIMULATE_CACHES
 	XrMutex CacheMutexes[XR_CACHE_MUTEXES];
@@ -262,9 +265,6 @@ struct _XrProcessor {
 #endif
 
 	uint32_t TimerInterruptCounter;
-
-	uint32_t ItbLastVpn;
-	uint32_t DtbLastVpn;
 
 	uint32_t WbFillIndex;
 	uint32_t WbWriteIndex;

@@ -9,16 +9,16 @@ uint8_t XrScacheExclusiveIds[XR_SC_LINE_COUNT];
 #define XR_LINE_SHARED 1
 #define XR_LINE_EXCLUSIVE 2
 
-#define XrReadByte(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 1, 0);
-#define XrReadInt(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 2, 0);
-#define XrReadLong(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 4, 0);
+#define XrReadByte(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 1, 0)
+#define XrReadInt(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 2, 0)
+#define XrReadLong(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 4, 0)
 
-#define XrWriteByte(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 1, 0);
-#define XrWriteInt(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 2, 0);
-#define XrWriteLong(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 4, 0);
-#define XrWriteLongSc(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 4, 1);
+#define XrWriteByte(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 1, 0)
+#define XrWriteInt(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 2, 0)
+#define XrWriteLong(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 4, 0)
+#define XrWriteLongSc(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 4, 1)
 
-#define XrTranslateIstream(_proc, _virtual, _phys, _flags) XrTranslate(_proc, _virtual, _phys, _flags, 0, 1);
+#define XrTranslateIstream(_proc, _virtual, _phys, _flags) XrTranslate(_proc, _virtual, _phys, _flags, 0, 1)
 
 static inline uint8_t XrLookupItb(XrProcessor *proc, uint32_t virtual, uint64_t *tbe) {
 	uint32_t vpn = virtual >> 12;
