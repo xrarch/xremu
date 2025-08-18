@@ -10,15 +10,21 @@ Note, if you fear binary blobs, that the emulator ships with a pre-built [boot R
 
 <img src="https://raw.githubusercontent.com/xrarch/xremu/master/17032.png" width="256">
 
-## Running
+## Building
 
 Make sure you have SDL2 installed.
 
+A newish clang is required. Older versions have a code generation bug that breaks the emulator core. (Found this out the hard way).
+
 Building the emulator should be as simple as typing `make`.
 
-    NOTE: A newish clang is required. Older versions have a code generation bug that breaks the emulator core. (Found this out the hard way).
+### Fast
 
-Then, type `./graphical.sh` in the project directory.
+If maximum performance is desired, rather than realism, `make FASTMEMORY=1` will compile an alternate memory subsystem into the emulator that is geared for performance. `-cpuhz` can then be used to crank the CPU speed up much higher than is normally possible (typically into the 300MHz+ range, and as high as 750MHz has been seen on some machines). Note that this eliminates Icache and Dcache simulation and shouldn't be used for system development purposes as cache invalidation bugs will then go undetected.
+
+## Running
+
+Type `./graphical.sh` in the project directory to see the boot ROM prompt. Review the options below to get it to do more interesting things.
 
 Striking the right ALT key will switch the display between the framebuffer and the serial TTYs.
 

@@ -968,6 +968,25 @@ static void XrExecuteWmb(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrFlushWriteBuffer(proc);
 #endif
 
+#if FASTMEMORY
+	atomic_thread_fence(memory_order_release);
+#endif
+
+	XR_NEXT();
+}
+
+XR_PRESERVE_NONE
+static void XrExecuteMb(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 22\n");
+
+#if XR_SIMULATE_CACHES
+	XrFlushWriteBuffer(proc);
+#endif
+
+#if FASTMEMORY
+	atomic_thread_fence(memory_order_acq_rel);
+#endif
+
 	XR_NEXT();
 }
 
@@ -1018,7 +1037,7 @@ XR_PRESERVE_NONE
 static void XrExecuteLL(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 25\n");
 
-	int status = XrReadLong(proc, XR_REG_RA(), &XR_REG_RD());
+	int status = XrReadLongLl(proc, XR_REG_RA(), &XR_REG_RD());
 
 	if (XrUnlikely(!status)) {
 		XR_EARLY_EXIT();
@@ -2176,7 +2195,7 @@ static XrCachedInst *XrDecodeWmb(XrProcessor* proc, XrCachedInst *inst, uint32_t
 }
 
 static XrCachedInst *XrDecodeMb(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
-	inst->Func = &XrExecuteWmb;
+	inst->Func = &XrExecuteMb;
 
 	return inst + 1;
 }

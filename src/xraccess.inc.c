@@ -12,6 +12,7 @@ uint8_t XrScacheExclusiveIds[XR_SC_LINE_COUNT];
 #define XrReadByte(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 1, 0)
 #define XrReadInt(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 2, 0)
 #define XrReadLong(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 4, 0)
+#define XrReadLongLl(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 4, 0)
 
 #define XrWriteByte(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 1, 0)
 #define XrWriteInt(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 2, 0)

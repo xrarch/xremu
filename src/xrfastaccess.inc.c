@@ -1,3 +1,63 @@
+XrClaimTableEntry XrClaimTable[XR_CLAIM_TABLE_SIZE];
+
+#ifndef SINGLE_THREAD_MP
+
+static XR_ALWAYS_INLINE uint32_t XrClaimAddress(XrProcessor *proc, uint32_t phyaddr, uint32_t *hostaddr) {
+	XrClaimTableEntry *entry = &XrClaimTable[(phyaddr >> 2) & (XR_CLAIM_TABLE_SIZE - 1)];
+
+	XrLockMutex(&entry->Lock);
+
+	entry->ClaimedBy = proc->Id;
+
+	uint32_t val = *hostaddr;
+
+	XrUnlockMutex(&entry->Lock);
+
+	return val;
+}
+
+static XR_ALWAYS_INLINE int XrStoreIfClaimed(XrProcessor *proc, uint32_t phyaddr, uint32_t* hostaddr, uint32_t val) {
+	XrClaimTableEntry *entry = &XrClaimTable[(phyaddr >> 2) & (XR_CLAIM_TABLE_SIZE - 1)];
+
+	XrLockMutex(&entry->Lock);
+
+	if (entry->ClaimedBy != proc->Id) {
+		XrUnlockMutex(&entry->Lock);
+
+		return 0;
+	}
+
+	*hostaddr = val;
+
+	XrUnlockMutex(&entry->Lock);
+
+	return 1;
+}
+
+#else
+
+static XR_ALWAYS_INLINE uint32_t XrClaimAddress(XrProcessor *proc, uint32_t phyaddr, uint32_t *hostaddr) {
+	XrClaimTableEntry *entry = &XrClaimTable[(phyaddr >> 2) & (XR_CLAIM_TABLE_SIZE - 1)];
+
+	entry->ClaimedBy = proc->Id;
+
+	return *hostaddr;
+}
+
+static XR_ALWAYS_INLINE int XrStoreIfClaimed(XrProcessor *proc, uint32_t phyaddr, uint32_t* hostaddr, uint32_t val) {
+	XrClaimTableEntry *entry = &XrClaimTable[(phyaddr >> 2) & (XR_CLAIM_TABLE_SIZE - 1)];
+
+	if (entry->ClaimedBy != proc->Id) {
+		return 0;
+	}
+
+	*hostaddr = val;
+
+	return 1;
+}
+
+#endif
+
 static XR_ALWAYS_INLINE int XrLookupItb(XrProcessor *proc, uint32_t virtual, uint64_t *tbe) {
 	uint32_t vpn = virtual >> 12;
 	uint32_t matching = (proc->Cr[ITBTAG] & 0xFFF00000) | vpn;
@@ -243,9 +303,17 @@ static XR_ALWAYS_INLINE int XrAccessWrite(XrProcessor *proc, XrIblock *iblock, u
 		if (XrLikely(entry->HostPointer != 0)) {
 			// We can do the access inline directly through the pointer.
 
-			CopyWithLength(entry->HostPointer + (address & 0xFFF), &srcvalue, length);
+			if (sc) {
+				if (!XrStoreIfClaimed(proc, address & 0xFFF, entry->HostPointer + (address & 0xFFF), srcvalue)) {
+					return 2;
+				} else {
+					return 1;
+				}
+			} else {
+				CopyWithLength(entry->HostPointer + (address & 0xFFF), &srcvalue, length);
 
-			return 1;
+				return 1;
+			}
 		}
 
 		address = ((entry->MatchingDtbe >> 5) << 12) | (address & 0xFFF);
@@ -261,7 +329,7 @@ static XR_ALWAYS_INLINE int XrAccessWrite(XrProcessor *proc, XrIblock *iblock, u
 	return status;
 }
 
-static XR_ALWAYS_INLINE int XrAccessRead(XrProcessor *proc, XrIblock *iblock, uint32_t address, uint32_t *dest, uint32_t length) {
+static XR_ALWAYS_INLINE int XrAccessRead(XrProcessor *proc, XrIblock *iblock, uint32_t address, uint32_t *dest, uint32_t length, int ll) {
 	if (XrUnlikely((address & (length - 1)) != 0)) {
 		// Unaligned access.
 
@@ -290,7 +358,11 @@ static XR_ALWAYS_INLINE int XrAccessRead(XrProcessor *proc, XrIblock *iblock, ui
 		if (XrLikely(entry->HostPointer != 0)) {
 			// We can do the access inline directly through the pointer.
 
-			CopyWithLengthZext(dest, entry->HostPointer + (address & 0xFFF), length);
+			if (ll) {
+				*dest = XrClaimAddress(proc, address & 0xFFF, entry->HostPointer + (address & 0xFFF));
+			} else {
+				CopyWithLengthZext(dest, entry->HostPointer + (address & 0xFFF), length);
+			}
 
 			return 1;
 		}
@@ -308,9 +380,10 @@ static XR_ALWAYS_INLINE int XrAccessRead(XrProcessor *proc, XrIblock *iblock, ui
 	return status;
 }
 
-#define XrReadByte(_proc, _address, _value) XrAccessRead(_proc, block, _address, _value, 1)
-#define XrReadInt(_proc, _address, _value) XrAccessRead(_proc, block, _address, _value, 2)
-#define XrReadLong(_proc, _address, _value) XrAccessRead(_proc, block, _address, _value, 4)
+#define XrReadByte(_proc, _address, _value) XrAccessRead(_proc, block, _address, _value, 1, 0)
+#define XrReadInt(_proc, _address, _value) XrAccessRead(_proc, block, _address, _value, 2, 0)
+#define XrReadLong(_proc, _address, _value) XrAccessRead(_proc, block, _address, _value, 4, 0)
+#define XrReadLongLl(_proc, _address, _value) XrAccessRead(_proc, block, _address, _value, 4, 1)
 
 #define XrWriteByte(_proc, _address, _value) XrAccessWrite(_proc, block, _address, _value, 1, 0)
 #define XrWriteInt(_proc, _address, _value) XrAccessWrite(_proc, block, _address, _value, 2, 0)

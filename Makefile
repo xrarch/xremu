@@ -15,7 +15,7 @@ ifdef PROFCPU
 	CFLAGS += -DPROFCPU
 endif
 
-ifdef FASTMEMORY
+ifndef FASTMEMORY
 	CFLAGS += -DFASTMEMORY
 endif
 
