@@ -71,14 +71,11 @@ static inline void CopyWithLength(void *dest, void *src, uint32_t length) {
 static inline void CopyWithLengthZext(void *dest, void *src, uint32_t length) {
 	switch (length) {
 		case 1:
-			*(uint8_t*)(dest) = *(uint8_t*)(src);
-			*(uint8_t*)(dest+1) = 0;
-			*(uint16_t*)(dest+2) = 0;
+			*(uint32_t*)(dest) = *(uint8_t*)(src);
 			break;
 
 		case 2:
-			*(uint16_t*)(dest) = *(uint16_t*)(src);
-			*(uint16_t*)(dest+2) = 0;
+			*(uint32_t*)(dest) = *(uint16_t*)(src);
 			break;
 
 		case 4:
