@@ -1,6 +1,8 @@
 #ifndef XR_MUTEX_H
 #define XR_MUTEX_H
 
+#include "xrdefs.h"
+
 #include <stdatomic.h>
 #include <errno.h>
 
@@ -19,7 +21,7 @@ typedef struct _XrSemaphore {
 } XrSemaphore;
 
 
-static inline void XrInitializeSemaphore(XrSemaphore *s, uint32_t value) {
+static XR_ALWAYS_INLINE void XrInitializeSemaphore(XrSemaphore *s, uint32_t value) {
 #ifdef __APPLE__
     s->Semaphore = dispatch_semaphore_create(value);
 #else
@@ -27,7 +29,7 @@ static inline void XrInitializeSemaphore(XrSemaphore *s, uint32_t value) {
 #endif
 }
 
-static inline void XrWaitSemaphore(XrSemaphore *s) {
+static XR_ALWAYS_INLINE void XrWaitSemaphore(XrSemaphore *s) {
 #ifdef __APPLE__
     dispatch_semaphore_wait(s->Semaphore, DISPATCH_TIME_FOREVER);
 #else
@@ -39,7 +41,7 @@ static inline void XrWaitSemaphore(XrSemaphore *s) {
 #endif
 }
 
-static inline void XrPostSemaphore(XrSemaphore *s) {
+static XR_ALWAYS_INLINE void XrPostSemaphore(XrSemaphore *s) {
 #ifdef __APPLE__
     dispatch_semaphore_signal(s->Semaphore);
 #else
@@ -47,7 +49,7 @@ static inline void XrPostSemaphore(XrSemaphore *s) {
 #endif
 }
 
-static inline void XrUninitializeSemaphore(XrSemaphore *s) {
+static XR_ALWAYS_INLINE void XrUninitializeSemaphore(XrSemaphore *s) {
 #ifndef __APPLE__
 	sem_destroy(&s->Semaphore);
 #endif
@@ -58,16 +60,16 @@ typedef struct _XrMutex {
 	_Atomic int ContentionCounter;
 } XrMutex;
 
-static inline void XrInitializeMutex(XrMutex *mutex) {
+static XR_ALWAYS_INLINE void XrInitializeMutex(XrMutex *mutex) {
 	mutex->ContentionCounter = 0;
 	XrInitializeSemaphore(&mutex->Semaphore, 0);
 }
 
-static inline void XrUninitializeMutex(XrMutex *mutex) {
+static XR_ALWAYS_INLINE void XrUninitializeMutex(XrMutex *mutex) {
 	XrUninitializeSemaphore(&mutex->Semaphore);
 }
 
-static inline void XrLockMutex(XrMutex *mutex) {
+static XR_ALWAYS_INLINE void XrLockMutex(XrMutex *mutex) {
 	if (atomic_fetch_add_explicit(&mutex->ContentionCounter, 1, memory_order_acquire) != 0) {
 		// Wait on the semaphore.
 
@@ -75,7 +77,7 @@ static inline void XrLockMutex(XrMutex *mutex) {
 	}
 }
 
-static inline void XrUnlockMutex(XrMutex *mutex) {
+static XR_ALWAYS_INLINE void XrUnlockMutex(XrMutex *mutex) {
 	if (atomic_fetch_sub_explicit(&mutex->ContentionCounter, 1, memory_order_release) != 1) {
 		// There are waiters, so post the semaphore to allow one in.
 
@@ -83,7 +85,7 @@ static inline void XrUnlockMutex(XrMutex *mutex) {
 	}
 }
 
-static inline int XrTryLockMutex(XrMutex *mutex) {
+static XR_ALWAYS_INLINE int XrTryLockMutex(XrMutex *mutex) {
 	while (1) {
 		int counter = mutex->ContentionCounter;
 

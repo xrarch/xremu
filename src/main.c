@@ -271,14 +271,9 @@ void CpuInitialize(int id) {
 	XrReset(proc);
 
 #ifndef EMSCRIPTEN
-
 #if XR_SIMULATE_CACHES
 	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
 		XrInitializeMutex(&proc->CacheMutexes[i]);
-	}
-
-	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
-		XrInitializeMutex(&ScacheMutexes[i]);
 	}
 #endif
 
@@ -472,13 +467,29 @@ int main(int argc, char *argv[]) {
 
 	done = false;
 
+#if XR_SIMULATE_CACHES
+	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
+		XrInitializeMutex(&ScacheMutexes[i]);
+	}
+#endif
+
+#if defined(FASTMEMORY) && !defined(SINGLE_THREAD_MP)
+	for (int i = 0; i < XR_CLAIM_TABLE_SIZE; i++) {
+		XrInitializeMutex(&XrClaimTable[i].Lock);
+	}
+#endif
+
 	for (int i = 0; i < XrProcessorCount; i++) {
 		CpuInitialize(i);
 	}
 
+#ifndef SINGLE_THREAD_MP
 	if (CpuThreadCount > XrProcessorCount || CpuThreadCount == 0) {
 		CpuThreadCount = (XrProcessorCount + 1) / 2;
 	}
+#else
+	CpuThreadCount = 1;
+#endif
 
 	for (int i = 0; i < CpuThreadCount; i++) {
 		CpuCreate(i);

@@ -155,9 +155,10 @@ static inline uint32_t RoR(uint32_t x, uint32_t n) {
 // The canonical invalid TB entry is:
 // ASID=4095 VPN=0 V=0
 //
-// This means ASID 4095 is unusable if access to the zeroth page is required.
+// This means ASID 4095 is unusable.
 
 #define TB_INVALID_ENTRY 0xFFF0000000000000
+#define TB_INVALID_MATCHING 0xFFFFFFFF00000000
 
 #define RS_USER   1
 #define RS_INT    2
@@ -614,154 +615,6 @@ static inline void XrBasicException(XrProcessor *proc, uint32_t exc, uint32_t pc
 	XrVectorException(proc, exc);
 }
 
-static inline uint8_t XrLookupItb(XrProcessor *proc, uint32_t virtual, uint64_t *tbe) {
-	uint32_t vpn = virtual >> 12;
-	uint32_t matching = (proc->Cr[ITBTAG] & 0xFFF00000) | vpn;
-
-	for (int i = 0; i < XR_ITB_SIZE; i++) {
-		uint64_t tmp = proc->Itb[i];
-
-		uint32_t mask = (tmp & PTE_GLOBAL) ? 0xFFFFF : 0xFFFFFFFF;
-
-		if (((tmp >> 32) & mask) == (matching & mask)) {
-			*tbe = tmp;
-
-			return 1;
-		}
-	}
-
-	// ITB miss!
-
-	proc->Cr[ITBTAG] = matching;
-	proc->Cr[ITBADDR] = (proc->Cr[ITBADDR] & 0xFFC00000) | (vpn << 2);
-	proc->LastTbMissWasWrite = 0;
-
-	if (XrLikely((proc->Cr[RS] & RS_TBMISS) == 0)) {
-		XrPushMode(proc);
-		proc->Cr[TBMISSADDR] = virtual;
-		proc->Cr[TBPC] = proc->Pc;
-		proc->Cr[RS] |= RS_TBMISS;
-	}
-
-	XrVectorException(proc, XR_EXC_ITB);
-
-	return 0;
-}
-
-static inline uint8_t XrLookupDtb(XrProcessor *proc, uint32_t virtual, uint64_t *tbe, uint8_t writing) {
-	uint32_t vpn = virtual >> 12;
-	uint32_t matching = (proc->Cr[DTBTAG] & 0xFFF00000) | vpn;
-
-	for (int i = 0; i < XR_DTB_SIZE; i++) {
-		uint64_t tmp = proc->Dtb[i];
-
-		uint32_t mask = (tmp & PTE_GLOBAL) ? 0xFFFFF : 0xFFFFFFFF;
-
-		if (((tmp >> 32) & mask) == (matching & mask)) {
-			*tbe = tmp;
-
-			return 1;
-		}
-	}
-
-	// DTB miss!
-
-	proc->Cr[DTBTAG] = matching;
-	proc->Cr[DTBADDR] = (proc->Cr[DTBADDR] & 0xFFC00000) | (vpn << 2);
-	proc->LastTbMissWasWrite = writing;
-
-	if (XrLikely((proc->Cr[RS] & RS_TBMISS) == 0)) {
-		XrPushMode(proc);
-		proc->Cr[TBMISSADDR] = virtual;
-		proc->Cr[TBPC] = proc->Pc;
-		proc->Cr[RS] |= RS_TBMISS;
-	}
-
-	XrVectorException(proc, XR_EXC_DTB);
-
-	return 0;
-}
-
-static inline int XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t *phys, int *flags, bool writing, bool ifetch) {
-	uint64_t tbe;
-	uint32_t vpn = virtual >> 12;
-
-	if (ifetch) {
-		if (XrLikely(proc->ItbLastVpn == vpn)) {
-			// This matches the last lookup, avoid searching the whole ITB.
-
-			tbe = proc->ItbLastResult;
-		} else if (XrUnlikely(!XrLookupItb(proc, virtual, &tbe))) {
-			return 0;
-		}
-	} else {
-		if (XrLikely(proc->DtbLastVpn == vpn)) {
-			// This matches the last lookup, avoid searching the whole DTB.
-
-			tbe = proc->DtbLastResult;
-		} else if (XrUnlikely(!XrLookupDtb(proc, virtual, &tbe, writing))) {
-			return 0;
-		}
-	}
-
-	if (XrUnlikely((tbe & PTE_VALID) == 0)) {
-		// Not valid! Page fault time.
-
-		if (XrUnlikely((proc->Cr[RS] & RS_TBMISS) != 0)) {
-			// This page fault happened while handling a TB miss, which means
-			// it was a fault on a page table. Clear the TBMISS flag from RS and
-			// report the original missed address as the faulting address. Also,
-			// set EPC to point to the instruction that caused the original TB
-			// miss, so that the faulting PC is reported correctly.
-
-			proc->Cr[EBADADDR] = proc->Cr[TBMISSADDR];
-			proc->Cr[EPC] = proc->Cr[TBPC];
-			proc->Cr[RS] &= ~RS_TBMISS;
-			writing = proc->LastTbMissWasWrite;
-		} else {
-			proc->Cr[EBADADDR] = virtual;
-			proc->Cr[EPC] = proc->Pc;
-			XrPushMode(proc);
-		}
-
-		XrSetEcause(proc, writing ? XR_EXC_PGW : XR_EXC_PGF);
-		XrVectorException(proc, writing ? XR_EXC_PGW : XR_EXC_PGF);
-
-		return 0;
-	}
-
-	if (XrUnlikely((tbe & PTE_KERNEL) && (proc->Cr[RS] & RS_USER))) {
-		// Kernel mode page and we're in usermode! 
-
-		proc->Cr[EBADADDR] = virtual;
-		XrBasicException(proc, writing ? XR_EXC_PGW : XR_EXC_PGF, proc->Pc);
-
-		return 0;
-	}
-
-	if (XrUnlikely(writing && !(tbe & PTE_WRITABLE))) {
-		proc->Cr[EBADADDR] = virtual;
-		XrBasicException(proc, writing ? XR_EXC_PGW : XR_EXC_PGF, proc->Pc);
-
-		return 0;
-	}
-
-	if (ifetch) {
-		proc->ItbLastVpn = vpn;
-		proc->ItbLastResult = tbe;
-	} else {
-		proc->DtbLastVpn = vpn;
-		proc->DtbLastResult = tbe;
-	}
-
-	*flags = tbe & 31;
-	*phys = ((tbe & 0x1FFFFE0) << 7) + (virtual & 0xFFF);
-
-	//DBGPRINT("virt=%x phys=%x\n", virt, *phys);
-
-	return 1;
-}
-
 #ifdef FASTMEMORY
 
 #include "xrfastaccess.inc.c"
@@ -1117,6 +970,25 @@ static void XrExecuteWmb(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrFlushWriteBuffer(proc);
 #endif
 
+#if FASTMEMORY
+	atomic_thread_fence(memory_order_release);
+#endif
+
+	XR_NEXT();
+}
+
+XR_PRESERVE_NONE
+static void XrExecuteMb(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 22\n");
+
+#if XR_SIMULATE_CACHES
+	XrFlushWriteBuffer(proc);
+#endif
+
+#if FASTMEMORY
+	atomic_thread_fence(memory_order_acq_rel);
+#endif
+
 	XR_NEXT();
 }
 
@@ -1167,7 +1039,7 @@ XR_PRESERVE_NONE
 static void XrExecuteLL(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 25\n");
 
-	int status = XrReadLong(proc, XR_REG_RA(), &XR_REG_RD());
+	int status = XrReadLongLl(proc, XR_REG_RA(), &XR_REG_RD());
 
 	if (XrUnlikely(!status)) {
 		XR_EARLY_EXIT();
@@ -2111,7 +1983,7 @@ static void XrExecuteJalr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst
 
 	XrIblock *iblock;
 
-	int index = ((pc >> 12) ^ (pc >> 2)) & (XR_JALR_PREDICTION_TABLE_ENTRIES - 1);
+	int index = (pc >> 2) & (XR_JALR_PREDICTION_TABLE_ENTRIES - 1);
 
 	if (XrLikely(ptable->Pcs[index] == pc)) {
 		iblock = ptable->Iblocks[index];
@@ -2306,7 +2178,7 @@ static XrCachedInst *XrDecodeWmb(XrProcessor* proc, XrCachedInst *inst, uint32_t
 }
 
 static XrCachedInst *XrDecodeMb(XrProcessor* proc, XrCachedInst *inst, uint32_t pc, uint32_t *irstream, XrDecodeInfo *info) {
-	inst->Func = &XrExecuteWmb;
+	inst->Func = &XrExecuteMb;
 
 	return inst + 1;
 }
@@ -3125,6 +2997,7 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, XrIblock *hazard) {
 		// Already cached.
 
 		if (XrUnlikely((iblock->PteFlags & PTE_KERNEL) && (proc->Cr[RS] & RS_USER))) {
+fault:
 			proc->Cr[EBADADDR] = pc;
 			XrBasicException(proc, XR_EXC_PGF, pc);
 
@@ -3159,7 +3032,7 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, XrIblock *hazard) {
 	int flags = 0;
 
 	if (XrLikely((proc->Cr[RS] & RS_MMU) != 0)) {
-		if (XrUnlikely(!XrTranslate(proc, fetchpc, &fetchpc, &flags, 0, 1))) {
+		if (XrUnlikely(!XrTranslateIstream(proc, fetchpc, &fetchpc, &flags))) {
 			return 0;
 		}
 	}
@@ -3210,6 +3083,13 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, XrIblock *hazard) {
 	for (int i = 0; i < XR_IBLOCK_CACHEDBY_MAX; i++) {
 		iblock->CachedBy[i] = 0;
 	}
+
+#ifdef FASTMEMORY
+	for (int i = 0; i < XR_IBLOCK_DTB_CACHE_SIZE; i++) {
+		iblock->DtbLoadCache[i].MatchingDtbe = TB_INVALID_MATCHING;
+		iblock->DtbStoreCache[i].MatchingDtbe = TB_INVALID_MATCHING;
+	}
+#endif
 
 	InsertAtHeadList(&proc->IblockHashBuckets[XR_IBLOCK_HASH(pc)], &iblock->HashEntry);
 	InsertAtHeadList(&proc->IblockLruList, &iblock->LruEntry);

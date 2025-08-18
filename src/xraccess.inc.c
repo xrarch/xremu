@@ -9,14 +9,165 @@ uint8_t XrScacheExclusiveIds[XR_SC_LINE_COUNT];
 #define XR_LINE_SHARED 1
 #define XR_LINE_EXCLUSIVE 2
 
-#define XrReadByte(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 1, 0);
-#define XrReadInt(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 2, 0);
-#define XrReadLong(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 4, 0);
+#define XrReadByte(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 1, 0)
+#define XrReadInt(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 2, 0)
+#define XrReadLong(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 4, 0)
+#define XrReadLongLl(_proc, _address, _value) XrAccess(_proc, _address, _value, 0, 4, 0)
 
-#define XrWriteByte(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 1, 0);
-#define XrWriteInt(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 2, 0);
-#define XrWriteLong(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 4, 0);
-#define XrWriteLongSc(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 4, 1);
+#define XrWriteByte(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 1, 0)
+#define XrWriteInt(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 2, 0)
+#define XrWriteLong(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 4, 0)
+#define XrWriteLongSc(_proc, _address, _value) XrAccess(_proc, _address, 0, _value, 4, 1)
+
+#define XrTranslateIstream(_proc, _virtual, _phys, _flags) XrTranslate(_proc, _virtual, _phys, _flags, 0, 1)
+
+static inline uint8_t XrLookupItb(XrProcessor *proc, uint32_t virtual, uint64_t *tbe) {
+	uint32_t vpn = virtual >> 12;
+	uint32_t matching = (proc->Cr[ITBTAG] & 0xFFF00000) | vpn;
+
+	for (int i = 0; i < XR_ITB_SIZE; i++) {
+		uint64_t tmp = proc->Itb[i];
+
+		uint32_t mask = (tmp & PTE_GLOBAL) ? 0xFFFFF : 0xFFFFFFFF;
+
+		if (((tmp >> 32) & mask) == (matching & mask)) {
+			*tbe = tmp;
+
+			return 1;
+		}
+	}
+
+	// ITB miss!
+
+	proc->Cr[ITBTAG] = matching;
+	proc->Cr[ITBADDR] = (proc->Cr[ITBADDR] & 0xFFC00000) | (vpn << 2);
+	proc->LastTbMissWasWrite = 0;
+
+	if (XrLikely((proc->Cr[RS] & RS_TBMISS) == 0)) {
+		XrPushMode(proc);
+		proc->Cr[TBMISSADDR] = virtual;
+		proc->Cr[TBPC] = proc->Pc;
+		proc->Cr[RS] |= RS_TBMISS;
+	}
+
+	XrVectorException(proc, XR_EXC_ITB);
+
+	return 0;
+}
+
+static inline uint8_t XrLookupDtb(XrProcessor *proc, uint32_t virtual, uint64_t *tbe, uint8_t writing) {
+	uint32_t vpn = virtual >> 12;
+	uint32_t matching = (proc->Cr[DTBTAG] & 0xFFF00000) | vpn;
+
+	for (int i = 0; i < XR_DTB_SIZE; i++) {
+		uint64_t tmp = proc->Dtb[i];
+
+		uint32_t mask = (tmp & PTE_GLOBAL) ? 0xFFFFF : 0xFFFFFFFF;
+
+		if (((tmp >> 32) & mask) == (matching & mask)) {
+			*tbe = tmp;
+
+			return 1;
+		}
+	}
+
+	// DTB miss!
+
+	proc->Cr[DTBTAG] = matching;
+	proc->Cr[DTBADDR] = (proc->Cr[DTBADDR] & 0xFFC00000) | (vpn << 2);
+	proc->LastTbMissWasWrite = writing;
+
+	if (XrLikely((proc->Cr[RS] & RS_TBMISS) == 0)) {
+		XrPushMode(proc);
+		proc->Cr[TBMISSADDR] = virtual;
+		proc->Cr[TBPC] = proc->Pc;
+		proc->Cr[RS] |= RS_TBMISS;
+	}
+
+	XrVectorException(proc, XR_EXC_DTB);
+
+	return 0;
+}
+
+static inline int XrTranslate(XrProcessor *proc, uint32_t virtual, uint32_t *phys, int *flags, bool writing, bool ifetch) {
+	uint64_t tbe;
+	uint32_t vpn = virtual >> 12;
+
+	if (ifetch) {
+		if (XrLikely(proc->ItbLastVpn == vpn)) {
+			// This matches the last lookup, avoid searching the whole ITB.
+
+			tbe = proc->ItbLastResult;
+		} else if (XrUnlikely(!XrLookupItb(proc, virtual, &tbe))) {
+			return 0;
+		}
+	} else {
+		if (XrLikely(proc->DtbLastVpn == vpn)) {
+			// This matches the last lookup, avoid searching the whole DTB.
+
+			tbe = proc->DtbLastResult;
+		} else if (XrUnlikely(!XrLookupDtb(proc, virtual, &tbe, writing))) {
+			return 0;
+		}
+	}
+
+	if (XrUnlikely((tbe & PTE_VALID) == 0)) {
+		// Not valid! Page fault time.
+
+		if (XrUnlikely((proc->Cr[RS] & RS_TBMISS) != 0)) {
+			// This page fault happened while handling a TB miss, which means
+			// it was a fault on a page table. Clear the TBMISS flag from RS and
+			// report the original missed address as the faulting address. Also,
+			// set EPC to point to the instruction that caused the original TB
+			// miss, so that the faulting PC is reported correctly.
+
+			proc->Cr[EBADADDR] = proc->Cr[TBMISSADDR];
+			proc->Cr[EPC] = proc->Cr[TBPC];
+			proc->Cr[RS] &= ~RS_TBMISS;
+			writing = proc->LastTbMissWasWrite;
+		} else {
+			proc->Cr[EBADADDR] = virtual;
+			proc->Cr[EPC] = proc->Pc;
+			XrPushMode(proc);
+		}
+
+		XrSetEcause(proc, writing ? XR_EXC_PGW : XR_EXC_PGF);
+		XrVectorException(proc, writing ? XR_EXC_PGW : XR_EXC_PGF);
+
+		return 0;
+	}
+
+	if (XrUnlikely((tbe & PTE_KERNEL) && (proc->Cr[RS] & RS_USER))) {
+		// Kernel mode page and we're in usermode! 
+
+		proc->Cr[EBADADDR] = virtual;
+		XrBasicException(proc, writing ? XR_EXC_PGW : XR_EXC_PGF, proc->Pc);
+
+		return 0;
+	}
+
+	if (XrUnlikely(writing && !(tbe & PTE_WRITABLE))) {
+		proc->Cr[EBADADDR] = virtual;
+		XrBasicException(proc, writing ? XR_EXC_PGW : XR_EXC_PGF, proc->Pc);
+
+		return 0;
+	}
+
+	if (ifetch) {
+		proc->ItbLastVpn = vpn;
+		proc->ItbLastResult = tbe;
+	} else {
+		proc->DtbLastVpn = vpn;
+		proc->DtbLastResult = tbe;
+	}
+
+	*flags = tbe & 31;
+	*phys = ((tbe & 0x1FFFFE0) << 7) + (virtual & 0xFFF);
+
+	//DBGPRINT("virt=%x phys=%x\n", virt, *phys);
+
+	return 1;
+}
 
 static uint32_t XrAccessMasks[5] = {
 	0x00000000,

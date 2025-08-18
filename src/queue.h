@@ -1,6 +1,8 @@
 #ifndef XR_QUEUE_H
 #define	XR_QUEUE_H
 
+#include "xrdefs.h"
+
 #include <stddef.h>
 #include <stdbool.h>
 
@@ -11,16 +13,16 @@ struct _ListEntry {
 	ListEntry *Prev;
 };
 
-static inline void InitializeList(ListEntry *head) {
+static XR_ALWAYS_INLINE void InitializeList(ListEntry *head) {
 	head->Next = head;
 	head->Prev = head;
 }
 
-static inline bool EmptyList(ListEntry *head) {
+static XR_ALWAYS_INLINE bool EmptyList(ListEntry *head) {
 	return head->Next == head;
 }
 
-static inline void InsertAtTailList(ListEntry *head, ListEntry *entry) {
+static XR_ALWAYS_INLINE void InsertAtTailList(ListEntry *head, ListEntry *entry) {
 	ListEntry *last = head->Prev;
 
 	entry->Prev = last;
@@ -29,7 +31,7 @@ static inline void InsertAtTailList(ListEntry *head, ListEntry *entry) {
 	head->Prev = entry;
 }
 
-static inline void InsertAtHeadList(ListEntry *head, ListEntry *entry) {
+static XR_ALWAYS_INLINE void InsertAtHeadList(ListEntry *head, ListEntry *entry) {
 	ListEntry *first = head->Next;
 
 	entry->Next = first;
@@ -38,7 +40,7 @@ static inline void InsertAtHeadList(ListEntry *head, ListEntry *entry) {
 	head->Next = entry;
 }
 
-static inline void RemoveEntryList(ListEntry *entry) {
+static XR_ALWAYS_INLINE void RemoveEntryList(ListEntry *entry) {
 	ListEntry *prev = entry->Prev;
 	ListEntry *next = entry->Next;
 

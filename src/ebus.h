@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "xrdefs.h"
+
 int EBusInit(uint32_t memsize);
 
 #define EBUSBRANCHSIZE (128 * 1024 * 1024)
@@ -31,19 +33,19 @@ struct EBusBranch {
 
 extern struct EBusBranch EBusBranches[EBUSBRANCHES];
 
-static inline int EBusRead(uint32_t address, void *dest, uint32_t length, void *proc) {
+static XR_ALWAYS_INLINE int EBusRead(uint32_t address, void *dest, uint32_t length, void *proc) {
 	return EBusBranches[address >> 27].Read(address & 0x7FFFFFF, dest, length, proc);
 }
 
-static inline int EBusWrite(uint32_t address, void *src, uint32_t length, void *proc) {
+static XR_ALWAYS_INLINE int EBusWrite(uint32_t address, void *src, uint32_t length, void *proc) {
 	return EBusBranches[address >> 27].Write(address & 0x7FFFFFF, src, length, proc);
 }
 
-static inline void *EBusTranslate(uint32_t address) {
+static XR_ALWAYS_INLINE void *EBusTranslate(uint32_t address) {
 	return EBusBranches[address >> 27].Translate(address & 0x7FFFFFF);
 }
 
-static inline void CopyWithLength(void *dest, void *src, uint32_t length) {
+static XR_ALWAYS_INLINE void CopyWithLength(void *dest, void *src, uint32_t length) {
 	switch (length) {
 		case 1:
 			*(uint8_t*)(dest) = *(uint8_t*)(src);
@@ -68,17 +70,14 @@ static inline void CopyWithLength(void *dest, void *src, uint32_t length) {
 	}
 }
 
-static inline void CopyWithLengthZext(void *dest, void *src, uint32_t length) {
+static XR_ALWAYS_INLINE void CopyWithLengthZext(void *dest, void *src, uint32_t length) {
 	switch (length) {
 		case 1:
-			*(uint8_t*)(dest) = *(uint8_t*)(src);
-			*(uint8_t*)(dest+1) = 0;
-			*(uint16_t*)(dest+2) = 0;
+			*(uint32_t*)(dest) = *(uint8_t*)(src);
 			break;
 
 		case 2:
-			*(uint16_t*)(dest) = *(uint16_t*)(src);
-			*(uint16_t*)(dest+2) = 0;
+			*(uint32_t*)(dest) = *(uint16_t*)(src);
 			break;
 
 		case 4:
