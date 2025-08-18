@@ -2996,7 +2996,8 @@ fault:
 
 #ifdef FASTMEMORY
 	for (int i = 0; i < XR_IBLOCK_DTB_CACHE_SIZE; i++) {
-		iblock->DtbCache[i].MatchingDtbe = TB_INVALID_MATCHING;
+		iblock->DtbLoadCache[i].MatchingDtbe = TB_INVALID_MATCHING;
+		iblock->DtbStoreCache[i].MatchingDtbe = TB_INVALID_MATCHING;
 	}
 #endif
 

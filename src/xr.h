@@ -190,7 +190,8 @@ typedef struct _XrIblockDtbEntry {
 
 struct _XrIblock {
 #ifdef FASTMEMORY
-	XrIblockDtbEntry DtbCache[XR_IBLOCK_DTB_CACHE_SIZE];
+	XrIblockDtbEntry DtbLoadCache[XR_IBLOCK_DTB_CACHE_SIZE];
+	XrIblockDtbEntry DtbStoreCache[XR_IBLOCK_DTB_CACHE_SIZE];
 #endif
 
 	ListEntry VpageEntry;

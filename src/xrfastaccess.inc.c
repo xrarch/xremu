@@ -289,7 +289,7 @@ static XR_ALWAYS_INLINE int XrAccessWrite(XrProcessor *proc, XrIblock *iblock, u
 		uint32_t matching = (proc->Cr[DTBTAG] & 0xFFF00000) | (address >> 12);
 
 		int index = XR_IBLOCK_DTB_CACHE_INDEX(address);
-		XrIblockDtbEntry *entry = &iblock->DtbCache[index];
+		XrIblockDtbEntry *entry = &iblock->DtbStoreCache[index];
 
 		if (XrUnlikely(((entry->MatchingDtbe >> 32) != matching) ||
 			(proc->Dtb[entry->Index] != entry->MatchingDtbe) ||
@@ -345,7 +345,7 @@ static XR_ALWAYS_INLINE int XrAccessRead(XrProcessor *proc, XrIblock *iblock, ui
 		uint32_t matching = (proc->Cr[DTBTAG] & 0xFFF00000) | (address >> 12);
 
 		int index = XR_IBLOCK_DTB_CACHE_INDEX(address);
-		XrIblockDtbEntry *entry = &iblock->DtbCache[index];
+		XrIblockDtbEntry *entry = &iblock->DtbLoadCache[index];
 
 		if (XrLikely(((entry->MatchingDtbe >> 32) != matching) ||
 			(proc->Dtb[entry->Index] != entry->MatchingDtbe))) {
