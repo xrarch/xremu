@@ -3010,7 +3010,7 @@ fault:
 #if !XR_SIMULATE_CACHES
 	uint32_t fetchpc = pc;
 
-	int instindex = 0;
+	int irindex = 0;
 
 #else
 	// Round down to the last Icache line boundary so that we can fetch one line
@@ -3019,6 +3019,8 @@ fault:
 	uint32_t fetchpc = pc & ~(XR_IC_LINE_SIZE - 1);
 
 	int irindex = (pc - fetchpc) >> 2;
+#endif
+
 	int ircount = XR_IBLOCK_INSTS;
 
 	// Don't allow fetches to cross page boundaries.
