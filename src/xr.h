@@ -169,10 +169,10 @@ typedef struct _XrVirtualPage {
 typedef void (*XrInstImplF XR_PRESERVE_NONE)(XrProcessor *proc, XrIblock *block, XrCachedInst *inst);
 
 struct _XrCachedInst {
-	XrInstImplF Func;
 	uint32_t Imm32_1;
 	uint8_t Imm8_1;
 	uint8_t Imm8_2;
+	uint8_t Func;
 };
 
 #define XR_INVALID_DTB_INDEX 0xFFFFFFFF
