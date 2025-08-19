@@ -2178,13 +2178,6 @@ static void XrExecuteVirtualRor(XrProcessor *proc, XrIblock *block, XrCachedInst
 	XR_NEXT_NO_PC();
 }
 
-static uint8_t XrRegShiftFunctionTable[4] = {
-	[0] = XR_EXEC_LSH,
-	[1] = XR_EXEC_RSH,
-	[2] = XR_EXEC_ASH,
-	[3] = XR_EXEC_ROR,
-};
-
 XR_PRESERVE_NONE
 static void XrSpecialLinkageInstruction(XrProcessor *proc, XrIblock *block, XrCachedInst *inst);
 
