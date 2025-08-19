@@ -2182,14 +2182,14 @@ static void XrExecuteVirtualRor(XrProcessor *proc, XrIblock *block, XrCachedInst
 static uint8_t XrVirtualShiftInstructionTable[4] = {
 	[0] = XR_EXEC_VIRTUAL_LSH,
 	[1] = XR_EXEC_VIRTUAL_RSH,
-	[2] = XR_EXEC_VIRTUAL_RSH,
+	[2] = XR_EXEC_VIRTUAL_ASH,
 	[3] = XR_EXEC_VIRTUAL_ROR,
 };
 
 static uint8_t XrRegShiftFunctionTable[4] = {
 	[0] = XR_EXEC_LSH,
 	[1] = XR_EXEC_RSH,
-	[2] = XR_EXEC_RSH,
+	[2] = XR_EXEC_ASH,
 	[3] = XR_EXEC_ROR,
 };
 
