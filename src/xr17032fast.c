@@ -2178,14 +2178,6 @@ static void XrExecuteVirtualRor(XrProcessor *proc, XrIblock *block, XrCachedInst
 	XR_NEXT_NO_PC();
 }
 
-// TODO you dont even need to do an array access here!
-static uint8_t XrVirtualShiftInstructionTable[4] = {
-	[0] = XR_EXEC_VIRTUAL_LSH,
-	[1] = XR_EXEC_VIRTUAL_RSH,
-	[2] = XR_EXEC_VIRTUAL_ASH,
-	[3] = XR_EXEC_VIRTUAL_ROR,
-};
-
 static uint8_t XrRegShiftFunctionTable[4] = {
 	[0] = XR_EXEC_LSH,
 	[1] = XR_EXEC_RSH,
@@ -2375,7 +2367,7 @@ static XrCachedInst *XrDecodeLL(XrProcessor* proc, XrCachedInst *inst, uint32_t 
 		/* The inline shift amount is nonzero, so generate a virtual shift */ \
 		/* instruction before the proper one. */ \
 \
-		inst->Func = XrVirtualShiftInstructionTable[(ir >> 26) & 3]; \
+		inst->Func = XR_EXEC_VIRTUAL_LSH + ((ir >> 26) & 3); \
 		inst->Imm8_1 = rb; \
 		inst->Imm8_2 = (ir >> 21) & 31; \
 \
@@ -2563,7 +2555,7 @@ static XrCachedInst *XrDecodeAdd(XrProcessor* proc, XrCachedInst *inst, uint32_t
 }
 
 static XrCachedInst *XrDecodeRegShifts(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
-	inst->Func = XrRegShiftFunctionTable[(ir >> 26) & 3];
+	inst->Func = XR_EXEC_LSH + ((ir >> 26) & 3);
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
 	inst->Imm32_1 = XR_REDIRECT_ZERO_SRC((ir >> 16) & 31);
