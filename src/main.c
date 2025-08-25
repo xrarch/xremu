@@ -177,6 +177,8 @@ void *CpuLoop(void *context) {
 			// Trylock the CPU's run lock. Cache it first because it might
 			// change.
 
+retry:;
+
 			XrMutex *runlock = schedulable->RunLock;
 
 			if (!XrTryLockMutex(runlock)) {
@@ -201,6 +203,15 @@ directnext:
 
 			if (runlock != &schedulable->InherentRunLock) {
 				XrLockMutex(&schedulable->InherentRunLock);
+
+				if (runlock != schedulable->RunLock) {
+					// The runlock changed, so try again.
+
+					XrUnlockMutex(&schedulable->InherentRunLock);
+					XrUnlockMutex(runlock);
+
+					goto retry;
+				}
 			}
 
 			schedulable->Func(schedulable);

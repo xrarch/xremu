@@ -407,8 +407,7 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 
 	XrUnlockMutex(&ControllerMutex);
 
-	if (setrunlock &&
-		(setrunlock->Schedulable.RunLock != ((XrProcessor *)proc)->Schedulable.RunLock)) {
+	if (setrunlock) {
 		// We decided to set the disk's runlock reference to point to that of
 		// the current processor. This has the effect of tending to claim the
 		// simulation of the disk latency for the thread currently simulating
@@ -417,11 +416,13 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 
 		((XrProcessor *)proc)->Schedulable.Next = &DKSSelectedDrive->Schedulable;
 
-		XrLockMutex(&setrunlock->Schedulable.InherentRunLock);
+		if (setrunlock->Schedulable.RunLock != ((XrProcessor *)proc)->Schedulable.RunLock) {
+			XrLockMutex(&setrunlock->Schedulable.InherentRunLock);
 
-		DKSSelectedDrive->Schedulable.RunLock = ((XrProcessor *)proc)->Schedulable.RunLock;
+			DKSSelectedDrive->Schedulable.RunLock = ((XrProcessor *)proc)->Schedulable.RunLock;
 
-		XrUnlockMutex(&setrunlock->Schedulable.InherentRunLock);
+			XrUnlockMutex(&setrunlock->Schedulable.InherentRunLock);
+		}
 	}
 
 	return status;
