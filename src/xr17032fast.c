@@ -653,7 +653,6 @@ retry:
 	}
 
 	if (XrUnlikely(proc->PauseCalls >= XR_PAUSE_MAX)) {
-		proc->PauseCalls = 0;
 		proc->NoMore = 1;
 		return;
 	}
@@ -3051,7 +3050,7 @@ done_no_linkage:
 
 int XrExecuteFast(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 	if (!proc->Running) {
-		return 0;
+		return cycles;
 	}
 
 #ifdef PROFCPU
@@ -3101,7 +3100,7 @@ int XrExecuteFast(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 			// writes by other host cores to the interrupt pending flag visible
 			// to us in a timely manner, without needing any locking.
 
-			return 0;
+			return cycles;
 		}
 
 		// Interrupts are enabled and there is an interrupt pending.
@@ -3126,7 +3125,7 @@ int XrExecuteFast(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 		// tick. Skip the rest of the tick so as not to eat up too much of
 		// the host's CPU.
 
-		return 0;
+		return cycles;
 	}
 
 	proc->PauseCalls = 0;

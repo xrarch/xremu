@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 #define FPS 60
 
@@ -27,19 +28,15 @@
 #include "tty.h"
 #include "lsic.h"
 
+int XrSchedulableCount = 0;
+int XrSchedulableProcessorIndex;
+
+XrSchedulable *XrSchedulableTable[XR_SCHEDULABLE_MAX];
 XrProcessor *CpuTable[XR_PROC_MAX];
 
-#ifndef EMSCRIPTEN
-
-#if XR_SIMULATE_CACHES
+#if XR_SIMULATE_CACHES && !SINGLE_THREAD_MP
 
 XrMutex ScacheMutexes[XR_CACHE_MUTEXES];
-
-#endif
-
-#else
-
-uint32_t emscripten_last_tick = 0;
 
 #endif
 
@@ -48,34 +45,88 @@ uint32_t SimulatorHz = 20000000;
 bool RAMDumpOnExit = false;
 bool KinnowDumpOnExit = false;
 
-uint32_t XrProcessorCount = 1;
-uint32_t CpuThreadCount = 0;
+int XrProcessorCount = 1;
+int CpuThreadCount = 0;
 
 bool done = false;
 
 bool Headless = false;
 
-#ifdef EMSCRIPTEN
-void MainLoop(void);
-#endif
-
 #define CPUSTEPMS 17 // 60Hz rounded up
 
-int CpuLoop(void *context) {
+void XrSchedule(XrSchedulable *schedulable) {
+	XrProcessor *proc = schedulable->Context;
+
+	int cyclesperms = (SimulatorHz+999)/1000;
+
+	while (schedulable->Timeslice > 0) {
+		if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
+			// Interval timer ran down, send self the interrupt.
+			// We do this from the context of each cpu thread so that we get
+			// accurate amounts of CPU time between each tick.
+
+			LsicInterruptTargeted(proc, 2);
+
+			proc->TimerInterruptCounter = 0;
+		}
+
+		if (proc->Id == 0) {
+			// The zeroth thread also does the RTC intervals, once per
+			// millisecond of CPU time. 
+
+			RTCUpdateRealTime();
+		}
+
+		int realcycles = XrExecuteFast(proc, cyclesperms, 1);
+
+		proc->CyclesThisRound += realcycles;
+
+		if (proc->CyclesThisRound >= cyclesperms) {
+			// A millisecond worth of cycles has been executed, so
+			// decrement the timeslice and advance the timer interrupt
+			// counter.
+
+			proc->CyclesThisRound -= cyclesperms;
+			schedulable->Timeslice -= 1;
+			proc->TimerInterruptCounter += 1;
+		}
+
+		if (proc->PauseCalls >= XR_PAUSE_MAX || proc->Halted || proc->Progress <= 0) {
+			// Halted or paused. Advance to next CPU.
+
+			proc->PauseCalls = 0;
+
+			break;
+		}
+	}
+}
+
+void XrStartTimeslice(XrSchedulable *schedulable, int dt) {
+	XrProcessor *proc = schedulable->Context;
+
+	proc->Progress = XR_POLL_MAX;
+	proc->PauseCalls = 0;
+	proc->CyclesThisRound = 0;
+
+	schedulable->Timeslice += dt;
+
+	if (schedulable->Timeslice >= CPUSTEPMS * 50) {
+		// The CPU has too much pending time. The threads are running
+		// behind; they can't keep up with the simulated workload. Reset
+		// the timeslice to avoid the threads running infinitely and
+		// burning someone's lap.
+
+		schedulable->Timeslice = CPUSTEPMS;
+	}
+}
+
+void *CpuLoop(void *context) {
 	uintptr_t id = (uintptr_t)context;
-
-	// Set my own thread to LOW priority so that the UI thread (which has NORMAL
-	// priority) gets precedence.
-
-	SDL_SetThreadPriority(SDL_THREAD_PRIORITY_LOW);
 
 	// Execute CPU time from each CPU in sequence, until all timeslices have run
 	// down.
 
-	int startprocid = id * (XrProcessorCount / CpuThreadCount);
-
-	int cyclesperms = (SimulatorHz+999)/1000;
-	int pausemargin = cyclesperms * 2;
+	int startschedid = XrSchedulableProcessorIndex + (id * (XrProcessorCount / CpuThreadCount));
 
 	while (1) {
 		// Wait until the next frame.
@@ -86,7 +137,7 @@ int CpuLoop(void *context) {
 		// same threads preferentially execute the same couple of processors,
 		// which will improve cache affinity.
 
-		int procid = startprocid;
+		int schedid = startschedid;
 
 		// Iterate over the CPUs in a cycle until all of the virtual CPU time
 		// for this frame, of which each CPU gets ~17ms worth, has been
@@ -120,12 +171,15 @@ int CpuLoop(void *context) {
 		// and it can be freed from its spin-wait by the time the next iteration
 		// rolls around.
 
-		for (int done = 0; done < XrProcessorCount; procid = (procid + 1) % XrProcessorCount) {
-			XrProcessor *proc = CpuTable[procid];
+		for (int done = 0; done < XrSchedulableCount; schedid = (schedid + 1) % XrSchedulableCount) {
+			XrSchedulable *schedulable = XrSchedulableTable[schedid];
 
-			// Trylock the CPU's run lock.
+			// Trylock the CPU's run lock. Cache it first because it might
+			// change.
 
-			if (!XrTryLockMutex(&proc->RunLock)) {
+			XrMutex *runlock = schedulable->RunLock;
+
+			if (!XrTryLockMutex(runlock)) {
 				// Failed to lock it. This means another thread is executing
 				// this CPU. Don't increment the done count because there's
 				// an invariant that thread count <= cpu count, so we're
@@ -135,63 +189,48 @@ int CpuLoop(void *context) {
 				continue;
 			}
 
-			while (proc->Timeslice != 0) {
-				if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
-					// Interval timer ran down, send self the interrupt.
-					// We do this from the context of each cpu thread so that we get
-					// accurate amounts of CPU time between each tick.
-
-					LsicInterruptTargeted(proc, 2);
-
-					proc->TimerInterruptCounter = 0;
-				}
-
-				if (proc->Id == 0) {
-					// The zeroth thread also does the RTC intervals, once per
-					// millisecond of CPU time. 
-
-					RTCUpdateRealTime();
-				}
-
-				int realcycles = XrExecuteFast(proc, cyclesperms + proc->PauseReward, 1);
-
-				if (realcycles > cyclesperms) {
-					// Used some of the reward cycles, decrement them.
-
-					proc->PauseReward -= realcycles - cyclesperms;
-				}
-
-				proc->Timeslice -= 1;
-				proc->TimerInterruptCounter += 1;
-
-				if (proc->PauseCalls >= XR_PAUSE_MAX || proc->Halted) {
-					// Halted or paused. Advance to next CPU.
-
-					if (proc->PauseCalls >= XR_PAUSE_MAX) {
-						if (realcycles < cyclesperms) {
-							// The CPU voluntarily paused. Reward it with extra
-							// cycles for next time.
-
-							proc->PauseReward += cyclesperms - realcycles;
-
-							if (proc->PauseReward >= pausemargin) {
-								// Never reward with more than 2ms worth of cycles.
-
-								proc->PauseReward = pausemargin;
-							}
-						}
-					}
-
-					proc->PauseCalls = 0;
-					break;
-				}
+			if (schedulable->Timeslice <= 0) {
+				XrUnlockMutex(runlock);
+				done++;
+				continue;
 			}
 
-			if (proc->Timeslice == 0) {
+directnext:
+
+			done = 0;
+
+			if (runlock != &schedulable->InherentRunLock) {
+				XrLockMutex(&schedulable->InherentRunLock);
+			}
+
+			schedulable->Func(schedulable);
+
+			if (runlock != &schedulable->InherentRunLock) {
+				XrUnlockMutex(&schedulable->InherentRunLock);
+			}
+
+			if (schedulable->Timeslice <= 0) {
 				done++;
 			}
 
-			XrUnlockMutex(&proc->RunLock);
+			if (schedulable->Next) {
+				// There's a preferred next schedulable to run.
+				// We can do this without releasing the current runlock because
+				// its runlock has been set to the same as ours. This is useful
+				// for atomically scheduling a processor together with a disk
+				// that it is waiting for, which greatly improves the latency
+				// simulation when there are multiple scheduling threads.
+
+				XrSchedulable *next = schedulable->Next;
+				schedulable->Next = 0;
+
+				if (runlock == next->RunLock && next->Timeslice > 0) {
+					schedulable = next;
+					goto directnext;
+				}
+			}
+
+			XrUnlockMutex(runlock);
 		}
 	}
 }
@@ -204,11 +243,12 @@ void CpuInitialize(int id) {
 		exit(1);
 	}
 
+	XrInitializeSchedulable(&proc->Schedulable, &XrSchedule, &XrStartTimeslice, proc);
+
 	CpuTable[id] = proc;
 	proc->Id = id;
 	proc->TimerInterruptCounter = 0;
-	proc->PauseReward = 0;
-	proc->Timeslice = 0;
+	proc->CyclesThisRound = 0;
 
 	proc->IblockFreeList = 0;
 	proc->PtableFreeList = 0;
@@ -270,7 +310,7 @@ void CpuInitialize(int id) {
 
 	XrReset(proc);
 
-#ifndef EMSCRIPTEN
+#ifndef SINGLE_THREAD_MP
 #if XR_SIMULATE_CACHES
 	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
 		XrInitializeMutex(&proc->CacheMutexes[i]);
@@ -280,15 +320,13 @@ void CpuInitialize(int id) {
 	XrInitializeSemaphore(&proc->LoopSemaphore, 0);
 
 	XrInitializeMutex(&proc->InterruptLock);
-
-	XrInitializeMutex(&proc->RunLock);
 #endif
 }
 
 void CpuCreate(uintptr_t id) {
-#ifndef EMSCRIPTEN
-	SDL_CreateThread(&CpuLoop, "CpuLoop", (void *)id);
-#endif
+	pthread_t garbagecan;
+
+	pthread_create(&garbagecan, NULL, &CpuLoop, (void *)id);
 }
 
 extern void TLBDump(void);
@@ -479,6 +517,8 @@ int main(int argc, char *argv[]) {
 	}
 #endif
 
+	XrSchedulableProcessorIndex = XrSchedulableCount;
+
 	for (int i = 0; i < XrProcessorCount; i++) {
 		CpuInitialize(i);
 	}
@@ -495,7 +535,6 @@ int main(int argc, char *argv[]) {
 		CpuCreate(i);
 	}
 
-#ifndef EMSCRIPTEN
 	int tick_end = 0;
 	int tick_start = 0;
 
@@ -507,7 +546,6 @@ int main(int argc, char *argv[]) {
 
 		int tick_after_draw = SDL_GetTicks();
 
-		DKSInterval(tick_after_draw - tick_end);
 		SerialInterval(tick_after_draw - tick_end);
 
 		// Kick all the CPU threads to get them to execute a frame time worth of
@@ -521,26 +559,8 @@ int main(int argc, char *argv[]) {
 		// completion or spinlock release just because the other CPU's host
 		// thread is asleep waiting for its next timeslice.
 
-		for (int i = 0; i < XrProcessorCount; i++) {
-			CpuTable[i]->Timeslice += CPUSTEPMS;
-			CpuTable[i]->Progress = XR_POLL_MAX;
-			CpuTable[i]->PauseCalls = 0;
-
-			if (CpuTable[i]->Timeslice >= CPUSTEPMS * 50) {
-				// The CPU has too much pending time. The threads are running
-				// behind; they can't keep up with the simulated workload. Reset
-				// the timeslice to avoid the threads running infinitely and
-				// burning someone's lap.
-
-#if 0
-				if (print_warning) {
-					print_warning = 0;
-					printf("The CPU threads are running very far behind. Decrease cpuhz and/or increase threads.\n");
-				}
-#endif
-
-				CpuTable[i]->Timeslice = CPUSTEPMS;
-			}
+		for (int i = 0; i < XrSchedulableCount; i++) {
+			XrSchedulableTable[i]->StartTimeslice(XrSchedulableTable[i], tick_after_draw - tick_end);
 		}
 
 		for (int i = 0; i < CpuThreadCount; i++) {
@@ -554,10 +574,6 @@ int main(int argc, char *argv[]) {
 			SDL_Delay(delay);
 		}
 	}
-#else
-	emscripten_last_tick = SDL_GetTicks();
-	emscripten_set_main_loop(MainLoop, FPS, 0);
-#endif
 
 	NVRAMSave();
 
@@ -573,56 +589,3 @@ int main(int argc, char *argv[]) {
 
 	return 0;
 }
-
-void EnqueueCallback(uint32_t interval, uint32_t (*callback)(uint32_t, void*), void *param) {
-	SDL_AddTimer(interval, callback, param);
-}
-
-#ifdef EMSCRIPTEN
-
-void MainLoop(void) {
-	// Dumbed down CPU driving loop for emscripten since it doesn't seem to play
-	// well with SDL's thread APIs.
-
-	ScreenDraw();
-	done = ScreenProcessEvents();
-
-	XrProcessor *proc = CpuTable[0];
-
-	int this_tick = SDL_GetTicks();
-	int dt = this_tick - emscripten_last_tick;
-	emscripten_last_tick = this_tick;
-
-	int cyclespertick = SimulatorHz/1000;
-	int extracycles = SimulatorHz%1000; // squeeze in the sub-millisecond cycles
-
-	proc->Progress = XR_POLL_MAX;
-
-	for (int i = 0; i < dt; i++) {
-		if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
-			// Interval timer ran down, send self the interrupt.
-			LsicInterruptTargeted(proc, 2);
-
-			proc->TimerInterruptCounter = 0;
-		}
-
-		int cyclesleft = cyclespertick;
-
-		if (i == dt-1)
-			cyclesleft += extracycles;
-
-		XrExecute(proc, cyclesleft, 1);
-
-		// For emscripten, the interval functions are also responsible for
-		// driving async device activity.
-
-		DKSInterval(1);
-		SerialInterval(1);
-
-		RTCUpdateRealTime();
-
-		proc->TimerInterruptCounter += 1;
-	}
-}
-
-#endif

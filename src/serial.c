@@ -39,6 +39,7 @@ enum SerialCommands {
 };
 
 typedef struct _SerialPort {
+	XrSchedulable Schedulable;
 	struct TTY *Tty;
 	uint32_t DoInterrupts;
 
@@ -117,50 +118,12 @@ void SerialPutCharacter(SerialPort *port, char c) {
 
 #define SERIAL_QUANTUM_MS TRANSMIT_BUFFER_SIZE
 
-uint8_t SerialTimerEnqueued = 0;
-
-uint32_t SerialCallback(uint32_t interval, void *param) {
-	SerialPort *thisport = param;
-
-	SDL_LockMutex(thisport->Tty->Mutex);
-
-	SerialTimerEnqueued = 0;
-
-#ifndef EMSCRIPTEN
-	interval = thisport->TransmitBufferIndex - thisport->SendIndex;
-#endif
-
-	thisport->Cost = 0;
-
-	for (int i = 0; i < interval; i++) {
-		if (thisport->SendIndex < thisport->TransmitBufferIndex) {
-			SerialPutCharacter(thisport, thisport->TransmitBuffer[thisport->SendIndex++]);
-		} else {
-			break;
-		}
-
-		if (thisport->SendIndex == thisport->TransmitBufferIndex) {
-			thisport->SendIndex = 0;
-			thisport->TransmitBufferIndex = 0;
-			thisport->WriteBusy = false;
-
-			if (thisport->DoInterrupts) {
-				LsicInterrupt(0x4 + thisport->Number);
-			}
-		}
-	}
-
-	SDL_UnlockMutex(thisport->Tty->Mutex);
-
-	return 0;
-}
-
 void SerialInterval(uint32_t dt) {
 	for (int port = 0; port < 2; port++) {
 		SerialPort *thisport = &SerialPorts[port];
 
 #ifndef EMSCRIPTEN
-		SDL_LockMutex(thisport->Tty->Mutex);
+		XrLockMutex(&thisport->Tty->Mutex);
 
 		if ((thisport->RXFile != -1) && (thisport->DoInterrupts)) {
 			struct pollfd rxpoll = { 0 };
@@ -173,16 +136,75 @@ void SerialInterval(uint32_t dt) {
 			}
 		}
 
-		SDL_UnlockMutex(thisport->Tty->Mutex);
-#endif
-
-#ifdef EMSCRIPTEN
-		if (!SerialAsynchronous)
-			continue;
-
-		SerialCallback(dt, thisport);
+		XrUnlockMutex(&thisport->Tty->Mutex);
 #endif
 	}
+}
+
+#define CHARS_PER_SCHEDULE 4
+
+void SerialSchedule(XrSchedulable *schedulable) {
+	SerialPort *port = schedulable->Context;
+
+	XrLockMutex(&port->Tty->Mutex);
+
+	if (port->Cost) {
+		if (port->Cost < schedulable->Timeslice) {
+			schedulable->Timeslice -= port->Cost;
+			port->Cost = 0;
+		} else {
+			port->Cost -= schedulable->Timeslice;
+			schedulable->Timeslice = 0;
+		}
+
+		XrUnlockMutex(&port->Tty->Mutex);
+
+		return;
+	}
+
+	int pending = port->TransmitBufferIndex - port->SendIndex;
+
+	if (pending > schedulable->Timeslice) {
+		pending = schedulable->Timeslice;
+	}
+
+	if (pending > CHARS_PER_SCHEDULE) {
+		pending = CHARS_PER_SCHEDULE;
+	}
+
+	schedulable->Timeslice -= pending;
+
+	for (int i = 0; i < pending; i++) {
+		if (port->SendIndex < port->TransmitBufferIndex) {
+			SerialPutCharacter(port, port->TransmitBuffer[port->SendIndex++]);
+		} else {
+			break;
+		}
+
+		if (port->SendIndex == port->TransmitBufferIndex) {
+			port->SendIndex = 0;
+			port->TransmitBufferIndex = 0;
+			port->WriteBusy = false;
+
+			if (port->DoInterrupts) {
+				LsicInterrupt(0x4 + port->Number);
+			}
+		}
+	}
+
+	XrUnlockMutex(&port->Tty->Mutex);
+}
+
+void SerialStartTimeslice(XrSchedulable *schedulable, int dt) {
+	SerialPort *port = schedulable->Context;
+
+	XrLockMutex(&port->Tty->Mutex);
+
+	if ((port->TransmitBufferIndex - port->SendIndex) || (port->Cost)) {
+		schedulable->Timeslice = dt;
+	}
+
+	XrUnlockMutex(&port->Tty->Mutex);
 }
 
 int SerialWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
@@ -196,7 +218,7 @@ int SerialWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 		return EBUSERROR;
 	}
 
-	SDL_LockMutex(thisport->Tty->Mutex);
+	XrLockMutex(&thisport->Tty->Mutex);
 
 	switch(value) {
 		case SERIALCMDDOINT:
@@ -208,7 +230,7 @@ int SerialWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 			break;
 	}
 
-	SDL_UnlockMutex(thisport->Tty->Mutex);
+	XrUnlockMutex(&thisport->Tty->Mutex);
 
 	return EBUSSUCCESS;
 }
@@ -224,7 +246,15 @@ int SerialReadCMD(uint32_t port, uint32_t type, uint32_t *value, void *proc) {
 		return EBUSERROR;
 	}
 
+	XrLockMutex(&thisport->Tty->Mutex);
+
 	*value = thisport->WriteBusy;
+
+	if (thisport->WriteBusy) {
+		XrDecrementProgress(proc, thisport->DoInterrupts);
+	}
+
+	XrUnlockMutex(&thisport->Tty->Mutex);
 
 	return EBUSSUCCESS;
 }
@@ -242,12 +272,11 @@ int SerialWriteData(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 		return EBUSERROR;
 	}
 
-	SDL_LockMutex(thisport->Tty->Mutex);
+	XrLockMutex(&thisport->Tty->Mutex);
 
-	thisport->Cost += 1;
-
-	if ((!SerialAsynchronous || thisport->Cost < ACCUMULATED_COST) && !thisport->TransmitBufferIndex) {
+	if ((!SerialAsynchronous || (thisport->Cost < ACCUMULATED_COST)) && !thisport->TransmitBufferIndex) {
 		SerialPutCharacter(thisport, value&0xFF);
+		thisport->Cost++;
 		
 		status = EBUSSUCCESS;
 		goto exit;
@@ -264,17 +293,9 @@ int SerialWriteData(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 		thisport->WriteBusy = true;
 	}
 
-#ifndef EMSCRIPTEN
-	if (!SerialTimerEnqueued) {
-		EnqueueCallback(ACCUMULATED_COST, &SerialCallback, thisport);
-		
-		SerialTimerEnqueued = 1;
-	}
-#endif
-
 exit:
 
-	SDL_UnlockMutex(thisport->Tty->Mutex);
+	XrUnlockMutex(&thisport->Tty->Mutex);
 	return status;
 }
 
@@ -291,7 +312,7 @@ int SerialReadData(uint32_t port, uint32_t length, uint32_t *value, void *proc) 
 
 	int status;
 
-	SDL_LockMutex(thisport->Tty->Mutex);
+	XrLockMutex(&thisport->Tty->Mutex);
 
 #ifndef EMSCRIPTEN
 	if (thisport->RXFile != -1) {
@@ -307,7 +328,7 @@ int SerialReadData(uint32_t port, uint32_t length, uint32_t *value, void *proc) 
 #endif
 
 	if ((thisport->ReceiveBufferIndex - thisport->ReceiveIndex) == 0) {
-		((XrProcessor *)(proc))->Progress--;
+		XrDecrementProgress(proc, thisport->DoInterrupts);
 		*value = 0xFFFF;
 
 		status = EBUSSUCCESS;
@@ -319,7 +340,7 @@ int SerialReadData(uint32_t port, uint32_t length, uint32_t *value, void *proc) 
 
 exit:
 
-	SDL_UnlockMutex(thisport->Tty->Mutex);
+	XrUnlockMutex(&thisport->Tty->Mutex);
 	return status;
 }
 
@@ -346,6 +367,8 @@ char *SerialNames[] = {
 int SerialInit(int num) {
 	int citronoffset = num*2;
 
+	SerialPort *port = &SerialPorts[num];
+
 	CitronPorts[0x10+citronoffset].Present = 1;
 	CitronPorts[0x10+citronoffset].WritePort = SerialWriteCMD;
 	CitronPorts[0x10+citronoffset].ReadPort = SerialReadCMD;
@@ -354,30 +377,34 @@ int SerialInit(int num) {
 	CitronPorts[0x11+citronoffset].WritePort = SerialWriteData;
 	CitronPorts[0x11+citronoffset].ReadPort = SerialReadData;
 
-	SerialPorts[num].ReceiveRemaining = RECEIVE_BUFFER_SIZE;
-	SerialPorts[num].Number = num;
+	port->ReceiveRemaining = RECEIVE_BUFFER_SIZE;
+	port->Number = num;
 
 #ifndef EMSCRIPTEN
 	if ((num == 1) && SerialTXFile) {
-		SerialPorts[num].TXFile = SerialTXFile;
+		port->TXFile = SerialTXFile;
 	} else {
-		SerialPorts[num].TXFile = -1;
+		port->TXFile = -1;
 	}
 
 	if ((num == 1) && SerialRXFile) {
-		SerialPorts[num].RXFile = SerialRXFile;
+		port->RXFile = SerialRXFile;
 	} else {
-		SerialPorts[num].RXFile = -1;
+		port->RXFile = -1;
 	}
 #endif
 
 	if (TTY132ColumnMode) {
-		SerialPorts[num].Tty = TTYCreate(132, 24, SerialNames[num], SerialInput);
+		port->Tty = TTYCreate(132, 24, SerialNames[num], SerialInput);
 	} else {
-		SerialPorts[num].Tty = TTYCreate(80, 24, SerialNames[num], SerialInput);
+		port->Tty = TTYCreate(80, 24, SerialNames[num], SerialInput);
 	}
 
-	SerialPorts[num].Tty->Context = &SerialPorts[num];
+	port->Tty->Context = port;
+
+	if (SerialAsynchronous) {
+		XrInitializeSchedulable(&port->Schedulable, &SerialSchedule, &SerialStartTimeslice, port);
+	}
 
 	return 0;
 }

@@ -1,5 +1,3 @@
-#include <SDL.h>
-
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,6 +7,7 @@
 #include "pboard.h"
 #include "amtsu.h"
 #include "mouse.h"
+#include "fastmutex.h"
 
 #include "lsic.h"
 #include "xr.h"
@@ -52,7 +51,7 @@ int MouseAction(struct AmtsuDevice *dev, uint32_t value, void *proc) {
 				return EBUSSUCCESS;
 			}
 
-			((XrProcessor *)(proc))->Progress--;
+			XrDecrementProgress(proc, dev->InterruptNumber);
 			dev->PortAValue = 0;
 			break;
 
@@ -71,13 +70,13 @@ void MousePressed(struct Screen *screen, int button) {
 		else if (button == 2)
 			button = 3;
 
-		SDL_LockMutex(AmtsuDevices[AMTSU_MOUSE].Mutex);
+		XrLockMutex(&AmtsuDevices[AMTSU_MOUSE].Mutex);
 
 		MousePressedButton = button;
 		if (AmtsuDevices[AMTSU_MOUSE].InterruptNumber)
 			LsicInterrupt(AmtsuDevices[AMTSU_MOUSE].InterruptNumber);
 
-		SDL_UnlockMutex(AmtsuDevices[AMTSU_MOUSE].Mutex);
+		XrUnlockMutex(&AmtsuDevices[AMTSU_MOUSE].Mutex);
 	}
 }
 
@@ -88,18 +87,18 @@ void MouseReleased(struct Screen *screen, int button) {
 		else if (button == 2)
 			button = 3;
 
-		SDL_LockMutex(AmtsuDevices[AMTSU_MOUSE].Mutex);
+		XrLockMutex(&AmtsuDevices[AMTSU_MOUSE].Mutex);
 
 		MouseReleasedButton = button;
 		if (AmtsuDevices[AMTSU_MOUSE].InterruptNumber)
 			LsicInterrupt(AmtsuDevices[AMTSU_MOUSE].InterruptNumber);
 
-		SDL_UnlockMutex(AmtsuDevices[AMTSU_MOUSE].Mutex);
+		XrUnlockMutex(&AmtsuDevices[AMTSU_MOUSE].Mutex);
 	}
 }
 
 void MouseMoved(struct Screen *screen, int dx, int dy) {
-	SDL_LockMutex(AmtsuDevices[AMTSU_MOUSE].Mutex);
+	XrLockMutex(&AmtsuDevices[AMTSU_MOUSE].Mutex);
 
 	MouseDX += dx;
 	MouseDY += dy;
@@ -109,7 +108,7 @@ void MouseMoved(struct Screen *screen, int dx, int dy) {
 	if (AmtsuDevices[AMTSU_MOUSE].InterruptNumber)
 		LsicInterrupt(AmtsuDevices[AMTSU_MOUSE].InterruptNumber);
 
-	SDL_UnlockMutex(AmtsuDevices[AMTSU_MOUSE].Mutex);
+	XrUnlockMutex(&AmtsuDevices[AMTSU_MOUSE].Mutex);
 }
 
 void MouseInit() {

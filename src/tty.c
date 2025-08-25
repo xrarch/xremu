@@ -13,6 +13,7 @@
 #include "screen.h"
 #include "tty.h"
 #include "ebus.h"
+#include "fastmutex.h"
 
 bool TTY132ColumnMode = false;
 
@@ -120,7 +121,7 @@ void TTYDraw(struct Screen *screen) {
 
 	uint16_t *textbuffer = tty->TextBuffer;
 
-	SDL_LockMutex(tty->Mutex);
+	XrLockMutex(&tty->Mutex);
 
 	uint32_t dirtyaddr = (tty->DirtyY1*tty->Width)+tty->DirtyX1;
 
@@ -172,7 +173,7 @@ void TTYDraw(struct Screen *screen) {
 
 	tty->IsDirty = 0;
 
-	SDL_UnlockMutex(tty->Mutex);
+	XrUnlockMutex(&tty->Mutex);
 
 	SDL_Rect rect = {
 		.x = (tty->DirtyX1 + TTYMARGINCHARSIDE) * tty->FontWidth,
@@ -187,7 +188,7 @@ void TTYDraw(struct Screen *screen) {
 void TTYKeyPressed(struct Screen *screen, int sdlscancode) {
 	struct TTY *tty = (struct TTY *)(screen->Context1);
 
-	SDL_LockMutex(tty->Mutex);
+	XrLockMutex(&tty->Mutex);
 
 	switch (sdlscancode) {
 		case SDL_SCANCODE_LCTRL:
@@ -245,13 +246,13 @@ void TTYKeyPressed(struct Screen *screen, int sdlscancode) {
 		tty->Input(tty, c);
 
 exit:
-	SDL_UnlockMutex(tty->Mutex);
+	XrUnlockMutex(&tty->Mutex);
 }
 
 void TTYKeyReleased(struct Screen *screen, int sdlscancode) {
 	struct TTY *tty = (struct TTY *)(screen->Context1);
 
-	SDL_LockMutex(tty->Mutex);
+	XrLockMutex(&tty->Mutex);
 
 	if (sdlscancode == SDL_SCANCODE_LCTRL || sdlscancode == SDL_SCANCODE_RCTRL) {
 		tty->IsCtrl = 0;
@@ -259,7 +260,7 @@ void TTYKeyReleased(struct Screen *screen, int sdlscancode) {
 		tty->IsShift = 0;
 	}
 
-	SDL_UnlockMutex(tty->Mutex);
+	XrUnlockMutex(&tty->Mutex);
 }
 
 void TTYScrollUp(struct TTY *tty) {
@@ -610,11 +611,7 @@ struct TTY *TTYCreate(int width, int height, char *title, TTYInputF input) {
 		abort();
 	}
 
-	tty->Mutex = SDL_CreateMutex();
-
-	if (!tty->Mutex) {
-		abort();
-	}
+	XrInitializeMutex(&tty->Mutex);
 
 	tty->TextBuffer = malloc(width*height*2);
 

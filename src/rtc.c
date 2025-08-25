@@ -75,7 +75,7 @@ int RTCReadPortA(uint32_t port, uint32_t type, uint32_t *value, void *proc) {
 	// Decrement the progress count on the current processor. Note that
 	// the firmware uses this to idle w/o consuming too much host cpu.
 
-	((XrProcessor *)(proc))->Progress--;
+	XrDecrementProgress(proc, 0);
 
 	*value = RTCPortA;
 

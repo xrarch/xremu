@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include "fastmutex.h"
+
 struct AmtsuDevice;
 
 typedef int (*AmtsuActionF)(struct AmtsuDevice *dev, uint32_t value, void *proc);
@@ -19,7 +21,7 @@ struct AmtsuDevice {
 	AmtsuActionF Action;
 	AmtsuBusyF IsBusy;
 	AmtsuResetF Reset;
-	void *Mutex;
+	XrMutex Mutex;
 };
 
 #define AMTSUDEVICES 16

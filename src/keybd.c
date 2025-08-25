@@ -9,6 +9,7 @@
 #include "pboard.h"
 #include "amtsu.h"
 #include "keybd.h"
+#include "fastmutex.h"
 
 #include "lsic.h"
 #include "xr.h"
@@ -46,7 +47,7 @@ int KeyboardAction(struct AmtsuDevice *dev, uint32_t value, void *proc) {
 				}
 			}
 
-			((XrProcessor *)(proc))->Progress--;
+			XrDecrementProgress(proc, dev->InterruptNumber);
 			dev->PortAValue = 0xFFFF;
 			break;
 
@@ -59,7 +60,7 @@ int KeyboardAction(struct AmtsuDevice *dev, uint32_t value, void *proc) {
 				if (Pressed[dev->PortAValue]){
 					dev->PortAValue = 1;
 				} else {
-					((XrProcessor *)(proc))->Progress--;
+					XrDecrementProgress(proc, dev->InterruptNumber);
 					dev->PortAValue = 0;
 				}
 			} else {
@@ -75,14 +76,14 @@ void KeyboardPressed(struct Screen *screen, int sdlscancode) {
 	int code = KeyMap[sdlscancode].code;
 
 	if (code) {
-		SDL_LockMutex(AmtsuDevices[AMTSU_KEYBOARD].Mutex);
+		XrLockMutex(&AmtsuDevices[AMTSU_KEYBOARD].Mutex);
 
 		OutstandingPressed[code-1] = true;
 		Pressed[code-1] = true;
 		if (AmtsuDevices[AMTSU_KEYBOARD].InterruptNumber)
 			LsicInterrupt(AmtsuDevices[AMTSU_KEYBOARD].InterruptNumber);
 
-		SDL_UnlockMutex(AmtsuDevices[AMTSU_KEYBOARD].Mutex);
+		XrUnlockMutex(&AmtsuDevices[AMTSU_KEYBOARD].Mutex);
 	}
 }
 
@@ -90,14 +91,14 @@ void KeyboardReleased(struct Screen *screen, int sdlscancode) {
 	int code = KeyMap[sdlscancode].code;
 
 	if (code) {
-		SDL_LockMutex(AmtsuDevices[AMTSU_KEYBOARD].Mutex);
+		XrLockMutex(&AmtsuDevices[AMTSU_KEYBOARD].Mutex);
 
 		OutstandingReleased[code-1] = true;
 		Pressed[code-1] = false;
 		if (AmtsuDevices[AMTSU_KEYBOARD].InterruptNumber)
 			LsicInterrupt(AmtsuDevices[AMTSU_KEYBOARD].InterruptNumber);
 
-		SDL_UnlockMutex(AmtsuDevices[AMTSU_KEYBOARD].Mutex);
+		XrUnlockMutex(&AmtsuDevices[AMTSU_KEYBOARD].Mutex);
 	}
 }
 

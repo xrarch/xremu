@@ -16,8 +16,6 @@ enum EBusSuccess {
 	EBUSERROR
 };
 
-extern void EnqueueCallback(uint32_t interval, uint32_t (*callback)(uint32_t, void*), void *param);
-
 typedef int (*EBusWriteF)(uint32_t address, void *src, uint32_t length, void *proc);
 typedef int (*EBusReadF)(uint32_t address, void *dest, uint32_t length, void *proc);
 typedef void *(*EBusTranslateF)(uint32_t address);

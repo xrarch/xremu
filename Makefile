@@ -1,11 +1,11 @@
 ifndef EMSCRIPTEN
 	CFLAGS = -g -O3
 	SDL2_CONFIG = sdl2-config
-	RISC_CFLAGS = $(CFLAGS) -std=c99 `$(SDL2_CONFIG) --cflags --libs`
+	RISC_CFLAGS = $(CFLAGS) -std=c99 `$(SDL2_CONFIG) --cflags --libs` -pthread
 	TARGET=xremu
 	CC = clang
 else
-	CFLAGS = -g -O3 -sUSE_SDL=2 -sINITIAL_MEMORY=33554432 -sALLOW_MEMORY_GROWTH=1
+	CFLAGS = -g -O3 -sUSE_SDL=2 -sINITIAL_MEMORY=33554432 -sALLOW_MEMORY_GROWTH=1 -lpthread
 	RISC_CFLAGS = $(CFLAGS) -std=c99 --preload-file bin
 	CC = emcc
 	TARGET=xremu.html

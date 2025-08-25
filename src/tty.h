@@ -5,6 +5,8 @@
 #include <stdbool.h>
 #include <SDL.h>
 
+#include "fastmutex.h"
+
 extern bool TTY132ColumnMode;
 
 struct TTY;
@@ -51,7 +53,7 @@ struct TTY {
 
 	struct Screen *Screen;
 
-	void *Mutex;
+	XrMutex Mutex;
 };
 
 struct TTY *TTYCreate(int width, int height, char *title, TTYInputF input);

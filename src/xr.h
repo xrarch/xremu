@@ -4,8 +4,42 @@
 #include "queue.h"
 #include "fastmutex.h"
 
-#define XrLikely(x)       __builtin_expect(!!(x), 1)
-#define XrUnlikely(x)     __builtin_expect(!!(x), 0)
+#define XR_PROC_MAX 8
+
+#define XR_SCHEDULABLE_MAX (XR_PROC_MAX + 16)
+
+extern int XrSchedulableCount;
+
+typedef struct _XrSchedulable XrSchedulable;
+
+extern XrSchedulable *XrSchedulableTable[XR_SCHEDULABLE_MAX];
+
+typedef void (*XrSchedulableF)(XrSchedulable *schedulable);
+typedef void (*XrStartTimesliceF)(XrSchedulable *schedulable, int dt);
+
+struct _XrSchedulable {
+#ifndef SINGLE_THREAD_MP
+	XrMutex *RunLock;
+	XrMutex InherentRunLock;
+	XrSchedulable *Next;
+#endif
+	XrSchedulableF Func;
+	XrStartTimesliceF StartTimeslice;
+	void *Context;
+	int Timeslice;
+};
+
+static inline void XrInitializeSchedulable(XrSchedulable *schedulable, XrSchedulableF func, XrStartTimesliceF starttimeslice, void *context) {
+	XrInitializeMutex(&schedulable->InherentRunLock);
+	schedulable->Timeslice = 0;
+	schedulable->Func = func;
+	schedulable->StartTimeslice = starttimeslice;
+	schedulable->Context = context;
+	schedulable->RunLock = &schedulable->InherentRunLock;
+	schedulable->Next = 0;
+
+	XrSchedulableTable[XrSchedulableCount++] = schedulable;
+}
 
 // Configurable stall parameters.
 
@@ -88,8 +122,6 @@
 #define XR_EXC_DTB 15
 
 #define XR_NONCACHED_PHYS_BASE 0xC0000000
-
-#define XR_PROC_MAX 8
 
 // Maximum number of times a processor can poll an I/O device before it loses
 // the rest of its tick. Reset before each 20ms tick and also when an interrupt
@@ -266,7 +298,6 @@ struct _XrProcessor {
 #endif
 	XrSemaphore LoopSemaphore;
 	XrMutex InterruptLock;
-	XrMutex RunLock;
 
 	XrIblock *IblockFreeList;
 	XrJalrPredictionTable *PtableFreeList;
@@ -301,8 +332,9 @@ struct _XrProcessor {
 	uint32_t CyclesDone;
 	uint32_t CyclesGoal;
 	uint32_t PauseCalls;
-	uint32_t Timeslice;
-	uint32_t PauseReward;
+	uint32_t CyclesThisRound;
+
+	XrSchedulable Schedulable;
 
 #if XR_SIMULATE_CACHES
 	uint32_t IcReplacementIndex;
@@ -343,7 +375,7 @@ struct _XrProcessor {
 
 extern uint8_t XrPrintCache;
 
-extern uint32_t XrProcessorCount;
+extern int XrProcessorCount;
 
 extern XrProcessor *CpuTable[XR_PROC_MAX];
 
@@ -392,5 +424,11 @@ static inline void XrLockInterrupt(XrProcessor *proc) {}
 static inline void XrUnlockInterrupt(XrProcessor *proc) {}
 
 #endif
+
+static inline void XrDecrementProgress(XrProcessor *proc, int ints) {
+	if (!ints || (proc->Cr[0] & 2) == 0) {
+		proc->Progress--;
+	}
+}
 
 #endif // XR_H

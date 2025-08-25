@@ -1,4 +1,3 @@
-#include <SDL.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,16 +8,19 @@
 #include "dks.h"
 
 #include "fastmutex.h"
+#include "xr.h"
 
 #include "lsic.h"
 
 XrMutex ControllerMutex;
 
 typedef struct _DKSDisk {
+	XrSchedulable Schedulable;
 	FILE *DiskImage;
 	int ID;
 	int Present;
 	bool Spinning;
+	bool Completing;
 	uint8_t TemporaryBuffer[4096];
 	uint32_t TransferAddress;
 	uint32_t TransferSector;
@@ -97,10 +99,11 @@ void DKSCompleteTransfer(DKSDisk *disk) {
 		printf("dks%d: %s %d (%d sectors) @ %08x\n", disk->ID, disk->IoType == DKS_READ ? "read" : "write", disk->TransferSector, disk->TransferCount, disk->TransferAddress);
 	}
 
-	// Unlock the IO mutex across the file system calls,
-	// which could take a lot of time. We don't want to hold up CPU threads
-	// while doing this - that would defeat the whole point of dispatching
-	// this work to another thread.
+	// Unlock the controller mutex across lengthy IO.
+
+	disk->Completing = 1;
+
+	XrUnlockMutex(&ControllerMutex);
 
 	fseek(disk->DiskImage, disk->TransferSector*512, SEEK_SET);
 
@@ -114,9 +117,11 @@ void DKSCompleteTransfer(DKSDisk *disk) {
 		fwrite(&disk->TemporaryBuffer[0], disk->TransferCount*512, 1, disk->DiskImage);
 	}
 
-	// Set parameters and send interrupt.
-
 	XrLockMutex(&ControllerMutex);
+
+	disk->Completing = 0;
+
+	// Set parameters and send interrupt.
 
 	DKSStatus &= ~(1 << disk->ID);
 	DKSCompleted |= 1 << disk->ID;
@@ -125,52 +130,52 @@ void DKSCompleteTransfer(DKSDisk *disk) {
 	disk->HeadLocation = LBA_TO_CYLINDER(disk, disk->SeekTo);
 
 	DKSInfo();
-
-	XrUnlockMutex(&ControllerMutex);
 }
 
-uint32_t DKSCallback(uint32_t interval, void *param) {
-	DKSDisk *disk = param;
-
-#ifdef EMSCRIPTEN
-	if (interval < disk->OperationInterval) {
-		// There's still more left.
-
-		disk->OperationInterval -= interval;
-
-		return 0;
-	}
-#endif
-
-	disk->OperationInterval = 0;
-
-	DKSCompleteTransfer(disk);
-
-	return 0;
+void DKSStartTimeslice(XrSchedulable *schedulable, int dt) {
+	schedulable->Timeslice = dt;
 }
 
-void DKSInterval(uint32_t dt) {
-	for (int i = 0; i < DKSDISKS; i++) {
-		DKSDisk *disk = &DKSDisks[i];
+int Spins = 0;
 
-		if (!disk->Present)
-			break;
+void DKSSchedule(XrSchedulable *schedulable) {
+	DKSDisk *disk = schedulable->Context;
+	uint32_t id = disk->ID;
 
-		XrLockMutex(&ControllerMutex);
+	XrLockMutex(&ControllerMutex);
 
-		if ((DKSStatus & (1 << i)) == 0) {
-			if (disk->Spinning) {
-				disk->PlatterLocation += SECTOR_PER_MS(disk);
-				disk->PlatterLocation %= disk->SectorsPerTrack;
-			}
-#ifdef EMSCRIPTEN
-		} else {
-			DKSCallback(dt, disk);
-#endif
+	// Note that the conditional disk->Completing avoids a race
+	// condition that may otherwise occur because DKSCompleteTransfer releases
+	// the controller mutex and is also called from DKSDispatchIO if the
+	// operation interval was 0.
+
+	if (((DKSStatus & (1 << disk->ID)) == 0) || disk->Completing) {
+		// Soak up all of the time by spinning the disk.
+
+		if (disk->Spinning) {
+			disk->PlatterLocation += SECTOR_PER_MS(disk) * schedulable->Timeslice;
+			disk->PlatterLocation %= disk->SectorsPerTrack;
 		}
 
-		XrUnlockMutex(&ControllerMutex);
+		schedulable->Timeslice = 0;
+	} else if (schedulable->Timeslice >= disk->OperationInterval) {
+		// There is sufficient time to satisfy the current operation.
+
+		// printf("sufficient %d %d\n", disk->OperationInterval, schedulable->Timeslice);
+
+		schedulable->Timeslice -= disk->OperationInterval;
+
+		DKSCompleteTransfer(disk);
+	} else {
+		// There is not sufficient time to satisfy the current operation.
+
+		// printf("insufficient %d %d\n", disk->OperationInterval, schedulable->Timeslice);
+
+		disk->OperationInterval -= schedulable->Timeslice;
+		schedulable->Timeslice = 0;
 	}
+
+	XrUnlockMutex(&ControllerMutex);
 }
 
 void DKSSeek() {
@@ -245,7 +250,9 @@ void DKSSeek() {
 }
 
 int DKSDispatchIO(uint32_t type) {
-	if (!DKSSelectedDrive) {
+	DKSDisk *disk = DKSSelectedDrive;
+
+	if (!disk) {
 		return EBUSERROR;
 	}
 
@@ -254,19 +261,23 @@ int DKSDispatchIO(uint32_t type) {
 		return EBUSERROR;
 	}
 
-	if ((DKSPortA + DKSTransferCount) >= DKSSelectedDrive->SectorCount) {
+	if ((DKSPortA + DKSTransferCount) >= disk->SectorCount) {
 		return EBUSERROR;
 	}
 
-	if (DKSStatus & (1 << DKSSelectedDrive->ID)) {
+	if (DKSStatus & (1 << disk->ID)) {
 		return EBUSERROR;
 	}
+
+	disk->IoType = type;
+
+	disk->TransferSector = DKSPortA;
+	disk->TransferAddress = DKSTransferAddress;
+	disk->TransferCount = DKSTransferCount;
 
 	// Mark the disk busy.
 
-	DKSStatus |= 1 << DKSSelectedDrive->ID;
-
-	DKSSelectedDrive->IoType = type;
+	DKSStatus |= 1 << disk->ID;
 
 	if (DKSAsynchronous) {
 		// Calculate seek values.
@@ -275,21 +286,14 @@ int DKSDispatchIO(uint32_t type) {
 	} else {
 		// Zero seek time.
 
-		DKSSelectedDrive->OperationInterval = 0;
+		disk->OperationInterval = 0;
 	}
 
-	DKSSelectedDrive->TransferSector = DKSPortA;
-	DKSSelectedDrive->TransferAddress = DKSTransferAddress;
-	DKSSelectedDrive->TransferCount = DKSTransferCount;
+	if (disk->OperationInterval == 0) {
+		// Immediately complete the operation.
 
-#ifndef EMSCRIPTEN
-	// Enqueue a timer callback to perform the operation and signal the
-	// completion interrupt. If the interval is 0, this should dispatch it
-	// to a worker thread for immediate processing. This keeps the CPU threads
-	// from having to eat the cost of the read and write syscalls.
-
-	EnqueueCallback(DKSSelectedDrive->OperationInterval, &DKSCallback, DKSSelectedDrive);
-#endif
+		DKSCompleteTransfer(disk);
+	}
 
 	return EBUSSUCCESS;
 }
@@ -297,16 +301,19 @@ int DKSDispatchIO(uint32_t type) {
 int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 	int status;
 
+	DKSDisk *setrunlock = 0;
+
 	XrLockMutex(&ControllerMutex);
 
 	switch(value) {
 		case 1:
 			// select drive
 
-			if ((DKSPortA < DKSDISKS) && (DKSDisks[DKSPortA].Present))
+			if ((DKSPortA < DKSDISKS) && (DKSDisks[DKSPortA].Present)) {
 				DKSSelectedDrive = &DKSDisks[DKSPortA];
-			else
+			} else {
 				DKSSelectedDrive = 0;
+			}
 
 			status = EBUSSUCCESS;
 			break;
@@ -315,12 +322,22 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 			// read sectors
 
 			status = DKSDispatchIO(DKS_READ);
+
+			if (status == EBUSSUCCESS) {
+				setrunlock = DKSSelectedDrive;
+			}
+
 			break;
 
 		case 3:
 			// write sectors
 
 			status = DKSDispatchIO(DKS_WRITE);
+
+			if (status == EBUSSUCCESS) {
+				setrunlock = DKSSelectedDrive;
+			}
+
 			break;
 
 		case 4:
@@ -390,11 +407,41 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 
 	XrUnlockMutex(&ControllerMutex);
 
+	if (setrunlock &&
+		(setrunlock->Schedulable.RunLock != ((XrProcessor *)proc)->Schedulable.RunLock)) {
+		// We decided to set the disk's runlock reference to point to that of
+		// the current processor. This has the effect of tending to claim the
+		// simulation of the disk latency for the thread currently simulating
+		// the processor that initiates a request, which improves latency
+		// simulation when there are multiple simulation threads.
+
+		((XrProcessor *)proc)->Schedulable.Next = &DKSSelectedDrive->Schedulable;
+
+		XrLockMutex(&setrunlock->Schedulable.InherentRunLock);
+
+		DKSSelectedDrive->Schedulable.RunLock = ((XrProcessor *)proc)->Schedulable.RunLock;
+
+		XrUnlockMutex(&setrunlock->Schedulable.InherentRunLock);
+	}
+
 	return status;
 }
 
 int DKSReadCMD(uint32_t port, uint32_t type, uint32_t *value, void *proc) {
+	XrLockMutex(&ControllerMutex);
+
 	*value = DKSStatus;
+
+	if (DKSStatus != 0) {
+		// People pretty much only read from this command port while doing
+		// polled operation of the disk controller. So, simulate a bunch of
+		// PAUSE instruction executions by the reading processor so that the
+		// outermost loop of the emulator yields for disk time scheduling.
+
+		((XrProcessor *)proc)->PauseCalls += 64;
+	}
+
+	XrUnlockMutex(&ControllerMutex);
 
 	return EBUSSUCCESS;
 }
@@ -461,11 +508,17 @@ int DKSAttachImage(char *path) {
 
 	if (bytes & 511) {
 		fprintf(stderr, "Warning: %s: size %d not a multiple of 512, rounding down to %d\n", path, bytes, disk->SectorCount * 512);
-		bytes &= ~(511);
+		bytes &= ~511;
 	}
 
 	disk->Present = 1;
 	disk->Spinning = true;
+	disk->ConsecutiveZeroSeeks = 0;
+	disk->PlatterLocation = 0;
+	disk->HeadLocation = 0;
+	disk->OperationInterval = 0;
+	disk->SeekTo = 0;
+	disk->Completing = 0;
 
 	// Roughly calculate a disk geometry for use by disk seek simulation.
 	// The code is based on this algorithm from 86Box:
@@ -515,6 +568,10 @@ int DKSAttachImage(char *path) {
 
 void DKSInit() {
 	for (int i = 0; i < DKSDISKS; i++) {
+		if (DKSDisks[i].Present && DKSAsynchronous) {
+			XrInitializeSchedulable(&DKSDisks[i].Schedulable, &DKSSchedule, &DKSStartTimeslice, &DKSDisks[i]);
+		}
+
 		DKSDisks[i].ID = i;
 	}
 

@@ -15,6 +15,4 @@ extern bool DKSPrint;
 
 int DKSAttachImage(char *path);
 
-void DKSInterval(uint32_t dt);
-
 #endif // XR_DKS_H
