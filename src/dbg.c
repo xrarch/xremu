@@ -132,7 +132,7 @@ void DbgCommandClear() {
 }
 
 void DbgCommandReg() {
-	XrProcessor *proc = CpuTable[DbgSelectedCpu];
+	XrProcessor *proc = XrProcessorTable[DbgSelectedCpu];
 
 	for (int i = 1; i < 32; i++) {
 		if (i > 1 && (i - 1) % 8 == 0) {
@@ -163,7 +163,7 @@ void DbgCommandLsic() {
 }
 
 void DbgCommandCr() {
-	XrProcessor *proc = CpuTable[DbgSelectedCpu];
+	XrProcessor *proc = XrProcessorTable[DbgSelectedCpu];
 
 	int printed = 0;
 
@@ -235,7 +235,7 @@ void DbgDumpTb(uint64_t *tb, int size) {
 }
 
 void DbgCommandTb() {
-	XrProcessor *proc = CpuTable[DbgSelectedCpu];
+	XrProcessor *proc = XrProcessorTable[DbgSelectedCpu];
 
 	DbgPutString("ITB Contents\n");
 	DbgDumpTb(&proc->Itb[0], XR_ITB_SIZE);
@@ -245,7 +245,7 @@ void DbgCommandTb() {
 }
 
 void DbgCommandPause() {
-	XrProcessor *proc = CpuTable[DbgSelectedCpu];
+	XrProcessor *proc = XrProcessorTable[DbgSelectedCpu];
 
 	if (!proc->Running) {
 		DbgPutString("Already paused\n");
@@ -258,7 +258,7 @@ void DbgCommandPause() {
 }
 
 void DbgCommandResume() {
-	XrProcessor *proc = CpuTable[DbgSelectedCpu];
+	XrProcessor *proc = XrProcessorTable[DbgSelectedCpu];
 
 	if (proc->Running) {
 		DbgPutString("Already resumed\n");

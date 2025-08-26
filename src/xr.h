@@ -4,42 +4,7 @@
 #include "queue.h"
 #include "fastmutex.h"
 
-#define XR_PROC_MAX 8
-
-#define XR_SCHEDULABLE_MAX (XR_PROC_MAX + 16)
-
-extern int XrSchedulableCount;
-
-typedef struct _XrSchedulable XrSchedulable;
-
-extern XrSchedulable *XrSchedulableTable[XR_SCHEDULABLE_MAX];
-
-typedef void (*XrSchedulableF)(XrSchedulable *schedulable);
-typedef void (*XrStartTimesliceF)(XrSchedulable *schedulable, int dt);
-
-struct _XrSchedulable {
-#ifndef SINGLE_THREAD_MP
-	XrMutex *RunLock;
-	XrMutex InherentRunLock;
-	XrSchedulable *Next;
-#endif
-	XrSchedulableF Func;
-	XrStartTimesliceF StartTimeslice;
-	void *Context;
-	int Timeslice;
-};
-
-static inline void XrInitializeSchedulable(XrSchedulable *schedulable, XrSchedulableF func, XrStartTimesliceF starttimeslice, void *context) {
-	XrInitializeMutex(&schedulable->InherentRunLock);
-	schedulable->Timeslice = 0;
-	schedulable->Func = func;
-	schedulable->StartTimeslice = starttimeslice;
-	schedulable->Context = context;
-	schedulable->RunLock = &schedulable->InherentRunLock;
-	schedulable->Next = 0;
-
-	XrSchedulableTable[XrSchedulableCount++] = schedulable;
-}
+#include "scheduler.h"
 
 // Configurable stall parameters.
 
@@ -377,16 +342,20 @@ extern uint8_t XrPrintCache;
 
 extern int XrProcessorCount;
 
-extern XrProcessor *CpuTable[XR_PROC_MAX];
+extern XrProcessor *XrProcessorTable[XR_PROC_MAX];
 
 extern void XrReset(XrProcessor *proc);
 extern int XrExecuteFast(XrProcessor *proc, uint32_t cycles, uint32_t dt);
+
+extern void XrInitializeProcessors(void);
+
+extern long XrProcessorFrequency;
 
 #ifndef EMSCRIPTEN
 
 #if XR_SIMULATE_CACHES
 
-extern XrMutex ScacheMutexes[XR_CACHE_MUTEXES];
+extern XrMutex XrScacheMutexes[XR_CACHE_MUTEXES];
 
 static inline void XrLockCache(XrProcessor *proc, uint32_t tag) {
 	XrLockMutex(&proc->CacheMutexes[XR_MUTEX_INDEX(tag)]);
@@ -397,11 +366,11 @@ static inline void XrUnlockCache(XrProcessor *proc, uint32_t tag) {
 }
 
 static inline void XrLockScache(uint32_t tag) {
-	XrLockMutex(&ScacheMutexes[XR_MUTEX_INDEX(tag)]);
+	XrLockMutex(&XrScacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 static inline void XrUnlockScache(uint32_t tag) {
-	XrUnlockMutex(&ScacheMutexes[XR_MUTEX_INDEX(tag)]);
+	XrUnlockMutex(&XrScacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
 #endif

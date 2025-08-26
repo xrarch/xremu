@@ -76,7 +76,7 @@ void LsicInterrupt(int intsrc) {
 	// Broadcast the interrupt to all LSICs.
 
 	for (int i = 0; i < XR_PROC_MAX; i++) {
-		XrProcessor *proc = CpuTable[i];
+		XrProcessor *proc = XrProcessorTable[i];
 
 		if (!proc) {
 			continue;
@@ -92,7 +92,7 @@ int LsicWrite(int reg, uint32_t value) {
 
 	Lsic *lsic = &LsicTable[id];
 
-	XrProcessor *proc = CpuTable[id];
+	XrProcessor *proc = XrProcessorTable[id];
 
 	if (!proc) {
 		return EBUSERROR;
@@ -209,7 +209,7 @@ int LsicRead(int reg, uint32_t *value) {
 
 	Lsic *lsic = &LsicTable[id];
 
-	XrProcessor *proc = CpuTable[id];
+	XrProcessor *proc = XrProcessorTable[id];
 
 	if (!proc) {
 		return EBUSERROR;

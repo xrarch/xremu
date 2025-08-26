@@ -132,6 +132,21 @@
 #include "xr.h"
 #include "lsic.h"
 #include "ebus.h"
+#include "rtc.h"
+
+int XrProcessorCount = 1;
+
+long XrProcessorFrequency = 20000000;
+
+XrProcessor *XrProcessorTable[XR_PROC_MAX];
+
+#if XR_SIMULATE_CACHES && !SINGLE_THREAD_MP
+
+XrMutex XrScacheMutexes[XR_CACHE_MUTEXES];
+
+#endif
+
+#define XR_STEP_MS 17 // 60Hz rounded up
 
 #if DBG
 
@@ -3140,4 +3155,176 @@ int XrExecuteFast(XrProcessor *proc, uint32_t cycles, uint32_t dt) {
 	}
 
 	return proc->CyclesDone;
+}
+
+void XrProcessorSchedule(XrSchedulable *schedulable) {
+	XrProcessor *proc = schedulable->Context;
+
+	int cyclesperms = (XrProcessorFrequency+999)/1000;
+
+	while (schedulable->Timeslice > 0) {
+		if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
+			// Interval timer ran down, send self the interrupt.
+			// We do this from the context of each cpu thread so that we get
+			// accurate amounts of CPU time between each tick.
+
+			LsicInterruptTargeted(proc, 2);
+
+			proc->TimerInterruptCounter = 0;
+		}
+
+		if (proc->Id == 0) {
+			// The zeroth thread also does the RTC intervals, once per
+			// millisecond of CPU time. 
+
+			RTCUpdateRealTime();
+		}
+
+		int realcycles = XrExecuteFast(proc, cyclesperms, 1);
+
+		proc->CyclesThisRound += realcycles;
+
+		if (proc->CyclesThisRound >= cyclesperms) {
+			// A millisecond worth of cycles has been executed, so
+			// decrement the timeslice and advance the timer interrupt
+			// counter.
+
+			proc->CyclesThisRound -= cyclesperms;
+			schedulable->Timeslice -= 1;
+			proc->TimerInterruptCounter += 1;
+		}
+
+		if (proc->PauseCalls >= XR_PAUSE_MAX || proc->Halted || proc->Progress <= 0) {
+			// Halted or paused. Advance to next CPU.
+
+			proc->PauseCalls = 0;
+
+			break;
+		}
+	}
+}
+
+void XrProcessorStartTimeslice(XrSchedulable *schedulable, int dt) {
+	XrProcessor *proc = schedulable->Context;
+
+	proc->Progress = XR_POLL_MAX;
+	proc->PauseCalls = 0;
+	proc->CyclesThisRound = 0;
+
+	schedulable->Timeslice += dt;
+
+	if (schedulable->Timeslice >= XR_STEP_MS * 50) {
+		// The CPU has too much pending time. The threads are running
+		// behind; they can't keep up with the simulated workload. Reset
+		// the timeslice to avoid the threads running infinitely and
+		// burning someone's lap.
+
+		schedulable->Timeslice = XR_STEP_MS;
+	}
+}
+
+void XrInitializeProcessor(int id) {
+	XrProcessor *proc = malloc(sizeof(XrProcessor));
+
+	if (!proc) {
+		fprintf(stderr, "failed to allocate cpu %d\n", id);
+		exit(1);
+	}
+
+	XrInitializeSchedulable(&proc->Schedulable, &XrProcessorSchedule, &XrProcessorStartTimeslice, proc);
+
+	XrProcessorTable[id] = proc;
+	proc->Id = id;
+	proc->TimerInterruptCounter = 0;
+	proc->CyclesThisRound = 0;
+
+	proc->IblockFreeList = 0;
+	proc->PtableFreeList = 0;
+	proc->VpageFreeList = 0;
+
+	InitializeList(&proc->IblockLruList);
+
+	for (int i = 0; i < XR_IBLOCK_HASH_BUCKETS; i++) {
+		InitializeList(&proc->IblockHashBuckets[i]);
+	}
+
+	for (int i = 0; i < XR_VPN_BUCKETS; i++) {
+		InitializeList(&proc->VpageHashBuckets[i]);
+	}
+
+	XrIblock *iblocks = malloc(sizeof(XrIblock) * XR_IBLOCK_COUNT);
+
+	if (!iblocks) {
+		fprintf(stderr, "failed to allocate iblocks for cpu %d\n", id);
+		exit(1);
+	}
+
+	for (int i = 0; i < XR_IBLOCK_COUNT; i++) {
+		iblocks->HashEntry.Next = (void *)proc->IblockFreeList;
+		proc->IblockFreeList = iblocks;
+
+		iblocks++;
+	}
+
+	XrJalrPredictionTable *ptable = malloc(sizeof(XrJalrPredictionTable) * XR_IBLOCK_COUNT);
+
+	if (!ptable) {
+		fprintf(stderr, "failed to allocate ptables for cpu %d\n", id);
+		exit(1);
+	}
+
+	for (int i = 0; i < XR_IBLOCK_COUNT; i++) {
+		ptable->Iblocks[0] = (void *)proc->PtableFreeList;
+		proc->PtableFreeList = ptable;
+
+		ptable++;
+	}
+
+	XrVirtualPage *vpage = malloc(sizeof(XrVirtualPage) * XR_IBLOCK_COUNT);
+
+	if (!vpage) {
+		fprintf(stderr, "failed to allocate virtual page trackers for cpu %d\n", id);
+		exit(1);
+	}
+
+	for (int i = 0; i < XR_IBLOCK_COUNT; i++) {
+		vpage->VpnHashEntry.Next = (void *)proc->VpageFreeList;
+		proc->VpageFreeList = vpage;
+
+		InitializeList(&vpage->IblockVpnList);
+
+		vpage++;
+	}
+
+	XrReset(proc);
+
+#ifndef SINGLE_THREAD_MP
+#if XR_SIMULATE_CACHES
+	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
+		XrInitializeMutex(&proc->CacheMutexes[i]);
+	}
+#endif
+
+	XrInitializeMutex(&proc->InterruptLock);
+#endif
+}
+
+void XrInitializeProcessors(void) {
+#if XR_SIMULATE_CACHES
+	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
+		XrInitializeMutex(&ScacheMutexes[i]);
+	}
+#endif
+
+#if defined(FASTMEMORY) && !defined(SINGLE_THREAD_MP)
+	for (int i = 0; i < XR_CLAIM_TABLE_SIZE; i++) {
+		XrInitializeMutex(&XrClaimTable[i].Lock);
+	}
+#endif
+
+	XrSchedulableProcessorIndex = XrSchedulableCount;
+
+	for (int id = 0; id < XrProcessorCount; id++) {
+		XrInitializeProcessor(id);
+	}
 }

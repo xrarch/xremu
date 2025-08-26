@@ -40,6 +40,7 @@ CFILES = src/main.c \
 	src/screen.c src/screen.h \
 	src/text.c src/text.h \
 	src/tty.c src/tty.h \
+	src/scheduler.c src/scheduler.h \
 	src/dbg.c
 
 $(TARGET): $(CFILES)

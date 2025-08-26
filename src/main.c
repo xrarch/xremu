@@ -28,317 +28,12 @@
 #include "tty.h"
 #include "lsic.h"
 
-int XrSchedulableCount = 0;
-int XrSchedulableProcessorIndex;
-
-XrSchedulable *XrSchedulableTable[XR_SCHEDULABLE_MAX];
-XrProcessor *CpuTable[XR_PROC_MAX];
-
-#if XR_SIMULATE_CACHES && !SINGLE_THREAD_MP
-
-XrMutex ScacheMutexes[XR_CACHE_MUTEXES];
-
-#endif
-
-uint32_t SimulatorHz = 20000000;
-
 bool RAMDumpOnExit = false;
 bool KinnowDumpOnExit = false;
-
-int XrProcessorCount = 1;
-int CpuThreadCount = 0;
 
 bool done = false;
 
 bool Headless = false;
-
-#define CPUSTEPMS 17 // 60Hz rounded up
-
-void XrSchedule(XrSchedulable *schedulable) {
-	XrProcessor *proc = schedulable->Context;
-
-	int cyclesperms = (SimulatorHz+999)/1000;
-
-	while (schedulable->Timeslice > 0) {
-		if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
-			// Interval timer ran down, send self the interrupt.
-			// We do this from the context of each cpu thread so that we get
-			// accurate amounts of CPU time between each tick.
-
-			LsicInterruptTargeted(proc, 2);
-
-			proc->TimerInterruptCounter = 0;
-		}
-
-		if (proc->Id == 0) {
-			// The zeroth thread also does the RTC intervals, once per
-			// millisecond of CPU time. 
-
-			RTCUpdateRealTime();
-		}
-
-		int realcycles = XrExecuteFast(proc, cyclesperms, 1);
-
-		proc->CyclesThisRound += realcycles;
-
-		if (proc->CyclesThisRound >= cyclesperms) {
-			// A millisecond worth of cycles has been executed, so
-			// decrement the timeslice and advance the timer interrupt
-			// counter.
-
-			proc->CyclesThisRound -= cyclesperms;
-			schedulable->Timeslice -= 1;
-			proc->TimerInterruptCounter += 1;
-		}
-
-		if (proc->PauseCalls >= XR_PAUSE_MAX || proc->Halted || proc->Progress <= 0) {
-			// Halted or paused. Advance to next CPU.
-
-			proc->PauseCalls = 0;
-
-			break;
-		}
-	}
-}
-
-void XrStartTimeslice(XrSchedulable *schedulable, int dt) {
-	XrProcessor *proc = schedulable->Context;
-
-	proc->Progress = XR_POLL_MAX;
-	proc->PauseCalls = 0;
-	proc->CyclesThisRound = 0;
-
-	schedulable->Timeslice += dt;
-
-	if (schedulable->Timeslice >= CPUSTEPMS * 50) {
-		// The CPU has too much pending time. The threads are running
-		// behind; they can't keep up with the simulated workload. Reset
-		// the timeslice to avoid the threads running infinitely and
-		// burning someone's lap.
-
-		schedulable->Timeslice = CPUSTEPMS;
-	}
-}
-
-void *CpuLoop(void *context) {
-	uintptr_t id = (uintptr_t)context;
-
-	// Execute CPU time from each CPU in sequence, until all timeslices have run
-	// down.
-
-	int startschedid = XrSchedulableProcessorIndex + (id * (XrProcessorCount / CpuThreadCount));
-
-	while (1) {
-		// Wait until the next frame.
-
-		XrWaitSemaphore(&CpuTable[id]->LoopSemaphore);
-
-		// Start the processor ID at the preferred ID. This will make it so the
-		// same threads preferentially execute the same couple of processors,
-		// which will improve cache affinity.
-
-		int schedid = startschedid;
-
-		// Iterate over the CPUs in a cycle until all of the virtual CPU time
-		// for this frame, of which each CPU gets ~17ms worth, has been
-		// executed. For example, at 20MHz each CPU will get 20MHz * 17ms =
-		// 340,000 simulated cycles each frame. The CPU execution is aligned to
-		// frames in order to give meaning to the vblank interrupt and make user
-		// input feel smooth.
-		//
-		// Multiple threads may execute this work loop simultaneously, to
-		// distribute guest workload over host cores (the default, as of
-		// writing, is half as many host threads as guest CPUs).
-		//
-		// We increment the "done" count when a CPU's timeslice has dropped to
-		// zero and break out of the loop when all of the CPUs are done.
-		//
-		// We skip to the next CPU early, without incrementing the done count,
-		// if a CPU executes the HLT instruction or many PAUSE instructions.
-		//
-		// If it executes HLT, it gives up the remainder of its virtual
-		// millisecond because it has reached an idle point and has no work to
-		// do. It will still be iterated over for each remaining millisecond in
-		// its timeslice in case the timer interrupt needs to be handled (which
-		// would un-halt it) or an IPI is received from another CPU.
-		//
-		// If it executes many PAUSE instructions, it does not give up the
-		// remainder of its virtual millisecond; the remaining cycles are
-		// credited to it for the next iteration. This is because it does have
-		// work to do, it's just spin-waiting for another CPU to do something
-		// (i.e. unlock a spinlock, acknowledge an IPI, etc...) before it can
-		// proceed. We skip to the next CPU early, in the hopes that happens
-		// and it can be freed from its spin-wait by the time the next iteration
-		// rolls around.
-
-		for (int done = 0; done < XrSchedulableCount; schedid = (schedid + 1) % XrSchedulableCount) {
-			XrSchedulable *schedulable = XrSchedulableTable[schedid];
-
-			// Trylock the CPU's run lock. Cache it first because it might
-			// change.
-
-retry:;
-
-			XrMutex *runlock = schedulable->RunLock;
-
-			if (!XrTryLockMutex(runlock)) {
-				// Failed to lock it. This means another thread is executing
-				// this CPU. Don't increment the done count because there's
-				// an invariant that thread count <= cpu count, so we're
-				// guaranteed to be able to grab one eventually if we just keep
-				// looping.
-
-				continue;
-			}
-
-			if (schedulable->Timeslice <= 0) {
-				XrUnlockMutex(runlock);
-				done++;
-				continue;
-			}
-
-directnext:
-
-			done = 0;
-
-			if (runlock != &schedulable->InherentRunLock) {
-				XrLockMutex(&schedulable->InherentRunLock);
-
-				if (runlock != schedulable->RunLock) {
-					// The runlock changed, so try again.
-
-					XrUnlockMutex(&schedulable->InherentRunLock);
-					XrUnlockMutex(runlock);
-
-					goto retry;
-				}
-			}
-
-			schedulable->Func(schedulable);
-
-			if (runlock != &schedulable->InherentRunLock) {
-				XrUnlockMutex(&schedulable->InherentRunLock);
-			}
-
-			if (schedulable->Timeslice <= 0) {
-				done++;
-			}
-
-			if (schedulable->Next) {
-				// There's a preferred next schedulable to run.
-				// We can do this without releasing the current runlock because
-				// its runlock has been set to the same as ours. This is useful
-				// for atomically scheduling a processor together with a disk
-				// that it is waiting for, which greatly improves the latency
-				// simulation when there are multiple scheduling threads.
-
-				XrSchedulable *next = schedulable->Next;
-				schedulable->Next = 0;
-
-				if (runlock == next->RunLock && next->Timeslice > 0) {
-					schedulable = next;
-					goto directnext;
-				}
-			}
-
-			XrUnlockMutex(runlock);
-		}
-	}
-}
-
-void CpuInitialize(int id) {
-	XrProcessor *proc = malloc(sizeof(XrProcessor));
-
-	if (!proc) {
-		fprintf(stderr, "failed to allocate cpu %d\n", id);
-		exit(1);
-	}
-
-	XrInitializeSchedulable(&proc->Schedulable, &XrSchedule, &XrStartTimeslice, proc);
-
-	CpuTable[id] = proc;
-	proc->Id = id;
-	proc->TimerInterruptCounter = 0;
-	proc->CyclesThisRound = 0;
-
-	proc->IblockFreeList = 0;
-	proc->PtableFreeList = 0;
-	proc->VpageFreeList = 0;
-
-	InitializeList(&proc->IblockLruList);
-
-	for (int i = 0; i < XR_IBLOCK_HASH_BUCKETS; i++) {
-		InitializeList(&proc->IblockHashBuckets[i]);
-	}
-
-	for (int i = 0; i < XR_VPN_BUCKETS; i++) {
-		InitializeList(&proc->VpageHashBuckets[i]);
-	}
-
-	XrIblock *iblocks = malloc(sizeof(XrIblock) * XR_IBLOCK_COUNT);
-
-	if (!iblocks) {
-		fprintf(stderr, "failed to allocate iblocks for cpu %d\n", id);
-		exit(1);
-	}
-
-	for (int i = 0; i < XR_IBLOCK_COUNT; i++) {
-		iblocks->HashEntry.Next = (void *)proc->IblockFreeList;
-		proc->IblockFreeList = iblocks;
-
-		iblocks++;
-	}
-
-	XrJalrPredictionTable *ptable = malloc(sizeof(XrJalrPredictionTable) * XR_IBLOCK_COUNT);
-
-	if (!ptable) {
-		fprintf(stderr, "failed to allocate ptables for cpu %d\n", id);
-		exit(1);
-	}
-
-	for (int i = 0; i < XR_IBLOCK_COUNT; i++) {
-		ptable->Iblocks[0] = (void *)proc->PtableFreeList;
-		proc->PtableFreeList = ptable;
-
-		ptable++;
-	}
-
-	XrVirtualPage *vpage = malloc(sizeof(XrVirtualPage) * XR_IBLOCK_COUNT);
-
-	if (!vpage) {
-		fprintf(stderr, "failed to allocate virtual page trackers for cpu %d\n", id);
-		exit(1);
-	}
-
-	for (int i = 0; i < XR_IBLOCK_COUNT; i++) {
-		vpage->VpnHashEntry.Next = (void *)proc->VpageFreeList;
-		proc->VpageFreeList = vpage;
-
-		InitializeList(&vpage->IblockVpnList);
-
-		vpage++;
-	}
-
-	XrReset(proc);
-
-#ifndef SINGLE_THREAD_MP
-#if XR_SIMULATE_CACHES
-	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
-		XrInitializeMutex(&proc->CacheMutexes[i]);
-	}
-#endif
-
-	XrInitializeSemaphore(&proc->LoopSemaphore, 0);
-
-	XrInitializeMutex(&proc->InterruptLock);
-#endif
-}
-
-void CpuCreate(uintptr_t id) {
-	pthread_t garbagecan;
-
-	pthread_create(&garbagecan, NULL, &CpuLoop, (void *)id);
-}
 
 extern void TLBDump(void);
 extern void DbgInit(void);
@@ -356,6 +51,7 @@ int main(int argc, char *argv[]) {
 	SDL_EnableScreenSaver();
 
 	uint32_t memsize = 4 * 1024 * 1024;
+	int threads = 0;
 
 #ifndef EMSCRIPTEN
 	for (int i = 1; i < argc; i++) {
@@ -415,7 +111,7 @@ int main(int argc, char *argv[]) {
 
 		} else if (strcmp(argv[i], "-cpuhz") == 0) {
 			if (i+1 < argc) {
-				SimulatorHz = atoi(argv[i+1]);
+				XrProcessorFrequency = atoi(argv[i+1]);
 				i++;
 			} else {
 				fprintf(stderr, "no frequency specified\n");
@@ -464,7 +160,7 @@ int main(int argc, char *argv[]) {
 
 		} else if (strcmp(argv[i], "-threads") == 0) {
 			if (i+1 < argc) {
-				CpuThreadCount = atoi(argv[i+1]);
+				threads = atoi(argv[i+1]);
 				i++;
 			} else {
 				fprintf(stderr, "no thread count specified\n");
@@ -516,35 +212,17 @@ int main(int argc, char *argv[]) {
 
 	done = false;
 
-#if XR_SIMULATE_CACHES
-	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
-		XrInitializeMutex(&ScacheMutexes[i]);
-	}
-#endif
-
-#if defined(FASTMEMORY) && !defined(SINGLE_THREAD_MP)
-	for (int i = 0; i < XR_CLAIM_TABLE_SIZE; i++) {
-		XrInitializeMutex(&XrClaimTable[i].Lock);
-	}
-#endif
-
-	XrSchedulableProcessorIndex = XrSchedulableCount;
-
-	for (int i = 0; i < XrProcessorCount; i++) {
-		CpuInitialize(i);
-	}
+	XrInitializeProcessors();
 
 #ifndef SINGLE_THREAD_MP
-	if (CpuThreadCount > XrProcessorCount || CpuThreadCount == 0) {
-		CpuThreadCount = (XrProcessorCount + 1) / 2;
+	if (threads > XrProcessorCount || threads == 0) {
+		threads = (XrProcessorCount + 1) / 2;
 	}
 #else
-	CpuThreadCount = 1;
+	threads = 1;
 #endif
 
-	for (int i = 0; i < CpuThreadCount; i++) {
-		CpuCreate(i);
-	}
+	XrInitializeScheduler(threads);
 
 	int tick_end = 0;
 	int tick_start = 0;
@@ -570,13 +248,7 @@ int main(int argc, char *argv[]) {
 		// completion or spinlock release just because the other CPU's host
 		// thread is asleep waiting for its next timeslice.
 
-		for (int i = 0; i < XrSchedulableCount; i++) {
-			XrSchedulableTable[i]->StartTimeslice(XrSchedulableTable[i], tick_after_draw - tick_end);
-		}
-
-		for (int i = 0; i < CpuThreadCount; i++) {
-			XrPostSemaphore(&CpuTable[i]->LoopSemaphore);
-		}
+		XrScheduleItems(tick_after_draw - tick_end);
 
 		tick_end = SDL_GetTicks();
 		int delay = 1000/FPS - (tick_end - tick_start);

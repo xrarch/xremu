@@ -199,7 +199,7 @@ int ScreenProcessEvents() {
 					IsAltDown = true;
 				} else if (event.key.keysym.scancode == SDL_SCANCODE_TAB && IsAltDown) {
 					// alt-tab means NMI
-					CpuTable[0]->UserBreak = 1;
+					XrProcessorTable[0]->UserBreak = 1;
 				} else if (event.key.keysym.scancode == SDL_SCANCODE_F1 && IsAltDown) {
 					// alt-f1 means screenshot
 					KinnowDump();
