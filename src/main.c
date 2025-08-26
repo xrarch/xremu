@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
 	SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "1");
 	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0"); // 0: point, 1 = linear
 
-	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
+	if (SDL_Init(SDL_INIT_VIDEO) != 0) {
 		fprintf(stderr, "Unable to initialize SDL: %s", SDL_GetError());
 		return 1;
 	}
@@ -174,6 +174,21 @@ int main(int argc, char *argv[]) {
 	}
 #endif // !EMSCRIPTEN
 
+	if (XrProcessorCount <= 0 || XrProcessorCount > XR_PROC_MAX) {
+		fprintf(stderr, "Bad processor count %d, should be between 1 and %d\n", XrProcessorCount, XR_PROC_MAX);
+		return 1;
+	}
+
+#ifndef SINGLE_THREAD_MP
+	if (threads > XrProcessorCount || threads == 0) {
+		threads = (XrProcessorCount + 1) / 2;
+	}
+#else
+	threads = 1;
+#endif
+
+	XrInitializeScheduler(threads);
+
 	if (!Headless) {
 		ScreenCreate(KINNOW_FRAMEBUFFER_WIDTH,
 					KINNOW_FRAMEBUFFER_HEIGHT,
@@ -188,11 +203,6 @@ int main(int argc, char *argv[]) {
 
 	if (EBusInit(memsize)) {
 		fprintf(stderr, "failed to initialize ebus\n");
-		return 1;
-	}
-
-	if (XrProcessorCount <= 0 || XrProcessorCount > XR_PROC_MAX) {
-		fprintf(stderr, "Bad processor count %d, should be between 1 and %d\n", XrProcessorCount, XR_PROC_MAX);
 		return 1;
 	}
 
@@ -214,15 +224,7 @@ int main(int argc, char *argv[]) {
 
 	XrInitializeProcessors();
 
-#ifndef SINGLE_THREAD_MP
-	if (threads > XrProcessorCount || threads == 0) {
-		threads = (XrProcessorCount + 1) / 2;
-	}
-#else
-	threads = 1;
-#endif
-
-	XrInitializeScheduler(threads);
+	XrStartScheduler();
 
 	int tick_end = 0;
 	int tick_start = 0;
@@ -248,7 +250,7 @@ int main(int argc, char *argv[]) {
 		// completion or spinlock release just because the other CPU's host
 		// thread is asleep waiting for its next timeslice.
 
-		XrScheduleItems(tick_after_draw - tick_end);
+		XrScheduleAllNextFrameWork(tick_after_draw - tick_end);
 
 		tick_end = SDL_GetTicks();
 		int delay = 1000/FPS - (tick_end - tick_start);

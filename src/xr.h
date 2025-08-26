@@ -261,7 +261,6 @@ struct _XrProcessor {
 #if XR_SIMULATE_CACHES
 	XrMutex CacheMutexes[XR_CACHE_MUTEXES];
 #endif
-	XrSemaphore LoopSemaphore;
 	XrMutex InterruptLock;
 
 	XrIblock *IblockFreeList;

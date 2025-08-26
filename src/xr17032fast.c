@@ -3162,7 +3162,9 @@ void XrProcessorSchedule(XrSchedulable *schedulable) {
 
 	int cyclesperms = (XrProcessorFrequency+999)/1000;
 
-	while (schedulable->Timeslice > 0) {
+	int timeslice = schedulable->Timeslice;
+
+	while (timeslice > 0) {
 		if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
 			// Interval timer ran down, send self the interrupt.
 			// We do this from the context of each cpu thread so that we get
@@ -3190,7 +3192,7 @@ void XrProcessorSchedule(XrSchedulable *schedulable) {
 			// counter.
 
 			proc->CyclesThisRound -= cyclesperms;
-			schedulable->Timeslice -= 1;
+			timeslice -= 1;
 			proc->TimerInterruptCounter += 1;
 		}
 
@@ -3201,6 +3203,14 @@ void XrProcessorSchedule(XrSchedulable *schedulable) {
 
 			break;
 		}
+	}
+
+	schedulable->Timeslice = timeslice;
+
+	if (timeslice == 0) {
+		XrScheduleWorkForNextFrame(schedulable, 0);
+	} else {
+		XrScheduleWork(schedulable);
 	}
 }
 
@@ -3307,6 +3317,8 @@ void XrInitializeProcessor(int id) {
 
 	XrInitializeMutex(&proc->InterruptLock);
 #endif
+
+	XrScheduleWorkForNextFrame(&proc->Schedulable, 0);
 }
 
 void XrInitializeProcessors(void) {
@@ -3321,8 +3333,6 @@ void XrInitializeProcessors(void) {
 		XrInitializeMutex(&XrClaimTable[i].Lock);
 	}
 #endif
-
-	XrSchedulableProcessorIndex = XrSchedulableCount;
 
 	for (int id = 0; id < XrProcessorCount; id++) {
 		XrInitializeProcessor(id);

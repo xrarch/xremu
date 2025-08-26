@@ -142,6 +142,9 @@ void DKSSchedule(XrSchedulable *schedulable) {
 	DKSDisk *disk = schedulable->Context;
 	uint32_t id = disk->ID;
 
+	int timeslice = schedulable->Timeslice;
+	int enqueue = 0;
+
 	XrLockMutex(&ControllerMutex);
 
 	// Note that the conditional disk->Completing avoids a race
@@ -157,13 +160,13 @@ void DKSSchedule(XrSchedulable *schedulable) {
 			disk->PlatterLocation %= disk->SectorsPerTrack;
 		}
 
-		schedulable->Timeslice = 0;
+		timeslice = 0;
 	} else if (schedulable->Timeslice >= disk->OperationInterval) {
 		// There is sufficient time to satisfy the current operation.
 
 		// printf("sufficient %d %d\n", disk->OperationInterval, schedulable->Timeslice);
 
-		schedulable->Timeslice -= disk->OperationInterval;
+		timeslice -= disk->OperationInterval;
 
 		DKSCompleteTransfer(disk);
 	} else {
@@ -172,10 +175,14 @@ void DKSSchedule(XrSchedulable *schedulable) {
 		// printf("insufficient %d %d\n", disk->OperationInterval, schedulable->Timeslice);
 
 		disk->OperationInterval -= schedulable->Timeslice;
-		schedulable->Timeslice = 0;
+		timeslice = 0;
+
+		XrScheduleWorkForNextFrame(schedulable, 1);
 	}
 
 	XrUnlockMutex(&ControllerMutex);
+
+	schedulable->Timeslice = timeslice;
 }
 
 void DKSSeek() {
@@ -249,7 +256,7 @@ void DKSSeek() {
 	}
 }
 
-int DKSDispatchIO(uint32_t type) {
+int DKSDispatchIO(uint32_t type, XrProcessor *proc) {
 	DKSDisk *disk = DKSSelectedDrive;
 
 	if (!disk) {
@@ -293,6 +300,11 @@ int DKSDispatchIO(uint32_t type) {
 		// Immediately complete the operation.
 
 		DKSCompleteTransfer(disk);
+	} else {
+		// Associate the disk work with the requesting processor's work so that
+		// latency simulation works out better.
+
+		XrScheduleWorkBorrow(&proc->Schedulable, &disk->Schedulable);
 	}
 
 	return EBUSSUCCESS;
@@ -300,8 +312,6 @@ int DKSDispatchIO(uint32_t type) {
 
 int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 	int status;
-
-	DKSDisk *setrunlock = 0;
 
 	XrLockMutex(&ControllerMutex);
 
@@ -321,23 +331,13 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 		case 2:
 			// read sectors
 
-			status = DKSDispatchIO(DKS_READ);
-
-			if (status == EBUSSUCCESS) {
-				setrunlock = DKSSelectedDrive;
-			}
-
+			status = DKSDispatchIO(DKS_READ, proc);
 			break;
 
 		case 3:
 			// write sectors
 
-			status = DKSDispatchIO(DKS_WRITE);
-
-			if (status == EBUSSUCCESS) {
-				setrunlock = DKSSelectedDrive;
-			}
-
+			status = DKSDispatchIO(DKS_WRITE, proc);
 			break;
 
 		case 4:
@@ -406,24 +406,6 @@ int DKSWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 	}
 
 	XrUnlockMutex(&ControllerMutex);
-
-	if (setrunlock) {
-		// We decided to set the disk's runlock reference to point to that of
-		// the current processor. This has the effect of tending to claim the
-		// simulation of the disk latency for the thread currently simulating
-		// the processor that initiates a request, which improves latency
-		// simulation when there are multiple simulation threads.
-
-		((XrProcessor *)proc)->Schedulable.Next = &DKSSelectedDrive->Schedulable;
-
-		if (setrunlock->Schedulable.RunLock != ((XrProcessor *)proc)->Schedulable.RunLock) {
-			XrLockMutex(&setrunlock->Schedulable.InherentRunLock);
-
-			DKSSelectedDrive->Schedulable.RunLock = ((XrProcessor *)proc)->Schedulable.RunLock;
-
-			XrUnlockMutex(&setrunlock->Schedulable.InherentRunLock);
-		}
-	}
 
 	return status;
 }

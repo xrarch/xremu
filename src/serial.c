@@ -55,6 +55,7 @@ typedef struct _SerialPort {
 	int ReceiveRemaining;
 
 	int Number;
+	int Enqueued;
 
 #ifndef EMSCRIPTEN
 	int RXFile;
@@ -146,20 +147,20 @@ void SerialInterval(uint32_t dt) {
 void SerialSchedule(XrSchedulable *schedulable) {
 	SerialPort *port = schedulable->Context;
 
+	int timeslice = schedulable->Timeslice;
+
 	XrLockMutex(&port->Tty->Mutex);
 
 	if (port->Cost) {
-		if (port->Cost < schedulable->Timeslice) {
-			schedulable->Timeslice -= port->Cost;
+		if (port->Cost < timeslice) {
+			timeslice -= port->Cost;
 			port->Cost = 0;
 		} else {
-			port->Cost -= schedulable->Timeslice;
-			schedulable->Timeslice = 0;
+			port->Cost -= timeslice;
+			timeslice = 0;
 		}
 
-		XrUnlockMutex(&port->Tty->Mutex);
-
-		return;
+		goto exit;
 	}
 
 	int pending = port->TransmitBufferIndex - port->SendIndex;
@@ -172,7 +173,7 @@ void SerialSchedule(XrSchedulable *schedulable) {
 		pending = CHARS_PER_SCHEDULE;
 	}
 
-	schedulable->Timeslice -= pending;
+	timeslice -= pending;
 
 	for (int i = 0; i < pending; i++) {
 		if (port->SendIndex < port->TransmitBufferIndex) {
@@ -192,19 +193,23 @@ void SerialSchedule(XrSchedulable *schedulable) {
 		}
 	}
 
-	XrUnlockMutex(&port->Tty->Mutex);
-}
+exit:
 
-void SerialStartTimeslice(XrSchedulable *schedulable, int dt) {
-	SerialPort *port = schedulable->Context;
-
-	XrLockMutex(&port->Tty->Mutex);
-
-	if ((port->TransmitBufferIndex - port->SendIndex) || (port->Cost)) {
-		schedulable->Timeslice = dt;
+	if (!timeslice && (port->Cost || (port->TransmitBufferIndex - port->SendIndex))) {
+		XrScheduleWorkForNextFrame(schedulable, 1);
+	} else if (timeslice && (port->Cost || (port->TransmitBufferIndex - port->SendIndex))) {
+		XrScheduleWork(schedulable);
+	} else {
+		port->Enqueued = 0;
 	}
 
 	XrUnlockMutex(&port->Tty->Mutex);
+
+	schedulable->Timeslice = timeslice;
+}
+
+void SerialStartTimeslice(XrSchedulable *schedulable, int dt) {
+	schedulable->Timeslice = dt;
 }
 
 int SerialWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
@@ -293,6 +298,11 @@ int SerialWriteData(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 		thisport->WriteBusy = true;
 	}
 
+	if (!thisport->Enqueued) {
+		thisport->Enqueued = 1;
+		XrScheduleWorkBorrow(&((XrProcessor *)proc)->Schedulable, &thisport->Schedulable);
+	}
+
 exit:
 
 	XrUnlockMutex(&thisport->Tty->Mutex);
@@ -379,6 +389,7 @@ int SerialInit(int num) {
 
 	port->ReceiveRemaining = RECEIVE_BUFFER_SIZE;
 	port->Number = num;
+	port->Enqueued = 0;
 
 #ifndef EMSCRIPTEN
 	if ((num == 1) && SerialTXFile) {
