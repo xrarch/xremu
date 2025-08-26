@@ -3209,8 +3209,10 @@ void XrProcessorSchedule(XrSchedulable *schedulable) {
 
 	if (timeslice == 0) {
 		XrScheduleWorkForNextFrame(schedulable, 0);
+	} else if (proc->Halted) {
+		XrScheduleWorkForMe(schedulable, schedulable);
 	} else {
-		XrScheduleWork(schedulable);
+		XrScheduleWorkForAny(schedulable);
 	}
 }
 
@@ -3324,7 +3326,7 @@ void XrInitializeProcessor(int id) {
 void XrInitializeProcessors(void) {
 #if XR_SIMULATE_CACHES
 	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
-		XrInitializeMutex(&ScacheMutexes[i]);
+		XrInitializeMutex(&XrScacheMutexes[i]);
 	}
 #endif
 

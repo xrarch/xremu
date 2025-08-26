@@ -114,7 +114,7 @@ typedef struct _XrClaimTableEntry {
 	uint8_t ClaimedBy;
 } XrClaimTableEntry;
 
-#define XR_CLAIM_TABLE_SIZE 256
+#define XR_CLAIM_TABLE_SIZE 16384
 
 extern XrClaimTableEntry XrClaimTable[XR_CLAIM_TABLE_SIZE];
 

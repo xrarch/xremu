@@ -371,7 +371,7 @@ static inline void XrDowngradeAll(XrProcessor *thisproc, uint32_t tag, uint32_t 
 	// Invalidate a Dcache line in all processors except the one provided.
 
 	for (int i = 0; i < XrProcessorCount; i++) {
-		XrProcessor *proc = CpuTable[i];
+		XrProcessor *proc = XrProcessorTable[i];
 
 		if (proc == thisproc) {
 			continue;
@@ -428,7 +428,7 @@ static inline uint32_t XrFindOrReplaceInScache(XrProcessor *thisproc, uint32_t t
 
 			DBGPRINT("scache steal from exclusive %x\n", oldtag);
 
-			XrDowngradeLine(CpuTable[XrScacheExclusiveIds[cacheindex]], oldtag, XR_LINE_INVALID);
+			XrDowngradeLine(XrProcessorTable[XrScacheExclusiveIds[cacheindex]], oldtag, XR_LINE_INVALID);
 		}
 
 		// Mark invalid for the time where we have no tags locked.
@@ -625,7 +625,7 @@ restart:
 
 				DBGPRINT("steal exclusive on write upgrade %x\n", tag);
 
-				XrDowngradeLine(CpuTable[XrScacheExclusiveIds[scacheindex]], tag, XR_LINE_INVALID);
+				XrDowngradeLine(XrProcessorTable[XrScacheExclusiveIds[scacheindex]], tag, XR_LINE_INVALID);
 			}
 
 			// Set the new cache states.
@@ -695,7 +695,7 @@ restart:
 
 			DBGPRINT("remove exclusive %x after miss\n", tag);
 
-			XrDowngradeLine(CpuTable[XrScacheExclusiveIds[scacheindex]], tag, (dest == 0) ? XR_LINE_INVALID : XR_LINE_SHARED);
+			XrDowngradeLine(XrProcessorTable[XrScacheExclusiveIds[scacheindex]], tag, (dest == 0) ? XR_LINE_INVALID : XR_LINE_SHARED);
 
 		} else if (dest == 0 && XrScacheFlags[scacheindex] == XR_LINE_SHARED) {
 			// We're writing and this line was shared. We have to invalidate it

@@ -304,7 +304,7 @@ int DKSDispatchIO(uint32_t type, XrProcessor *proc) {
 		// Associate the disk work with the requesting processor's work so that
 		// latency simulation works out better.
 
-		XrScheduleWorkBorrow(&proc->Schedulable, &disk->Schedulable);
+		XrScheduleWorkForMe(&proc->Schedulable, &disk->Schedulable);
 	}
 
 	return EBUSSUCCESS;

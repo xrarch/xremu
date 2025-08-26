@@ -13,9 +13,10 @@ XrSemaphore XrSchedulerSemaphore;
 
 int XrSchedulingThreadCount = 0;
 
-typedef struct _XrSchedulingThread {
+struct _XrSchedulingThread {
 	pthread_t Pthread;
-} XrSchedulingThread;
+	XrSchedulable *Next;
+};
 
 // There can't be more scheduling threads than processors so that should be the
 // maximum size of the table.
@@ -46,11 +47,19 @@ static inline XrSchedulable *XrPopSchedulerWork(XrSchedulingThread *thread) {
 
 		XrUnlockMutex(&XrSchedulerWorkListMutex);
 
+		work->PreferredThread = thread;
+
 		return work;
 	}
 }
 
-void XrScheduleWork(XrSchedulable *work) {
+void XrScheduleWorkForAny(XrSchedulable *work) {
+	if (work->Enqueued) {
+		return;
+	}
+
+	work->Enqueued = 1;
+
 	XrLockMutex(&XrSchedulerWorkListMutex);
 
 	InsertAtTailList(&XrSchedulerWorkList, &work->WorkEntry);
@@ -61,6 +70,12 @@ void XrScheduleWork(XrSchedulable *work) {
 }
 
 void XrScheduleWorkForNextFrame(XrSchedulable *work, int front) {
+	if (work->Enqueued) {
+		return;
+	}
+
+	work->Enqueued = 1;
+
 	XrLockMutex(&XrSchedulerNextFrameListMutex);
 
 	if (front) {
@@ -72,9 +87,15 @@ void XrScheduleWorkForNextFrame(XrSchedulable *work, int front) {
 	XrUnlockMutex(&XrSchedulerNextFrameListMutex);
 }
 
-void XrScheduleWorkBorrow(XrSchedulable *after, XrSchedulable *work) {
-	work->Next = after->Next;
-	after->Next = work;
+void XrScheduleWorkForMe(XrSchedulable *after, XrSchedulable *work) {
+	if (work->Enqueued) {
+		return;
+	}
+
+	work->Enqueued = 1;
+
+	work->Next = after->PreferredThread->Next;
+	after->PreferredThread->Next = work;
 }
 
 void *XrSchedulerLoop(void *context) {
@@ -89,13 +110,21 @@ void *XrSchedulerLoop(void *context) {
 
 	while (1) {
 		if (!work) {
-			work = XrPopSchedulerWork(thread);
+			work = thread->Next;
+			thread->Next = 0;
+
+			if (!work) {
+				work = XrPopSchedulerWork(thread);
+			}
 		}
 
-		work->Func(work);
+		work->Enqueued = 0;
 
 		XrSchedulable *next = work->Next;
 		work->Next = 0;
+
+		work->Func(work);
+
 		work = next;
 	}
 }
@@ -115,6 +144,8 @@ void XrInitializeScheduler(int threads) {
 void XrStartScheduler(void) {
 	for (uintptr_t id = 0; id < XrSchedulingThreadCount; id++) {
 		XrSchedulingThread *thread = &XrSchedulingThreadTable[id];
+
+		thread->Next = 0;
 
 		pthread_create(&thread->Pthread, NULL, &XrSchedulerLoop, (void *)id);
 	}
@@ -163,7 +194,9 @@ void XrScheduleAllNextFrameWork(int dt) {
 
 		XrSchedulable *work = ContainerOf(listentry, XrSchedulable, WorkEntry);
 
-		XrScheduleWork(work);
+		work->Enqueued = 0;
+
+		XrScheduleWorkForAny(work);
 
 		listentry = next;
 	}

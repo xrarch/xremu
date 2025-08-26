@@ -1,9 +1,19 @@
+// NOTE: The simple "claim table" mechanism used for implementing LL/SC is
+//       AWFUL! The cache simulation vastly outperforms it because of the
+//       localization of the LL/SC state to the simulated L1 caches of each
+//       virtual processor. Imitating this in a lighter-weight form that only
+//       gets involved in the LL/SC codepaths is probably the best way to go
+//       to make sure FASTMEMORY is actually FAST. Think of a "two-level claim
+//       table".
+
 XrClaimTableEntry XrClaimTable[XR_CLAIM_TABLE_SIZE];
+
+#define XR_CLAIM_INDEX(phyaddr) (((phyaddr >> 2) ^ (phyaddr >> 12)) & (XR_CLAIM_TABLE_SIZE - 1))
 
 #ifndef SINGLE_THREAD_MP
 
 static XR_ALWAYS_INLINE uint32_t XrClaimAddress(XrProcessor *proc, uint32_t phyaddr, uint32_t *hostaddr) {
-	XrClaimTableEntry *entry = &XrClaimTable[(phyaddr >> 2) & (XR_CLAIM_TABLE_SIZE - 1)];
+	XrClaimTableEntry *entry = &XrClaimTable[XR_CLAIM_INDEX(phyaddr)];
 
 	XrLockMutex(&entry->Lock);
 
@@ -17,7 +27,11 @@ static XR_ALWAYS_INLINE uint32_t XrClaimAddress(XrProcessor *proc, uint32_t phya
 }
 
 static XR_ALWAYS_INLINE int XrStoreIfClaimed(XrProcessor *proc, uint32_t phyaddr, uint32_t* hostaddr, uint32_t val) {
-	XrClaimTableEntry *entry = &XrClaimTable[(phyaddr >> 2) & (XR_CLAIM_TABLE_SIZE - 1)];
+	XrClaimTableEntry *entry = &XrClaimTable[XR_CLAIM_INDEX(phyaddr)];
+
+	if (entry->ClaimedBy != proc->Id) {
+		return 0;
+	}
 
 	XrLockMutex(&entry->Lock);
 
@@ -304,7 +318,9 @@ static XR_ALWAYS_INLINE int XrAccessWrite(XrProcessor *proc, XrIblock *iblock, u
 			// We can do the access inline directly through the pointer.
 
 			if (sc) {
-				if (!XrStoreIfClaimed(proc, address & 0xFFF, entry->HostPointer + (address & 0xFFF), srcvalue)) {
+				uint32_t phyaddr = ((entry->MatchingDtbe >> 5) << 12) | (address & 0xFFF);
+
+				if (!XrStoreIfClaimed(proc, phyaddr, entry->HostPointer + (address & 0xFFF), srcvalue)) {
 					return 2;
 				} else {
 					return 1;
@@ -359,7 +375,9 @@ static XR_ALWAYS_INLINE int XrAccessRead(XrProcessor *proc, XrIblock *iblock, ui
 			// We can do the access inline directly through the pointer.
 
 			if (ll) {
-				*dest = XrClaimAddress(proc, address & 0xFFF, entry->HostPointer + (address & 0xFFF));
+				uint32_t phyaddr = ((entry->MatchingDtbe >> 5) << 12) | (address & 0xFFF);
+
+				*dest = XrClaimAddress(proc, phyaddr, entry->HostPointer + (address & 0xFFF));
 			} else {
 				CopyWithLengthZext(dest, entry->HostPointer + (address & 0xFFF), length);
 			}

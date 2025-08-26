@@ -198,7 +198,7 @@ exit:
 	if (!timeslice && (port->Cost || (port->TransmitBufferIndex - port->SendIndex))) {
 		XrScheduleWorkForNextFrame(schedulable, 1);
 	} else if (timeslice && (port->Cost || (port->TransmitBufferIndex - port->SendIndex))) {
-		XrScheduleWork(schedulable);
+		XrScheduleWorkForMe(schedulable, schedulable);
 	} else {
 		port->Enqueued = 0;
 	}
@@ -300,7 +300,7 @@ int SerialWriteData(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 
 	if (!thisport->Enqueued) {
 		thisport->Enqueued = 1;
-		XrScheduleWorkBorrow(&((XrProcessor *)proc)->Schedulable, &thisport->Schedulable);
+		XrScheduleWorkForMe(&((XrProcessor *)proc)->Schedulable, &thisport->Schedulable);
 	}
 
 exit:
