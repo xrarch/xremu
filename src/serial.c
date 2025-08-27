@@ -413,9 +413,7 @@ int SerialInit(int num) {
 
 	port->Tty->Context = port;
 
-	if (SerialAsynchronous) {
-		XrInitializeSchedulable(&port->Schedulable, &SerialSchedule, &SerialStartTimeslice, port);
-	}
+	XrInitializeSchedulable(&port->Schedulable, &SerialSchedule, &SerialStartTimeslice, port);
 
 	return 0;
 }

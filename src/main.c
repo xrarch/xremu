@@ -38,6 +38,60 @@ bool Headless = false;
 extern void TLBDump(void);
 extern void DbgInit(void);
 
+int TickEnd = 0;
+int TickStart = 0;
+int TickAfterDraw = 0;
+
+void MainLoop(void) {
+#ifndef EMSCRIPTEN
+	while (!done) {
+#endif
+		TickStart = SDL_GetTicks();
+
+		ScreenDraw();
+		done = ScreenProcessEvents();
+
+		int TickAfterDraw = SDL_GetTicks();
+
+		SerialInterval(TickAfterDraw - TickEnd);
+
+		// Kick all the CPU threads to get them to execute a frame time worth of
+		// CPU simulation. We do this from the frame update thread (the main
+		// thread) so that the execution of all CPUs is synchronized with frame
+		// updates, which makes vblank interrupts useful. It also makes it so
+		// that the CPU threads are (hopefully, assuming the host OS scheduler
+		// is willing) running at around the same time. This is extremely
+		// important for IPI response and spinlocks. It would suck for a
+		// simulated CPU to spend its entire timeslice spinning for IPI
+		// completion or spinlock release just because the other CPU's host
+		// thread is asleep waiting for its next timeslice.
+
+		XrScheduleAllNextFrameWork(TickAfterDraw - TickEnd);
+
+		TickEnd = SDL_GetTicks();
+
+#ifndef EMSCRIPTEN
+		int delay = 1000/FPS - (TickEnd - TickStart);
+
+		if (delay > 0) {
+			SDL_Delay(delay);
+		}
+	}
+
+	NVRAMSave();
+
+	if (RAMDumpOnExit) {
+		RAMDump();
+	}
+
+	if (KinnowDumpOnExit) {
+		KinnowDump();
+	}
+#endif
+
+	// TLBDump();
+}
+
 int main(int argc, char *argv[]) {
 	SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitor");
 	SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "1");
@@ -174,6 +228,10 @@ int main(int argc, char *argv[]) {
 	}
 #endif // !EMSCRIPTEN
 
+#ifdef EMSCRIPTEN
+	XrProcessorCount = 2;
+#endif
+
 	if (XrProcessorCount <= 0 || XrProcessorCount > XR_PROC_MAX) {
 		fprintf(stderr, "Bad processor count %d, should be between 1 and %d\n", XrProcessorCount, XR_PROC_MAX);
 		return 1;
@@ -217,6 +275,7 @@ int main(int argc, char *argv[]) {
 	ROMLoadFile("embin/boot.bin");
 	DKSAttachImage("embin/mintia.img");
 	DKSAttachImage("embin/aisix.img");
+	DKSAttachImage("embin/mintia2.img");
 #endif
 
 	DbgInit();
@@ -230,51 +289,11 @@ int main(int argc, char *argv[]) {
 
 	XrStartScheduler();
 
-	int tick_end = 0;
-	int tick_start = 0;
-
-	while (!done) {
-		tick_start = SDL_GetTicks();
-
-		ScreenDraw();
-		done = ScreenProcessEvents();
-
-		int tick_after_draw = SDL_GetTicks();
-
-		SerialInterval(tick_after_draw - tick_end);
-
-		// Kick all the CPU threads to get them to execute a frame time worth of
-		// CPU simulation. We do this from the frame update thread (the main
-		// thread) so that the execution of all CPUs is synchronized with frame
-		// updates, which makes vblank interrupts useful. It also makes it so
-		// that the CPU threads are (hopefully, assuming the host OS scheduler
-		// is willing) running at around the same time. This is extremely
-		// important for IPI response and spinlocks. It would suck for a
-		// simulated CPU to spend its entire timeslice spinning for IPI
-		// completion or spinlock release just because the other CPU's host
-		// thread is asleep waiting for its next timeslice.
-
-		XrScheduleAllNextFrameWork(tick_after_draw - tick_end);
-
-		tick_end = SDL_GetTicks();
-		int delay = 1000/FPS - (tick_end - tick_start);
-
-		if (delay > 0) {
-			SDL_Delay(delay);
-		}
-	}
-
-	NVRAMSave();
-
-	if (RAMDumpOnExit) {
-		RAMDump();
-	}
-
-	if (KinnowDumpOnExit) {
-		KinnowDump();
-	}
-
-	// TLBDump();
+#ifdef EMSCRIPTEN
+	emscripten_set_main_loop(MainLoop, FPS, 0);
+#else
+	MainLoop();
+#endif
 
 	return 0;
 }

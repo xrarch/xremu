@@ -2,6 +2,8 @@
 #include "xr.h"
 #include "pthread.h"
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 
 ListEntry XrSchedulerWorkList;
 XrMutex XrSchedulerWorkListMutex;
@@ -147,7 +149,12 @@ void XrStartScheduler(void) {
 
 		thread->Next = 0;
 
-		pthread_create(&thread->Pthread, NULL, &XrSchedulerLoop, (void *)id);
+		int err = pthread_create(&thread->Pthread, NULL, &XrSchedulerLoop, (void *)id);
+
+		if (err) {
+			fprintf(stderr, "Failed to create scheduler thread (%s)\n", strerror(err));
+			exit(1);
+		}
 	}
 }
 

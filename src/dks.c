@@ -551,9 +551,7 @@ int DKSAttachImage(char *path) {
 
 void DKSInit() {
 	for (int i = 0; i < DKSDISKS; i++) {
-		if (DKSDisks[i].Present && DKSAsynchronous) {
-			XrInitializeSchedulable(&DKSDisks[i].Schedulable, &DKSSchedule, &DKSStartTimeslice, &DKSDisks[i]);
-		}
+		XrInitializeSchedulable(&DKSDisks[i].Schedulable, &DKSSchedule, &DKSStartTimeslice, &DKSDisks[i]);
 
 		DKSDisks[i].ID = i;
 	}
