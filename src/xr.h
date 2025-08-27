@@ -239,7 +239,10 @@ enum XrFakeRegisters {
 #else
 
 #define XR_SIMULATE_CACHES 1
+
+#ifndef XR_SIMULATE_CACHE_STALLS
 #define XR_SIMULATE_CACHE_STALLS 0
+#endif
 
 #endif
 
@@ -350,9 +353,8 @@ extern void XrInitializeProcessors(void);
 
 extern long XrProcessorFrequency;
 
-#ifndef EMSCRIPTEN
-
 #if XR_SIMULATE_CACHES
+#ifndef SINGLE_THREAD_MP
 
 extern XrMutex XrScacheMutexes[XR_CACHE_MUTEXES];
 
@@ -372,6 +374,14 @@ static inline void XrUnlockScache(uint32_t tag) {
 	XrUnlockMutex(&XrScacheMutexes[XR_MUTEX_INDEX(tag)]);
 }
 
+#else
+
+static inline void XrLockCache(XrProcessor *proc, uint32_t tag) {}
+static inline void XrUnlockCache(XrProcessor *proc, uint32_t tag) {}
+static inline void XrLockScache(uint32_t tag) {}
+static inline void XrUnlockScache(uint32_t tag) {}
+
+#endif
 #endif
 
 static inline void XrLockInterrupt(XrProcessor *proc) {
@@ -381,17 +391,6 @@ static inline void XrLockInterrupt(XrProcessor *proc) {
 static inline void XrUnlockInterrupt(XrProcessor *proc) {
 	XrUnlockMutex(&proc->InterruptLock);
 }
-
-#else
-
-static inline void XrLockCache(XrProcessor *proc, uint32_t tag) {}
-static inline void XrUnlockCache(XrProcessor *proc, uint32_t tag) {}
-static inline void XrLockScache(uint32_t tag) {}
-static inline void XrUnlockScache(uint32_t tag) {}
-static inline void XrLockInterrupt(XrProcessor *proc) {}
-static inline void XrUnlockInterrupt(XrProcessor *proc) {}
-
-#endif
 
 static inline void XrDecrementProgress(XrProcessor *proc, int ints) {
 	if (!ints || (proc->Cr[0] & 2) == 0) {

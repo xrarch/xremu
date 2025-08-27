@@ -3324,7 +3324,7 @@ void XrInitializeProcessor(int id) {
 }
 
 void XrInitializeProcessors(void) {
-#if XR_SIMULATE_CACHES
+#if XR_SIMULATE_CACHES && !defined(SINGLE_THREAD_MP)
 	for (int i = 0; i < XR_CACHE_MUTEXES; i++) {
 		XrInitializeMutex(&XrScacheMutexes[i]);
 	}

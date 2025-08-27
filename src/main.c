@@ -184,6 +184,10 @@ int main(int argc, char *argv[]) {
 		threads = (XrProcessorCount + 1) / 2;
 	}
 #else
+	if (threads != 0) {
+		fprintf(stderr, "Warning: Built as SINGLE_THREAD_MP, forcing to 1 thread\n");
+	}
+
 	threads = 1;
 #endif
 
