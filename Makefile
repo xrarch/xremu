@@ -1,6 +1,7 @@
 ifdef WEB_DEMO
 	EMSCRIPTEN = 1
 	SINGLE_THREAD_MP = 1
+	FASTMEMORY = 1
 endif
 
 ifndef EMSCRIPTEN
@@ -11,7 +12,7 @@ ifndef EMSCRIPTEN
 	CC = clang
 else
 	CFLAGS = -g -O3 -sUSE_SDL=2 -sINITIAL_MEMORY=33554432 -sALLOW_MEMORY_GROWTH=1 -lpthread -mtail-call
-	RISC_CFLAGS = $(CFLAGS) -std=c99 --preload-file bin
+	RISC_CFLAGS = $(CFLAGS) -std=c99 --preload-file embin
 	CC = emcc
 	TARGET=xremu.html
 endif
@@ -54,8 +55,8 @@ CFILES = src/main.c \
 
 $(TARGET): $(CFILES)
 ifdef EMSCRIPTEN
-	rm -f bin/.DS_Store
-	rm -f bin/nvram
+	mkdir -p embin
+	cp bin/boot.bin embin/boot.bin
 endif
 
 	$(CC) -o $@ $(filter %.c, $^) $(RISC_CFLAGS)

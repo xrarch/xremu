@@ -214,9 +214,9 @@ int main(int argc, char *argv[]) {
 	DKSAsynchronous = true;
 	SerialAsynchronous = true;
 
-	ROMLoadFile("bin/boot.bin");
-	DKSAttachImage("bin/mintia.img");
-	DKSAttachImage("bin/aisix.img");
+	ROMLoadFile("embin/boot.bin");
+	DKSAttachImage("embin/mintia.img");
+	DKSAttachImage("embin/aisix.img");
 #endif
 
 	DbgInit();

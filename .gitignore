@@ -9,3 +9,4 @@
 *.img
 bin/nvram
 xremu
+embin/**
