@@ -40,7 +40,11 @@ static inline XrSchedulable *XrPopSchedulerWork(XrSchedulingThread *thread) {
 
 			XrUnlockMutex(&XrSchedulerWorkListMutex);
 
+#ifdef EMSCRIPTEN
+			return 0;
+#else
 			continue;
+#endif
 		}
 
 		XrSchedulable *work = ContainerOf(listentry, XrSchedulable, WorkEntry);
@@ -117,6 +121,10 @@ void *XrSchedulerLoop(void *context) {
 
 			if (!work) {
 				work = XrPopSchedulerWork(thread);
+
+				if (!work) {
+					return 0;
+				}
 			}
 		}
 
@@ -149,12 +157,14 @@ void XrStartScheduler(void) {
 
 		thread->Next = 0;
 
+#ifndef EMSCRIPTEN
 		int err = pthread_create(&thread->Pthread, NULL, &XrSchedulerLoop, (void *)id);
 
 		if (err) {
 			fprintf(stderr, "Failed to create scheduler thread (%s)\n", strerror(err));
 			exit(1);
 		}
+#endif
 	}
 }
 

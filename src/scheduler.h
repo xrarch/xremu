@@ -45,4 +45,6 @@ extern void XrScheduleWorkForMe(XrSchedulable *after, XrSchedulable *work);
 
 extern void XrStartScheduler(void);
 
+extern void *XrSchedulerLoop(void *context);
+
 #endif // XR_SCHEDULER_H

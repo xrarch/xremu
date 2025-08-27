@@ -68,6 +68,10 @@ void MainLoop(void) {
 
 		XrScheduleAllNextFrameWork(TickAfterDraw - TickEnd);
 
+#ifdef EMSCRIPTEN
+		XrSchedulerLoop(0);
+#endif
+
 		TickEnd = SDL_GetTicks();
 
 #ifndef EMSCRIPTEN
