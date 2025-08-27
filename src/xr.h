@@ -5,6 +5,7 @@
 #include "fastmutex.h"
 
 #include "scheduler.h"
+#include "stdint.h"
 
 // Configurable stall parameters.
 

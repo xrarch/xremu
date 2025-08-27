@@ -1,6 +1,23 @@
 #ifndef XR_MUTEX_H
 #define XR_MUTEX_H
 
+#ifdef EMSCRIPTEN
+
+#define XrInitializeSemaphore(s, value)
+#define XrWaitSemaphore(s)
+#define XrPostSemaphore(s)
+#define XrUninitializeSemaphore(s)
+#define XrInitializeMutex(mutex)
+#define XrUninitializeMutex(mutex)
+#define XrLockMutex(mutex)
+#define XrUnlockMutex(mutex)
+#define XrTryLockMutex(mutex) 1
+
+typedef int XrMutex;
+typedef int XrSemaphore;
+
+#else
+
 #include "xrdefs.h"
 
 #include <stdatomic.h>
@@ -104,5 +121,7 @@ static XR_ALWAYS_INLINE int XrTryLockMutex(XrMutex *mutex) {
 		}
 	}
 }
+
+#endif
 
 #endif

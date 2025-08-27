@@ -982,7 +982,7 @@ static void XrExecuteWmb(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrFlushWriteBuffer(proc);
 #endif
 
-#if FASTMEMORY
+#if FASTMEMORY && !SINGLE_THREAD_MP
 	atomic_thread_fence(memory_order_release);
 #endif
 
@@ -997,7 +997,7 @@ static void XrExecuteMb(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) 
 	XrFlushWriteBuffer(proc);
 #endif
 
-#if FASTMEMORY
+#if FASTMEMORY && !SINGLE_THREAD_MP
 	atomic_thread_fence(memory_order_acq_rel);
 #endif
 
