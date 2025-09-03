@@ -834,7 +834,7 @@ XR_PRESERVE_NONE
 static void XrExecuteLsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 10\n");
 
-	XR_REG_RD() = XR_REG_RB() << XR_REG_RA();
+	XR_REG_RD() = XR_REG_RB() << (XR_REG_RA() & 31);
 
 	XR_NEXT();
 }
@@ -843,7 +843,7 @@ XR_PRESERVE_NONE
 static void XrExecuteRsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 11\n");
 
-	XR_REG_RD() = XR_REG_RB() >> XR_REG_RA();
+	XR_REG_RD() = XR_REG_RB() >> (XR_REG_RA() & 31);
 
 	XR_NEXT();
 }
@@ -852,7 +852,7 @@ XR_PRESERVE_NONE
 static void XrExecuteAsh(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 12\n");
 
-	XR_REG_RD() = (int32_t) XR_REG_RB() >> XR_REG_RA();
+	XR_REG_RD() = (int32_t) XR_REG_RB() >> (XR_REG_RA() & 31);
 
 	XR_NEXT();
 }
@@ -861,7 +861,7 @@ XR_PRESERVE_NONE
 static void XrExecuteRor(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 13\n");
 
-	XR_REG_RD() = RoR(XR_REG_RB(), XR_REG_RA());
+	XR_REG_RD() = RoR(XR_REG_RB(), XR_REG_RA() & 31);
 
 	XR_NEXT();
 }
