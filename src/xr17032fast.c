@@ -1462,7 +1462,7 @@ static void XrExecuteBpo(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrIblock **referrent;
 
 	if (proc->Reg[rd] & 1) {
-		proc->Pc += inst->Imm32_1;
+		proc->Pc = inst->Imm32_1;
 		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		proc->Pc += 4;
@@ -1494,7 +1494,7 @@ static void XrExecuteBpe(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrIblock **referrent;
 
 	if ((proc->Reg[rd] & 1) == 0) {
-		proc->Pc += inst->Imm32_1;
+		proc->Pc = inst->Imm32_1;
 		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		proc->Pc += 4;
@@ -1526,7 +1526,7 @@ static void XrExecuteBge(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrIblock **referrent;
 
 	if ((int32_t)proc->Reg[rd] >= 0) {
-		proc->Pc += inst->Imm32_1;
+		proc->Pc = inst->Imm32_1;
 		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		proc->Pc += 4;
@@ -1558,7 +1558,7 @@ static void XrExecuteBle(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrIblock **referrent;
 
 	if ((int32_t)proc->Reg[rd] <= 0) {
-		proc->Pc += inst->Imm32_1;
+		proc->Pc = inst->Imm32_1;
 		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		proc->Pc += 4;
@@ -1590,7 +1590,7 @@ static void XrExecuteBgt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrIblock **referrent;
 
 	if ((int32_t)proc->Reg[rd] > 0) {
-		proc->Pc += inst->Imm32_1;
+		proc->Pc = inst->Imm32_1;
 		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		proc->Pc += 4;
@@ -1622,7 +1622,7 @@ static void XrExecuteBlt(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrIblock **referrent;
 
 	if ((int32_t)proc->Reg[rd] < 0) {
-		proc->Pc += inst->Imm32_1;
+		proc->Pc = inst->Imm32_1;
 		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		proc->Pc += 4;
@@ -1654,7 +1654,7 @@ static void XrExecuteBne(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrIblock **referrent;
 
 	if (proc->Reg[rd] != 0) {
-		proc->Pc += inst->Imm32_1;
+		proc->Pc = inst->Imm32_1;
 		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		proc->Pc += 4;
@@ -1686,7 +1686,7 @@ static void XrExecuteBeq(XrProcessor *proc, XrIblock *block, XrCachedInst *inst)
 	XrIblock **referrent;
 
 	if (proc->Reg[rd] == 0) {
-		proc->Pc += inst->Imm32_1;
+		proc->Pc = inst->Imm32_1;
 		referrent = &block->CachedPaths[XR_TRUE_PATH];
 	} else {
 		proc->Pc += 4;
@@ -1712,7 +1712,7 @@ XR_PRESERVE_NONE
 static void XrExecuteB(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 42\n");
 
-	proc->Pc += inst->Imm32_1;
+	proc->Pc = inst->Imm32_1;
 
 	XrIblock *iblock = block->CachedPaths[XR_TRUE_PATH];
 
@@ -2547,7 +2547,7 @@ static XrCachedInst *XrDecodeLui(XrProcessor* proc, XrCachedInst *inst, uint32_t
 static XrCachedInst *XrDecodeBpo(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteBpo;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
-	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+	inst->Imm32_1 = pc + SignExt23((ir >> 11) << 2);
 
 	return 0;
 }
@@ -2573,7 +2573,7 @@ static XrCachedInst *XrDecodeOri(XrProcessor* proc, XrCachedInst *inst, uint32_t
 static XrCachedInst *XrDecodeBpe(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteBpe;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
-	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+	inst->Imm32_1 = pc + SignExt23((ir >> 11) << 2);
 
 	return 0;
 }
@@ -2599,7 +2599,7 @@ static XrCachedInst *XrDecodeXori(XrProcessor* proc, XrCachedInst *inst, uint32_
 static XrCachedInst *XrDecodeBge(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteBge;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
-	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+	inst->Imm32_1 = pc + SignExt23((ir >> 11) << 2);
 
 	return 0;
 }
@@ -2625,7 +2625,7 @@ static XrCachedInst *XrDecodeAndi(XrProcessor* proc, XrCachedInst *inst, uint32_
 static XrCachedInst *XrDecodeBle(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteBle;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
-	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+	inst->Imm32_1 = pc + SignExt23((ir >> 11) << 2);
 
 	return 0;
 }
@@ -2642,7 +2642,7 @@ static XrCachedInst *XrDecodeSltiSigned(XrProcessor* proc, XrCachedInst *inst, u
 static XrCachedInst *XrDecodeBgt(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteBgt;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
-	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+	inst->Imm32_1 = pc + SignExt23((ir >> 11) << 2);
 
 	return 0;
 }
@@ -2681,7 +2681,7 @@ static XrCachedInst *XrDecodeSlti(XrProcessor* proc, XrCachedInst *inst, uint32_
 static XrCachedInst *XrDecodeBlt(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteBlt;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
-	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+	inst->Imm32_1 = pc + SignExt23((ir >> 11) << 2);
 
 	return 0;
 }
@@ -2720,7 +2720,7 @@ static XrCachedInst *XrDecodeSubi(XrProcessor* proc, XrCachedInst *inst, uint32_
 static XrCachedInst *XrDecodeBne(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	inst->Func = &XrExecuteBne;
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
-	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+	inst->Imm32_1 = pc + SignExt23((ir >> 11) << 2);
 
 	return 0;
 }
@@ -2766,7 +2766,7 @@ static XrCachedInst *XrDecodeAddi(XrProcessor* proc, XrCachedInst *inst, uint32_
 }
 
 static XrCachedInst *XrDecodeBeq(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
-	inst->Imm32_1 = SignExt23((ir >> 11) << 2);
+	inst->Imm32_1 = pc + SignExt23((ir >> 11) << 2);
 	inst->Imm8_1 = XR_REDIRECT_ZERO_SRC((ir >> 6) & 31);
 
 	if (inst->Imm8_1 == XR_FAKE_ZERO_REGISTER) {
