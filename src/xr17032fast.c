@@ -2040,6 +2040,15 @@ dispatch:
 }
 
 XR_PRESERVE_NONE
+static void XrExecuteAdr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
+	DBGPRINT("exec 59 @ %x\n", proc->Pc);
+
+	proc->Reg[inst->Imm8_1] = inst->Imm32_1;
+
+	XR_NEXT();
+}
+
+XR_PRESERVE_NONE
 static void XrExecuteJal(XrProcessor *proc, XrIblock *block, XrCachedInst *inst) {
 	DBGPRINT("exec 60\n");
 
@@ -2733,6 +2742,14 @@ static XrCachedInst *XrDecodeJalr(XrProcessor* proc, XrCachedInst *inst, uint32_
 	return 0;
 }
 
+static XrCachedInst *XrDecodeAdr(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
+	inst->Func = &XrExecuteAdr;
+	inst->Imm8_1 = (ir >> 6) & 31;
+	inst->Imm32_1 = pc + (ir & 0xFFFF0000);
+
+	return 0;
+}
+
 static XrCachedInst *XrDecode111001(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
 	return XrDecodeFunctions111001[ir >> 28](proc, inst, ir, pc);
 }
@@ -2832,7 +2849,7 @@ static XrDecodeInstructionF XrDecodeLowSix[64] = {
 	[45] = &XrDecodeBlt,
 	[46] = &XrDecodeIllegalInstruction,
 	[47] = &XrDecodeIllegalInstruction,
-	[48] = &XrDecodeIllegalInstruction,
+	[48] = &XrDecodeAdr,
 	[49] = &XrDecode110001,
 	[50] = &XrDecodeStoreIntImmOffsetReg,
 	[51] = &XrDecodeLoadIntImmOffset,
