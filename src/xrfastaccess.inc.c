@@ -8,7 +8,7 @@
 
 XrClaimTableEntry XrClaimTable[XR_CLAIM_TABLE_SIZE];
 
-#define XR_CLAIM_INDEX(phyaddr) (((phyaddr >> 2) ^ (phyaddr >> 12)) & (XR_CLAIM_TABLE_SIZE - 1))
+#define XR_CLAIM_INDEX(phyaddr) (((phyaddr >> 2) ^ (phyaddr >> 12)) % XR_CLAIM_TABLE_SIZE)
 
 #ifndef SINGLE_THREAD_MP
 
@@ -51,7 +51,7 @@ static XR_ALWAYS_INLINE int XrStoreIfClaimed(XrProcessor *proc, uint32_t phyaddr
 #else
 
 static XR_ALWAYS_INLINE uint32_t XrClaimAddress(XrProcessor *proc, uint32_t phyaddr, uint32_t *hostaddr) {
-	XrClaimTableEntry *entry = &XrClaimTable[(phyaddr >> 2) & (XR_CLAIM_TABLE_SIZE - 1)];
+	XrClaimTableEntry *entry = &XrClaimTable[XR_CLAIM_INDEX(phyaddr)];
 
 	entry->ClaimedBy = proc->Id;
 
@@ -59,7 +59,7 @@ static XR_ALWAYS_INLINE uint32_t XrClaimAddress(XrProcessor *proc, uint32_t phya
 }
 
 static XR_ALWAYS_INLINE int XrStoreIfClaimed(XrProcessor *proc, uint32_t phyaddr, uint32_t* hostaddr, uint32_t val) {
-	XrClaimTableEntry *entry = &XrClaimTable[(phyaddr >> 2) & (XR_CLAIM_TABLE_SIZE - 1)];
+	XrClaimTableEntry *entry = &XrClaimTable[XR_CLAIM_INDEX(phyaddr)];
 
 	if (entry->ClaimedBy != proc->Id) {
 		return 0;
@@ -363,7 +363,7 @@ static XR_ALWAYS_INLINE int XrAccessRead(XrProcessor *proc, XrIblock *iblock, ui
 		int index = XR_IBLOCK_DTB_CACHE_INDEX(address);
 		XrIblockDtbEntry *entry = &iblock->DtbLoadCache[index];
 
-		if (XrLikely(((entry->MatchingDtbe >> 32) != matching) ||
+		if (XrUnlikely(((entry->MatchingDtbe >> 32) != matching) ||
 			(proc->Dtb[entry->Index] != entry->MatchingDtbe))) {
 
 			if (!XrTranslateDstream(proc, address, entry, 0)) {
