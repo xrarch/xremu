@@ -189,7 +189,6 @@ static inline uint32_t RoR(uint32_t x, uint32_t n) {
 #define PTE_GLOBAL    16
 
 #define SignExt23(n) (((int32_t)(n << 9)) >> 9)
-#define SignExt18(n) (((int32_t)(n << 14)) >> 14)
 #define SignExt5(n)  (((int32_t)(n << 27)) >> 27)
 #define SignExt16(n) (((int32_t)(n << 16)) >> 16)
 
@@ -2729,7 +2728,7 @@ static XrCachedInst *XrDecodeJalr(XrProcessor* proc, XrCachedInst *inst, uint32_
 	inst->Func = &XrExecuteJalr;
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm8_2 = XR_REDIRECT_ZERO_SRC((ir >> 11) & 31);
-	inst->Imm32_1 = SignExt18((ir >> 16) << 2);
+	inst->Imm32_1 = (ir >> 16) << 2;
 
 	return 0;
 }
