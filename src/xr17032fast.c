@@ -2747,7 +2747,7 @@ static XrCachedInst *XrDecodeAdr(XrProcessor* proc, XrCachedInst *inst, uint32_t
 	inst->Imm8_1 = (ir >> 6) & 31;
 	inst->Imm32_1 = pc + (ir & 0xFFFF0000);
 
-	return 0;
+	return inst + 1;
 }
 
 static XrCachedInst *XrDecode111001(XrProcessor* proc, XrCachedInst *inst, uint32_t ir, uint32_t pc) {
