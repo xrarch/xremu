@@ -28,6 +28,7 @@
 //    by JALR ZERO, R31, 0.
 //
 //
+//    DONE with validating look up
 // 3. Keep a small cache of 2-4 recent DTB lookups in the basic block header
 //    which is consulted before the DTLB by instructions therein. There's an
 //    issue with invalidating these when DTLB entries are flushed that im not
