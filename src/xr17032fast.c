@@ -2935,7 +2935,6 @@ static XrIblock *XrDecodeInstructions(XrProcessor *proc, XrIblock *hazard) {
 		// Already cached.
 
 		if (XrUnlikely((iblock->PteFlags & PTE_KERNEL) && (proc->Cr[RS] & RS_USER))) {
-fault:
 			proc->Cr[EBADADDR] = pc;
 			XrBasicException(proc, XR_EXC_PGF, pc);
 

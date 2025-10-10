@@ -178,7 +178,7 @@ struct _XrCachedInst {
 typedef struct _XrIblockDtbEntry {
 	void *HostPointer;
 	uint64_t MatchingDtbe;
-	uint32_t Index;
+	uint64_t *DtbePointer;
 } XrIblockDtbEntry;
 
 #define XR_TRUE_PATH 0

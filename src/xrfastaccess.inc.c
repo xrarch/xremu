@@ -106,7 +106,7 @@ static XR_ALWAYS_INLINE int XrLookupItb(XrProcessor *proc, uint32_t virtual, uin
 	return 0;
 }
 
-static XR_ALWAYS_INLINE int XrLookupDtb(XrProcessor *proc, uint32_t virtual, uint64_t *tbe, int writing) {
+static XR_ALWAYS_INLINE uint64_t *XrLookupDtb(XrProcessor *proc, uint32_t virtual, uint64_t *tbe, int writing) {
 	uint32_t vpn = virtual >> 12;
 	uint32_t matching = (proc->Cr[DTBTAG] & 0xFFF00000) | vpn;
 
@@ -118,7 +118,7 @@ static XR_ALWAYS_INLINE int XrLookupDtb(XrProcessor *proc, uint32_t virtual, uin
 		if (((tmp >> 32) & mask) == (matching & mask)) {
 			*tbe = tmp;
 
-			return i;
+			return &proc->Dtb[i];
 		}
 	}
 
@@ -137,7 +137,7 @@ static XR_ALWAYS_INLINE int XrLookupDtb(XrProcessor *proc, uint32_t virtual, uin
 
 	XrVectorException(proc, XR_EXC_DTB);
 
-	return -1;
+	return 0;
 }
 
 static XR_ALWAYS_INLINE void XrPageFault(XrProcessor *proc, uint32_t virtual, int writing) {
@@ -206,14 +206,14 @@ static int XrTranslateDstream(XrProcessor *proc, uint32_t virtual, XrIblockDtbEn
 	uint32_t vpn = virtual >> 12;
 
 	uint64_t tbe;
-	int index;
+	uint64_t *tbeptr;
 
 	if (vpn == proc->DtbLastVpn) {
 		tbe = proc->DtbLastEntry.MatchingDtbe;
 	} else {
-		index = XrLookupDtb(proc, virtual, &tbe, writing);
+		tbeptr = XrLookupDtb(proc, virtual, &tbe, writing);
 
-		if (index == -1) {
+		if (!tbeptr) {
 			return 0;
 		}
 	}
@@ -246,16 +246,16 @@ static int XrTranslateDstream(XrProcessor *proc, uint32_t virtual, XrIblockDtbEn
 
 	if (vpn != proc->DtbLastVpn) {
 		proc->DtbLastEntry.MatchingDtbe = tbe;
-		proc->DtbLastEntry.Index = index;
+		proc->DtbLastEntry.DtbePointer = tbeptr;
 		proc->DtbLastEntry.HostPointer = EBusTranslate((tbe >> 5) << 12);
 		proc->DtbLastVpn = vpn;
 
 		entry->MatchingDtbe = tbe;
-		entry->Index = index;
+		entry->DtbePointer = tbeptr;
 		entry->HostPointer = proc->DtbLastEntry.HostPointer;
 	} else {
 		entry->MatchingDtbe = tbe;
-		entry->Index = proc->DtbLastEntry.Index;
+		entry->DtbePointer = proc->DtbLastEntry.DtbePointer;
 		entry->HostPointer = proc->DtbLastEntry.HostPointer;
 
 	}
@@ -302,11 +302,10 @@ static XR_ALWAYS_INLINE int XrAccessWrite(XrProcessor *proc, XrIblock *iblock, u
 
 		uint32_t matching = (proc->Cr[DTBTAG] & 0xFFF00000) | (address >> 12);
 
-		int index = XR_IBLOCK_DTB_CACHE_INDEX(address);
-		XrIblockDtbEntry *entry = &iblock->DtbStoreCache[index];
+		XrIblockDtbEntry *entry = &iblock->DtbStoreCache[XR_IBLOCK_DTB_CACHE_INDEX(address)];
 
 		if (XrUnlikely(((entry->MatchingDtbe >> 32) != matching) ||
-			(proc->Dtb[entry->Index] != entry->MatchingDtbe) ||
+			(entry->DtbePointer[0] != entry->MatchingDtbe) ||
 			!(entry->MatchingDtbe & PTE_WRITABLE))) {
 
 			if (!XrTranslateDstream(proc, address, entry, 1)) {
@@ -364,7 +363,7 @@ static XR_ALWAYS_INLINE int XrAccessRead(XrProcessor *proc, XrIblock *iblock, ui
 		XrIblockDtbEntry *entry = &iblock->DtbLoadCache[index];
 
 		if (XrUnlikely(((entry->MatchingDtbe >> 32) != matching) ||
-			(proc->Dtb[entry->Index] != entry->MatchingDtbe))) {
+			(entry->DtbePointer[0] != entry->MatchingDtbe))) {
 
 			if (!XrTranslateDstream(proc, address, entry, 0)) {
 				return 0;
