@@ -33,17 +33,21 @@ static XR_ALWAYS_INLINE uint32_t XrClaimAddress(XrProcessor *proc, uint32_t phya
 
 		XrUnlockMutex(&l1entry->Lock);
 
+		// The L2 entry was not already claimed by the L1.
+
 		XrLockMutex(&l2entry->Lock);
 
 		XrClaimTableEntry *remotel1entry = l2entry->OtherEntry;
 
-		// The L2 entry was not already claimed by the L1.
 		// Invalidate the remote L1 entry that it referred to.
 
-		if (remotel1entry && (remotel1entry->OtherEntry == l2entry)) {
+		if (remotel1entry) {
 			XrLockMutex(&remotel1entry->Lock);
 
-			if (remotel1entry->OtherEntry == l2entry) {
+			if (l2entry->OtherEntry) {
+				// If the L2 entry was not invalidated in the meanwhile, then
+				// we still need to invalidate the L1 entry.
+
 				remotel1entry->OtherEntry = 0;
 			}
 
@@ -107,12 +111,13 @@ static XR_ALWAYS_INLINE uint32_t XrClaimAddress(XrProcessor *proc, uint32_t phya
 			l1entry->OtherEntry = 0;
 		}
 
+		// The L2 entry was not already claimed by the L1.
+
 		XrClaimTableEntry *remotel1entry = l2entry->OtherEntry;
 
-		// The L2 entry was not already claimed by the L1.
 		// Invalidate the remote L1 entry that it referred to.
 
-		if (remotel1entry && (remotel1entry->OtherEntry == l2entry)) {
+		if (remotel1entry) {
 			remotel1entry->OtherEntry = 0;
 		}
 
