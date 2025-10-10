@@ -3341,7 +3341,7 @@ void XrInitializeProcessor(int id) {
 #if !defined(SINGLE_THREAD_MP)
 		XrInitializeMutex(&proc->L1ClaimTable[i].Lock);
 #endif
-		proc->L1ClaimTable[i].PhysicalAddr = -1;
+		proc->L1ClaimTable[i].OtherEntry = 0;
 	}
 #endif
 

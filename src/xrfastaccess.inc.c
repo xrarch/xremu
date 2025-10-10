@@ -1,4 +1,4 @@
-XrL2ClaimTableEntry XrL2ClaimTable[XR_L2_CLAIM_TABLE_SIZE];
+XrClaimTableEntry XrL2ClaimTable[XR_L2_CLAIM_TABLE_SIZE];
 
 #define XR_CLAIM_HASH(phyaddr) ((phyaddr >> 2) ^ (phyaddr >> 12))
 #define XR_L2_CLAIM_INDEX(phyaddr) (XR_CLAIM_HASH(phyaddr) % XR_L2_CLAIM_TABLE_SIZE)
@@ -7,13 +7,14 @@ XrL2ClaimTableEntry XrL2ClaimTable[XR_L2_CLAIM_TABLE_SIZE];
 #ifndef SINGLE_THREAD_MP
 
 static XR_ALWAYS_INLINE uint32_t XrClaimAddress(XrProcessor *proc, uint32_t phyaddr, uint32_t *hostaddr) {
-	XrL1ClaimTableEntry *l1entry = &proc->L1ClaimTable[XR_L1_CLAIM_INDEX(phyaddr)];
+	XrClaimTableEntry *l1entry = &proc->L1ClaimTable[XR_L1_CLAIM_INDEX(phyaddr)];
+	XrClaimTableEntry *l2entry = &XrL2ClaimTable[XR_L2_CLAIM_INDEX(phyaddr)];
 
 	uint32_t val;
 
 	XrLockMutex(&l1entry->Lock);
 
-	if (l1entry->PhysicalAddr == phyaddr) {
+	if (l1entry->OtherEntry == l2entry) {
 		val = *hostaddr;
 
 		XrUnlockMutex(&l1entry->Lock);
@@ -21,30 +22,42 @@ static XR_ALWAYS_INLINE uint32_t XrClaimAddress(XrProcessor *proc, uint32_t phya
 		// The entry was not already claimed in our L1 claim table so we need to
 		// allocate an entry in the L2 claim table.
 
-		XrUnlockMutex(&l1entry->Lock);
+		if (l1entry->OtherEntry) {
+			// Clear the L2 entry that previously pointed to this L1 entry.
+			// This is safe to do under only the L1 entry lock because both
+			// locks are held before a remote invalidation is performed.
 
-		XrL2ClaimTableEntry *l2entry = &XrL2ClaimTable[XR_L2_CLAIM_INDEX(phyaddr)];
+			l1entry->OtherEntry->OtherEntry = 0;
+			l1entry->OtherEntry = 0;
+		}
+
+		XrUnlockMutex(&l1entry->Lock);
 
 		XrLockMutex(&l2entry->Lock);
 
-		l1entry->PhysicalAddr = phyaddr;
+		XrClaimTableEntry *remotel1entry = l2entry->OtherEntry;
 
-		XrL1ClaimTableEntry *remotel1entry = l2entry->ClaimedBy;
+		// The L2 entry was not already claimed by the L1.
+		// Invalidate the remote L1 entry that it referred to.
 
-		if (remotel1entry && (remotel1entry != l1entry)) {
-			// The L2 entry was not already claimed by the L1.
-			// Invalidate the remote L1 entry that it referred to.
-
+		if (remotel1entry && (remotel1entry->OtherEntry == l2entry)) {
 			XrLockMutex(&remotel1entry->Lock);
 
-			remotel1entry->PhysicalAddr = -1;
+			if (remotel1entry->OtherEntry == l2entry) {
+				remotel1entry->OtherEntry = 0;
+			}
 
 			XrUnlockMutex(&remotel1entry->Lock);
 		}
 
-		l2entry->ClaimedBy = l1entry;
+		XrLockMutex(&l1entry->Lock);
+
+		l2entry->OtherEntry = l1entry;
+		l1entry->OtherEntry = l2entry;
 
 		val = *hostaddr;
+
+		XrUnlockMutex(&l1entry->Lock);
 
 		XrUnlockMutex(&l2entry->Lock);
 	}
@@ -53,11 +66,12 @@ static XR_ALWAYS_INLINE uint32_t XrClaimAddress(XrProcessor *proc, uint32_t phya
 }
 
 static XR_ALWAYS_INLINE int XrStoreIfClaimed(XrProcessor *proc, uint32_t phyaddr, uint32_t* hostaddr, uint32_t val) {
-	XrL1ClaimTableEntry *l1entry = &proc->L1ClaimTable[XR_L1_CLAIM_INDEX(phyaddr)];
+	XrClaimTableEntry *l1entry = &proc->L1ClaimTable[XR_L1_CLAIM_INDEX(phyaddr)];
+	XrClaimTableEntry *l2entry = &XrL2ClaimTable[XR_L2_CLAIM_INDEX(phyaddr)];
 
 	XrLockMutex(&l1entry->Lock);
 
-	if (l1entry->PhysicalAddr != phyaddr) {
+	if (l1entry->OtherEntry != l2entry) {
 		XrUnlockMutex(&l1entry->Lock);
 
 		return 0;
@@ -73,30 +87,37 @@ static XR_ALWAYS_INLINE int XrStoreIfClaimed(XrProcessor *proc, uint32_t phyaddr
 #else
 
 static XR_ALWAYS_INLINE uint32_t XrClaimAddress(XrProcessor *proc, uint32_t phyaddr, uint32_t *hostaddr) {
-	XrL1ClaimTableEntry *l1entry = &proc->L1ClaimTable[XR_L1_CLAIM_INDEX(phyaddr)];
+	XrClaimTableEntry *l1entry = &proc->L1ClaimTable[XR_L1_CLAIM_INDEX(phyaddr)];
+	XrClaimTableEntry *l2entry = &XrL2ClaimTable[XR_L2_CLAIM_INDEX(phyaddr)];
 
 	uint32_t val;
 
-	if (l1entry->PhysicalAddr == phyaddr) {
+	if (l1entry->OtherEntry == l2entry) {
 		val = *hostaddr;
 	} else {
 		// The entry was not already claimed in our L1 claim table so we need to
 		// allocate an entry in the L2 claim table.
 
-		XrL2ClaimTableEntry *l2entry = &XrL2ClaimTable[XR_L2_CLAIM_INDEX(phyaddr)];
+		if (l1entry->OtherEntry) {
+			// Clear the L2 entry that previously pointed to this L1 entry.
+			// This is safe to do under only the L1 entry lock because both
+			// locks are held before a remote invalidation is performed.
 
-		l1entry->PhysicalAddr = phyaddr;
-
-		XrL1ClaimTableEntry *remotel1entry = l2entry->ClaimedBy;
-
-		if (remotel1entry && (remotel1entry != l1entry)) {
-			// The L2 entry was not already claimed by the L1.
-			// Invalidate the remote L1 entry that it referred to.
-
-			remotel1entry->PhysicalAddr = -1;
+			l1entry->OtherEntry->OtherEntry = 0;
+			l1entry->OtherEntry = 0;
 		}
 
-		l2entry->ClaimedBy = l1entry;
+		XrClaimTableEntry *remotel1entry = l2entry->OtherEntry;
+
+		// The L2 entry was not already claimed by the L1.
+		// Invalidate the remote L1 entry that it referred to.
+
+		if (remotel1entry && (remotel1entry->OtherEntry == l2entry)) {
+			remotel1entry->OtherEntry = 0;
+		}
+
+		l2entry->OtherEntry = l1entry;
+		l1entry->OtherEntry = l2entry;
 
 		val = *hostaddr;
 	}
@@ -105,9 +126,10 @@ static XR_ALWAYS_INLINE uint32_t XrClaimAddress(XrProcessor *proc, uint32_t phya
 }
 
 static XR_ALWAYS_INLINE int XrStoreIfClaimed(XrProcessor *proc, uint32_t phyaddr, uint32_t* hostaddr, uint32_t val) {
-	XrL1ClaimTableEntry *l1entry = &proc->L1ClaimTable[XR_L1_CLAIM_INDEX(phyaddr)];
+	XrClaimTableEntry *l1entry = &proc->L1ClaimTable[XR_L1_CLAIM_INDEX(phyaddr)];
+	XrClaimTableEntry *l2entry = &XrL2ClaimTable[XR_L2_CLAIM_INDEX(phyaddr)];
 
-	if (l1entry->PhysicalAddr != phyaddr) {
+	if (l1entry->OtherEntry != l2entry) {
 		return 0;
 	}
 

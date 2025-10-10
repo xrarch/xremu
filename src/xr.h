@@ -111,21 +111,16 @@
 #define XR_L1_CLAIM_TABLE_SIZE 101
 #define XR_L2_CLAIM_TABLE_SIZE 3637
 
-typedef struct _XrL1ClaimTableEntry {
+typedef struct _XrClaimTableEntry XrClaimTableEntry;
+
+struct _XrClaimTableEntry {
 #ifndef SINGLE_THREAD_MP
 	XrMutex Lock;
 #endif
-	uint32_t PhysicalAddr;
-} XrL1ClaimTableEntry;
+	XrClaimTableEntry *OtherEntry;
+};
 
-typedef struct _XrL2ClaimTableEntry {
-#ifndef SINGLE_THREAD_MP
-	XrMutex Lock;
-#endif
-	XrL1ClaimTableEntry *ClaimedBy;
-} XrL2ClaimTableEntry;
-
-extern XrL2ClaimTableEntry XrL2ClaimTable[XR_L2_CLAIM_TABLE_SIZE];
+extern XrClaimTableEntry XrL2ClaimTable[XR_L2_CLAIM_TABLE_SIZE];
 
 #define XR_WB_INDEX_INVALID 255
 #define XR_CACHE_INDEX_INVALID 0xFFFFFFFF
@@ -266,7 +261,7 @@ struct _XrProcessor {
 
 #ifdef FASTMEMORY
 	XrIblockDtbEntry DtbLastEntry;
-	XrL1ClaimTableEntry L1ClaimTable[XR_L1_CLAIM_TABLE_SIZE];
+	XrClaimTableEntry L1ClaimTable[XR_L1_CLAIM_TABLE_SIZE];
 #else
 	uint32_t DtbLastResult;
 #endif
