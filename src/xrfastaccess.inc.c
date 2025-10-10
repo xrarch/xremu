@@ -1,49 +1,71 @@
-// NOTE: The simple "claim table" mechanism used for implementing LL/SC is
-//       AWFUL! The cache simulation vastly outperforms it because of the
-//       localization of the LL/SC state to the simulated L1 caches of each
-//       virtual processor. Imitating this in a lighter-weight form that only
-//       gets involved in the LL/SC codepaths is probably the best way to go
-//       to make sure FASTMEMORY is actually FAST. Think of a "two-level claim
-//       table".
+XrL2ClaimTableEntry XrL2ClaimTable[XR_L2_CLAIM_TABLE_SIZE];
 
-XrClaimTableEntry XrClaimTable[XR_CLAIM_TABLE_SIZE];
-
-#define XR_CLAIM_INDEX(phyaddr) (((phyaddr >> 2) ^ (phyaddr >> 12)) % XR_CLAIM_TABLE_SIZE)
+#define XR_CLAIM_HASH(phyaddr) ((phyaddr >> 2) ^ (phyaddr >> 12))
+#define XR_L2_CLAIM_INDEX(phyaddr) (XR_CLAIM_HASH(phyaddr) % XR_L2_CLAIM_TABLE_SIZE)
+#define XR_L1_CLAIM_INDEX(phyaddr) (XR_CLAIM_HASH(phyaddr) % XR_L1_CLAIM_TABLE_SIZE)
 
 #ifndef SINGLE_THREAD_MP
 
 static XR_ALWAYS_INLINE uint32_t XrClaimAddress(XrProcessor *proc, uint32_t phyaddr, uint32_t *hostaddr) {
-	XrClaimTableEntry *entry = &XrClaimTable[XR_CLAIM_INDEX(phyaddr)];
+	XrL1ClaimTableEntry *l1entry = &proc->L1ClaimTable[XR_L1_CLAIM_INDEX(phyaddr)];
 
-	XrLockMutex(&entry->Lock);
+	uint32_t val;
 
-	entry->ClaimedBy = proc->Id;
+	XrLockMutex(&l1entry->Lock);
 
-	uint32_t val = *hostaddr;
+	if (l1entry->PhysicalAddr == phyaddr) {
+		val = *hostaddr;
 
-	XrUnlockMutex(&entry->Lock);
+		XrUnlockMutex(&l1entry->Lock);
+	} else {
+		// The entry was not already claimed in our L1 claim table so we need to
+		// allocate an entry in the L2 claim table.
+
+		XrUnlockMutex(&l1entry->Lock);
+
+		XrL2ClaimTableEntry *l2entry = &XrL2ClaimTable[XR_L2_CLAIM_INDEX(phyaddr)];
+
+		XrLockMutex(&l2entry->Lock);
+
+		l1entry->PhysicalAddr = phyaddr;
+
+		XrL1ClaimTableEntry *remotel1entry = l2entry->ClaimedBy;
+
+		if (remotel1entry && (remotel1entry != l1entry)) {
+			// The L2 entry was not already claimed by the L1.
+			// Invalidate the remote L1 entry that it referred to.
+
+			XrLockMutex(&remotel1entry->Lock);
+
+			remotel1entry->PhysicalAddr = -1;
+
+			XrUnlockMutex(&remotel1entry->Lock);
+		}
+
+		l2entry->ClaimedBy = l1entry;
+
+		val = *hostaddr;
+
+		XrUnlockMutex(&l2entry->Lock);
+	}
 
 	return val;
 }
 
 static XR_ALWAYS_INLINE int XrStoreIfClaimed(XrProcessor *proc, uint32_t phyaddr, uint32_t* hostaddr, uint32_t val) {
-	XrClaimTableEntry *entry = &XrClaimTable[XR_CLAIM_INDEX(phyaddr)];
+	XrL1ClaimTableEntry *l1entry = &proc->L1ClaimTable[XR_L1_CLAIM_INDEX(phyaddr)];
 
-	if (entry->ClaimedBy != proc->Id) {
-		return 0;
-	}
+	XrLockMutex(&l1entry->Lock);
 
-	XrLockMutex(&entry->Lock);
-
-	if (entry->ClaimedBy != proc->Id) {
-		XrUnlockMutex(&entry->Lock);
+	if (l1entry->PhysicalAddr != phyaddr) {
+		XrUnlockMutex(&l1entry->Lock);
 
 		return 0;
 	}
 
 	*hostaddr = val;
 
-	XrUnlockMutex(&entry->Lock);
+	XrUnlockMutex(&l1entry->Lock);
 
 	return 1;
 }
@@ -51,17 +73,41 @@ static XR_ALWAYS_INLINE int XrStoreIfClaimed(XrProcessor *proc, uint32_t phyaddr
 #else
 
 static XR_ALWAYS_INLINE uint32_t XrClaimAddress(XrProcessor *proc, uint32_t phyaddr, uint32_t *hostaddr) {
-	XrClaimTableEntry *entry = &XrClaimTable[XR_CLAIM_INDEX(phyaddr)];
+	XrL1ClaimTableEntry *l1entry = &proc->L1ClaimTable[XR_L1_CLAIM_INDEX(phyaddr)];
 
-	entry->ClaimedBy = proc->Id;
+	uint32_t val;
 
-	return *hostaddr;
+	if (l1entry->PhysicalAddr == phyaddr) {
+		val = *hostaddr;
+	} else {
+		// The entry was not already claimed in our L1 claim table so we need to
+		// allocate an entry in the L2 claim table.
+
+		XrL2ClaimTableEntry *l2entry = &XrL2ClaimTable[XR_L2_CLAIM_INDEX(phyaddr)];
+
+		l1entry->PhysicalAddr = phyaddr;
+
+		XrL1ClaimTableEntry *remotel1entry = l2entry->ClaimedBy;
+
+		if (remotel1entry && (remotel1entry != l1entry)) {
+			// The L2 entry was not already claimed by the L1.
+			// Invalidate the remote L1 entry that it referred to.
+
+			remotel1entry->PhysicalAddr = -1;
+		}
+
+		l2entry->ClaimedBy = l1entry;
+
+		val = *hostaddr;
+	}
+
+	return val;
 }
 
 static XR_ALWAYS_INLINE int XrStoreIfClaimed(XrProcessor *proc, uint32_t phyaddr, uint32_t* hostaddr, uint32_t val) {
-	XrClaimTableEntry *entry = &XrClaimTable[XR_CLAIM_INDEX(phyaddr)];
+	XrL1ClaimTableEntry *l1entry = &proc->L1ClaimTable[XR_L1_CLAIM_INDEX(phyaddr)];
 
-	if (entry->ClaimedBy != proc->Id) {
+	if (l1entry->PhysicalAddr != phyaddr) {
 		return 0;
 	}
 

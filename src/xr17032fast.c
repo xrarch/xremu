@@ -3332,8 +3332,17 @@ void XrInitializeProcessor(int id) {
 		XrInitializeMutex(&proc->CacheMutexes[i]);
 	}
 #endif
+#endif
 
 	XrInitializeMutex(&proc->InterruptLock);
+
+#if defined(FASTMEMORY)
+	for (int i = 0; i < XR_L1_CLAIM_TABLE_SIZE; i++) {
+#if !defined(SINGLE_THREAD_MP)
+		XrInitializeMutex(&proc->L1ClaimTable[i].Lock);
+#endif
+		proc->L1ClaimTable[i].PhysicalAddr = -1;
+	}
 #endif
 
 	XrScheduleWorkForNextFrame(&proc->Schedulable, 0);
@@ -3347,8 +3356,8 @@ void XrInitializeProcessors(void) {
 #endif
 
 #if defined(FASTMEMORY) && !defined(SINGLE_THREAD_MP)
-	for (int i = 0; i < XR_CLAIM_TABLE_SIZE; i++) {
-		XrInitializeMutex(&XrClaimTable[i].Lock);
+	for (int i = 0; i < XR_L2_CLAIM_TABLE_SIZE; i++) {
+		XrInitializeMutex(&XrL2ClaimTable[i].Lock);
 	}
 #endif
 

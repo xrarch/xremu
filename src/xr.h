@@ -108,16 +108,24 @@
 
 #define XR_MUTEX_INDEX(setnumber) (setnumber & (XR_CACHE_MUTEXES - 1))
 
-typedef struct _XrClaimTableEntry {
+#define XR_L1_CLAIM_TABLE_SIZE 101
+#define XR_L2_CLAIM_TABLE_SIZE 3637
+
+typedef struct _XrL1ClaimTableEntry {
 #ifndef SINGLE_THREAD_MP
 	XrMutex Lock;
 #endif
-	uint8_t ClaimedBy;
-} XrClaimTableEntry;
+	uint32_t PhysicalAddr;
+} XrL1ClaimTableEntry;
 
-#define XR_CLAIM_TABLE_SIZE 16381
+typedef struct _XrL2ClaimTableEntry {
+#ifndef SINGLE_THREAD_MP
+	XrMutex Lock;
+#endif
+	XrL1ClaimTableEntry *ClaimedBy;
+} XrL2ClaimTableEntry;
 
-extern XrClaimTableEntry XrClaimTable[XR_CLAIM_TABLE_SIZE];
+extern XrL2ClaimTableEntry XrL2ClaimTable[XR_L2_CLAIM_TABLE_SIZE];
 
 #define XR_WB_INDEX_INVALID 255
 #define XR_CACHE_INDEX_INVALID 0xFFFFFFFF
@@ -258,6 +266,7 @@ struct _XrProcessor {
 
 #ifdef FASTMEMORY
 	XrIblockDtbEntry DtbLastEntry;
+	XrL1ClaimTableEntry L1ClaimTable[XR_L1_CLAIM_TABLE_SIZE];
 #else
 	uint32_t DtbLastResult;
 #endif
