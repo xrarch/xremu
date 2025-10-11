@@ -54,14 +54,10 @@ static XR_ALWAYS_INLINE uint32_t XrClaimAddress(XrProcessor *proc, uint32_t phya
 			XrUnlockMutex(&remotel1entry->Lock);
 		}
 
-		XrLockMutex(&l1entry->Lock);
-
 		l2entry->OtherEntry = l1entry;
 		l1entry->OtherEntry = l2entry;
 
 		val = *hostaddr;
-
-		XrUnlockMutex(&l1entry->Lock);
 
 		XrUnlockMutex(&l2entry->Lock);
 	}
