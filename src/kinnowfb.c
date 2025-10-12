@@ -34,7 +34,10 @@ enum KINNOWREGISTERS {
 	REGSTATUS = 5,
 	REGMODE   = 6,
 	REGCAUSE  = 7,
+	REGFEAT   = 8,
 };
+
+#define FEATURE_WRITABLE_PALETTE 1
 
 uint32_t DirtyRectX1 = -1;
 uint32_t DirtyRectX2 = 0;
@@ -213,6 +216,7 @@ int KinnowInit() {
 
 	KinnowRegisters[REGSIZE] = (KINNOW_FRAMEBUFFER_HEIGHT << 12) | KINNOW_FRAMEBUFFER_WIDTH;
 	KinnowRegisters[REGVRAM] = FBSize;
+	KinnowRegisters[REGFEAT] = FEATURE_WRITABLE_PALETTE;
 
 	return 0;
 }
