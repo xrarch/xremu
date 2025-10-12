@@ -50,6 +50,24 @@ int KinnowWrite(uint32_t address, void *src, uint32_t length, void *proc) {
 		KinnowRegisters[address/4] = *(uint32_t*)src;
 
 		return EBUSSUCCESS;
+	} else if (address >= 0x4000 && address < 0x6000) {
+		address -= 0x4000;
+
+		KinnowPalette[address/4] = *(uint32_t*)src;
+
+		XrLockMutex(&KinnowMutex);
+
+		IsDirty = true;
+
+		DirtyRectX1 = 0;
+		DirtyRectY1 = 0;
+
+		DirtyRectX2 = KINNOW_FRAMEBUFFER_WIDTH-1;
+		DirtyRectY2 = KINNOW_FRAMEBUFFER_HEIGHT-1;
+
+		XrUnlockMutex(&KinnowMutex);
+
+		return EBUSSUCCESS;
 	} else if (address >= 0x100000) {
 		address -= 0x100000;
 
