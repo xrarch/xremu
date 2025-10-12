@@ -53,7 +53,7 @@ int KinnowWrite(uint32_t address, void *src, uint32_t length, void *proc) {
 		KinnowRegisters[address/4] = *(uint32_t*)src;
 
 		return EBUSSUCCESS;
-	} else if (address >= 0x4000 && address < 0x6000) {
+	} else if (address >= 0x4000 && address < 0x4400) {
 		address -= 0x4000;
 
 		KinnowPalette[address/4] = *(uint32_t*)src;
