@@ -10,7 +10,6 @@
 
 #include "ebus.h"
 #include "kinnowfb.h"
-#include "kinnowpal.h"
 
 #include "fastmutex.h"
 
@@ -27,6 +26,8 @@ uint32_t FBSize;
 uint32_t SlotInfo[64];
 
 uint32_t KinnowRegisters[64];
+
+uint32_t KinnowPalette[256];
 
 enum KINNOWREGISTERS {
 	REGSIZE   = 0,
