@@ -1988,9 +1988,9 @@ static void XrExecuteJalr(XrProcessor *proc, XrIblock *block, XrCachedInst *inst
 	uint32_t rd = inst->Imm8_1;
 	uint32_t ra = inst->Imm8_2;
 
-	proc->Reg[rd] = proc->Pc + 4;
-
 	uint32_t pc = proc->Reg[ra] + inst->Imm32_1;
+
+	proc->Reg[rd] = proc->Pc + 4;
 
 	proc->Pc = pc;
 
