@@ -3180,6 +3180,8 @@ void XrProcessorSchedule(XrSchedulable *schedulable) {
 
 	int timeslice = schedulable->Timeslice;
 
+	XrLockMutex(&proc->RunLock);
+
 	while (timeslice > 0) {
 		if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
 			// Interval timer ran down, send self the interrupt.
@@ -3222,6 +3224,8 @@ void XrProcessorSchedule(XrSchedulable *schedulable) {
 	}
 
 	schedulable->Timeslice = timeslice;
+
+	XrUnlockMutex(&proc->RunLock);
 
 	if (timeslice == 0) {
 		XrScheduleWorkForNextFrame(schedulable, 0);
@@ -3335,6 +3339,8 @@ void XrInitializeProcessor(int id) {
 #endif
 
 	XrInitializeMutex(&proc->InterruptLock);
+
+	XrInitializeMutex(&proc->RunLock);
 
 #if defined(FASTMEMORY)
 	for (int i = 0; i < XR_L1_CLAIM_TABLE_SIZE; i++) {

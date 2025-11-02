@@ -98,6 +98,18 @@ int DbgNextToken(char *tokenbuffer, int bufsize) {
 	return 0;
 }
 
+uint32_t DbgParseAddress(char *addr) {
+	if (addr[0] == '0') {
+		if (addr[1] == 'x') {
+			return strtol(addr, 0, 16);
+		} else {
+			return strtol(addr, 0, 8);
+		}
+	}
+
+	return strtol(addr, 0, 10);
+}
+
 void DbgPutString(char *str) {
 	for (; *str; str++) {
 		if (*str == '\n') {
@@ -114,6 +126,275 @@ void DbgPrompt() {
 
 void DbgHeader() {
 	DbgPutString("Emulator Level Debugger\n");
+}
+
+#define DBG_TRANSLATE_PHYSICAL 1
+#define DBG_TRANSLATE_BYPASS_TB 2
+#define DBG_TRANSLATE_BYPASS_PT 4
+#define DBG_TRANSLATE_PRINT 8
+#define DBG_TRANSLATE_ISTREAM 16
+#define DBG_TRANSLATE_FIGURE_IT_OUT 32
+#define DBG_TRANSLATE_BYPASS_TB_FOR_PGTB 64
+
+int DbgTranslateAddressTb(uint64_t *tb, uint32_t addr, uint32_t asid, uint64_t *tbe, int tbsize, int *index) {
+	// Translate a guest virtual address to a guest physical address by looking
+	// up the given TB. If there's no matching entry, return 0.
+	// The processor's run lock should be held.
+
+	uint32_t vpn = addr >> 12;
+	uint32_t matching = (asid << 20) | vpn;
+
+	for (int i = 0; i < tbsize; i++) {
+		uint64_t tmp = tb[i];
+		uint32_t mask = (tmp & 16) ? 0xFFFFF : 0xFFFFFFFF;
+
+		if (((tmp >> 32) & mask) == (matching & mask)) {
+			*tbe = tmp;
+			*index = i;
+
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+int DbgTranslateVirtual(XrProcessor *proc, uint32_t addr, uint32_t *phys, int flags) {
+	// Translate a virtual address from the perspective of the given processor.
+
+	uint64_t tbe;
+	char *tbname = "DTB";
+	uint64_t *tb = &proc->Dtb[0];
+	int tbsize = XR_DTB_SIZE;
+	int ptbr = 29; // DTBADDR
+	uint32_t asid = proc->Cr[25] >> 20; // DTBTAG
+
+	if (flags & DBG_TRANSLATE_ISTREAM) {
+		tbname = "ITB";
+		tb = &proc->Itb[0];
+		tbsize = XR_ITB_SIZE;
+		ptbr = 21; // ITBADDR
+		asid = proc->Cr[17] >> 20; // ITBTAG
+	}
+
+	int index;
+
+	if ((flags & DBG_TRANSLATE_BYPASS_TB) == 0) {
+		if (DbgTranslateAddressTb(tb, addr, asid, &tbe, tbsize, &index)) {
+			if (flags & DBG_TRANSLATE_PRINT) {
+				sprintf(&printbuf[0], "%s[%d]=%016llX ", tbname, index, tbe);
+				DbgPutString(&printbuf[0]);
+			}
+
+			if (tbe & 1) {
+				*phys = ((tbe >> 5) << 12) | (addr & 0xFFF);
+
+				return 1;
+			} else {
+				return 0;
+			}
+		}
+	}
+
+	uint32_t pgtb = proc->Cr[ptbr] & 0xFFC00000;
+
+	if ((flags & DBG_TRANSLATE_BYPASS_PT) == 0) {
+		// Look up the page tables. Assume the preferred page table format.
+		// We assume that if the virtual page table base was nonzero, then the
+		// preferred paging scheme is probably active. Sort of hacky but very
+		// useful for debugging MINTIA and Linux which both use it.
+
+		// We want to imitate the way the real CPU would do it, in order to
+		// allow the debugger's user to catch strange problems, so first we
+		// look up the containing page table for the PTE in the DTB.
+
+		if (pgtb == 0) {
+			if (flags & DBG_TRANSLATE_PRINT) {
+				DbgPutString("NoPageTable ");
+			}
+
+			return 0;
+		}
+
+		uint32_t ptevaddr = pgtb + ((addr >> 12) << 2);
+		uint64_t pttbe;
+		uint32_t physpteaddr;
+
+		if (((flags & DBG_TRANSLATE_BYPASS_TB_FOR_PGTB) == 0) &&
+			DbgTranslateAddressTb(&proc->Dtb[0], ptevaddr, asid, &pttbe, XR_DTB_SIZE, &index)) {
+			if (flags & DBG_TRANSLATE_PRINT) {
+				sprintf(&printbuf[0], "Pde@DTB[%d]=%016llX ", index, pttbe);
+				DbgPutString(&printbuf[0]);
+			}
+
+			if ((pttbe & 1) == 0) {
+				// The PDE cached in the DTB is invalid.
+
+				return 0;
+			}
+
+			physpteaddr = ((pttbe >> 5) << 12) | (ptevaddr & 0xFFF);
+		} else {
+			if ((addr & 0xFFC00000) == pgtb) {
+				// The original virtual address we were meant to translate was
+				// inside of the page tables, which means we just failed to look
+				// up the page directory inside the TB. That's not supposed to
+				// happen if the scheme is implemented correctly, so this must
+				// be a bug in the guest kernel.
+
+				if (flags & DBG_TRANSLATE_PRINT) {
+					DbgPutString("NoPageDirTbe ");
+				}
+
+				return 0;
+			}
+
+			// We need to find the page directory inside the DTB.
+
+			uint32_t pdevaddr = pgtb + ((ptevaddr >> 12) << 2);
+			uint64_t pdtbe;
+			uint32_t physpdeaddr;
+
+			if (DbgTranslateAddressTb(&proc->Dtb[0], pdevaddr, asid, &pdtbe, XR_DTB_SIZE, &index)) {
+				if (flags & DBG_TRANSLATE_PRINT) {
+					sprintf(&printbuf[0], "PdTbe@DTB[%d]=%016llX ", index, pdtbe);
+					DbgPutString(&printbuf[0]);
+				}
+
+				if ((pdtbe & 1) == 0) {
+					// The entry mapping the page directory is invalid.
+
+					return 0;
+				}
+
+				physpdeaddr = ((pdtbe >> 5) << 12) | (pdevaddr & 0xFFF);
+			}
+
+			// Load the PDE.
+
+			uint32_t pde;
+
+			int status = EBusRead(physpdeaddr, &pde, 4, proc);
+
+			if (status != EBUSSUCCESS) {
+				if (flags & DBG_TRANSLATE_PRINT) {
+					sprintf(&printbuf[0], "PdeBusError@Phys[%08x] ", physpdeaddr);
+					DbgPutString(&printbuf[0]);
+				}
+
+				return 0;
+			}
+
+			if (flags & DBG_TRANSLATE_PRINT) {
+				sprintf(&printbuf[0], "Pde@Phys[%08X]=%08X ", physpdeaddr, pde);
+				DbgPutString(&printbuf[0]);
+			}
+
+			if ((pde & 1) == 0) {
+				return 0;
+			}
+
+			// Calculate the physical PTE address.
+
+			physpteaddr = ((pde >> 5) << 12) | (ptevaddr & 0xFFF);
+		}
+
+		// Load the PTE.
+
+		uint32_t pte;
+
+		int status = EBusRead(physpteaddr, &pte, 4, proc);
+
+		if (status != EBUSSUCCESS) {
+			if (flags & DBG_TRANSLATE_PRINT) {
+				sprintf(&printbuf[0], "PteBusError@Phys[%08x] ", physpteaddr);
+				DbgPutString(&printbuf[0]);
+			}
+
+			return 0;
+		}
+
+		if (flags & DBG_TRANSLATE_PRINT) {
+			sprintf(&printbuf[0], "Pte@Phys[%08X]=%08X ", physpteaddr, pte);
+			DbgPutString(&printbuf[0]);
+		}
+
+		if ((pte & 1) == 0) {
+			return 0;
+		}
+
+		*phys = ((pte >> 5) << 12) | (addr & 0xFFF);
+		return 1;
+	}
+
+	return 0;
+}
+
+int DbgTranslateAddress(XrProcessor *proc, uint32_t addr, uint32_t *phys, int flags) {
+	// Translate a guest address to a guest physical address.
+	// Returns 1 on success, 0 on failure.
+
+	XrLockMutex(&proc->RunLock);
+
+	if (flags & DBG_TRANSLATE_FIGURE_IT_OUT) {
+		// Set flags based on current perspective of the processor.
+
+		flags = flags & DBG_TRANSLATE_PRINT;
+
+		if ((proc->Cr[0] & 4) == 0) {
+			flags |= DBG_TRANSLATE_PHYSICAL;
+		}
+	}
+
+	int result = 1;
+
+	if ((flags & DBG_TRANSLATE_PHYSICAL) == 0) {
+		// Do virtual translation of the address.
+
+		result = DbgTranslateVirtual(proc, addr, phys, flags);
+	} else {
+		*phys = addr;
+	}
+
+	if (flags & DBG_TRANSLATE_PRINT) {
+		if (result) {
+			sprintf(&printbuf[0], "PHYS=%08x\n", *phys);
+			DbgPutString(&printbuf[0]);
+		} else {
+			DbgPutString("PHYS=Invalid\n");
+		}
+	}
+
+	XrUnlockMutex(&proc->RunLock);
+
+	return result;
+}
+
+int DbgDecodeTranslateFlags(char *flags, uint32_t oldflags) {
+	// Skip past - character
+	flags++;
+
+	int flag = oldflags;
+
+	for (; *flags; flags++) {
+		if (*flags == 'p') {
+			flag |= DBG_TRANSLATE_PHYSICAL;
+			flag &= ~DBG_TRANSLATE_FIGURE_IT_OUT;
+		} else if (*flags == 'v') {
+			flag &= ~DBG_TRANSLATE_PHYSICAL;
+			flag &= ~DBG_TRANSLATE_FIGURE_IT_OUT;
+		} else if (*flags == 'i') {
+			flag |= DBG_TRANSLATE_ISTREAM;
+		} else if (*flags == 't') {
+			flag |= DBG_TRANSLATE_BYPASS_TB;
+		} else if (*flags == 'g') {
+			flag |= DBG_TRANSLATE_BYPASS_TB_FOR_PGTB;
+		} else if (*flags == 'z') {
+			flag |= DBG_TRANSLATE_PRINT;
+		}
+	}
+
+	return flag;
 }
 
 struct DbgCommand DbgCommands[];
@@ -270,7 +551,119 @@ void DbgCommandResume() {
 	DbgPutString("Resumed\n");
 }
 
+void DbgCommandTranslate() {
+	if (!DbgNextToken(&tokenbuf[0], CMD_MAX)) {
+		DbgPutString("Usage: translate [addr] (-giptvz)\n");
+		return;
+	}
 
+	uint32_t addr = DbgParseAddress(&tokenbuf[0]);
+
+	int flags = DBG_TRANSLATE_PRINT;
+
+	if (DbgNextToken(&tokenbuf[0], CMD_MAX) && (tokenbuf[0] == '-')) {
+		flags = DbgDecodeTranslateFlags(&tokenbuf[0], flags);
+	}
+
+	XrProcessor *proc = XrProcessorTable[DbgSelectedCpu];
+
+	uint32_t phys;
+
+	DbgTranslateAddress(proc, addr, &phys, flags);
+}
+
+void DbgCommandPoke() {
+	if (!DbgNextToken(&tokenbuf[0], CMD_MAX)) {
+usage:
+		DbgPutString("Usage: poke [addr] [value] (-giptvz)\n");
+		return;
+	}
+
+	uint32_t addr = DbgParseAddress(&tokenbuf[0]);
+
+	if (!DbgNextToken(&tokenbuf[0], CMD_MAX)) {
+		goto usage;
+	}
+
+	uint32_t value = DbgParseAddress(&tokenbuf[0]);
+
+	if (addr & 3) {
+		DbgPutString("Unaligned address\n");
+		return;
+	}
+
+	int flags = 0;
+
+	if (DbgNextToken(&tokenbuf[0], CMD_MAX) && (tokenbuf[0] == '-')) {
+		flags = DbgDecodeTranslateFlags(&tokenbuf[0], flags);
+	}
+
+	XrProcessor *proc = XrProcessorTable[DbgSelectedCpu];
+
+	uint32_t phys;
+
+	if (!DbgTranslateAddress(proc, addr, &phys, flags)) {
+		if ((flags & DBG_TRANSLATE_PRINT) == 0) {
+			DbgPutString("Failed to translate address, use -z for more info\n");
+		}
+
+		return;
+	}
+
+	sprintf(&printbuf[0], "Phys[%08x]=%08x ", phys, value);
+	DbgPutString(&printbuf[0]);
+
+	if (EBusWrite(phys, &value, 4, proc) != EBUSSUCCESS) {
+		DbgPutString("Bus error on write");
+	}
+
+	DbgPutString("\n");
+}
+
+void DbgCommandPeek() {
+	if (!DbgNextToken(&tokenbuf[0], CMD_MAX)) {
+		DbgPutString("Usage: peek [addr] (-giptvz)\n");
+		return;
+	}
+
+	uint32_t addr = DbgParseAddress(&tokenbuf[0]);
+
+	if (addr & 3) {
+		DbgPutString("Unaligned address\n");
+		return;
+	}
+
+	int flags = 0;
+
+	if (DbgNextToken(&tokenbuf[0], CMD_MAX) && (tokenbuf[0] == '-')) {
+		flags = DbgDecodeTranslateFlags(&tokenbuf[0], flags);
+	}
+
+	XrProcessor *proc = XrProcessorTable[DbgSelectedCpu];
+
+	uint32_t phys;
+
+	if (!DbgTranslateAddress(proc, addr, &phys, flags)) {
+		if ((flags & DBG_TRANSLATE_PRINT) == 0) {
+			DbgPutString("Failed to translate address, use -z for more info\n");
+		}
+
+		return;
+	}
+
+	sprintf(&printbuf[0], "Phys[%08x]=", phys);
+	DbgPutString(&printbuf[0]);
+
+	uint32_t value;
+
+	if (EBusRead(phys, &value, 4, proc) != EBUSSUCCESS) {
+		DbgPutString("Bus error on read\n");
+		return;
+	}
+
+	sprintf(&printbuf[0], "%08x\n", value);
+	DbgPutString(&printbuf[0]);
+}
 
 struct DbgCommand DbgCommands[] = {
 	{
@@ -317,6 +710,21 @@ struct DbgCommand DbgCommands[] = {
 		.command = &DbgCommandCpu,
 		.name = "cpu",
 		.help = "Switch to examining the specified CPU's context.",
+	},
+	{
+		.command = &DbgCommandTranslate,
+		.name = "translate",
+		.help = "Translate a virtual address from the perspective of the current CPU.",
+	},
+	{
+		.command = &DbgCommandPoke,
+		.name = "poke",
+		.help = "Poke a new value into the given address.",
+	},
+	{
+		.command = &DbgCommandPeek,
+		.name = "peek",
+		.help = "Peek the value at the given address.",
 	},
 
 	{

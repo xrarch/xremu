@@ -270,6 +270,7 @@ struct _XrProcessor {
 	XrMutex CacheMutexes[XR_CACHE_MUTEXES];
 #endif
 	XrMutex InterruptLock;
+	XrMutex RunLock;
 
 	XrIblock *IblockFreeList;
 	XrJalrPredictionTable *PtableFreeList;
