@@ -4,17 +4,59 @@ ifdef WEB_DEMO
 	FASTMEMORY = 1
 endif
 
+CFILES = src/main.c \
+	src/xr17032fast.c \
+	src/ebus.c \
+	src/ram256.c \
+	src/lsic.c \
+	src/serial.c \
+	src/pboard.c \
+	src/kinnowfb.c \
+	src/amtsu.c \
+	src/keybd.c \
+	src/dks.c \
+	src/rtc.c \
+	src/mouse.c \
+	src/screen.c \
+	src/text.c \
+	src/tty.c \
+	src/scheduler.c \
+	src/dbg.c
+
+HEADERS = src/fastmutex.h src/queue.h \
+	src/xr.h \
+	src/ebus.h \
+	src/ram256.h \
+	src/lsic.h \
+	src/serial.h \
+	src/pboard.h \
+	src/kinnowfb.h \
+	src/amtsu.h \
+	src/keybd.h \
+	src/dks.h \
+	src/rtc.h \
+	src/mouse.h \
+	src/screen.h \
+	src/text.h \
+	src/tty.h \
+	src/scheduler.h \
+	src/xraccess.inc.c \
+	src/xrfastaccess.inc.c \
+	src/xrdefs.h
+
 ifndef EMSCRIPTEN
-	CFLAGS = -g -O3
+	CFLAGS = -g -O3 -std=c99 `$(SDL2_CONFIG) --cflags`
 	SDL2_CONFIG = sdl2-config
-	RISC_CFLAGS = $(CFLAGS) -std=c99 `$(SDL2_CONFIG) --cflags --libs` -lpthread
+	RISC_CFLAGS = $(CFLAGS) `$(SDL2_CONFIG) --libs` -lpthread
 	TARGET=xremu
 	CC = clang
+	OBJECTS = $(CFILES:.c=.o)
 else
-	CFLAGS = -O3 -sUSE_SDL=2 -sINITIAL_MEMORY=33554432 -sALLOW_MEMORY_GROWTH=1 -mtail-call
-	RISC_CFLAGS = $(CFLAGS) -std=c99 --preload-file embin
+	CFLAGS = -O3 -mtail-call -sUSE_SDL=2
+	RISC_CFLAGS = $(CFLAGS) -sINITIAL_MEMORY=33554432 -sALLOW_MEMORY_GROWTH=1 --preload-file embin
 	CC = emcc
 	TARGET=xremu.html
+	OBJECTS = $(CFILES:.c=.emo)
 endif
 
 ifdef PROFCPU
@@ -33,33 +75,16 @@ ifdef DBG
 	CFLAGS += -DDBG
 endif
 
-CFILES = src/main.c \
-	src/fastmutex.h src/queue.h \
-	src/xr17032fast.c src/xr.h \
-	src/ebus.c src/ebus.h \
-	src/ram256.c src/ram256.h \
-	src/lsic.c src/lsic.h \
-	src/serial.c src/serial.h \
-	src/pboard.c src/pboard.h \
-	src/kinnowfb.c src/kinnowfb.h \
-	src/amtsu.c src/amtsu.h \
-	src/keybd.c src/keybd.h \
-	src/dks.c src/dks.h \
-	src/rtc.c src/rtc.h \
-	src/mouse.c src/mouse.h \
-	src/screen.c src/screen.h \
-	src/text.c src/text.h \
-	src/tty.c src/tty.h \
-	src/scheduler.c src/scheduler.h \
-	src/dbg.c
-
-$(TARGET): $(CFILES)
+$(TARGET): $(OBJECTS)
 ifdef EMSCRIPTEN
 	mkdir -p embin
 	cp bin/boot.bin embin/boot.bin
 endif
 
-	$(CC) -o $@ $(filter %.c, $^) $(RISC_CFLAGS)
+	$(CC) $(RISC_CFLAGS) -o $@ $^
+
+%.emo %.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
 	rm -rf xremu*
