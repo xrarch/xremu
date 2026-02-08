@@ -87,4 +87,4 @@ endif
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -rf xremu*
+	rm -rf xremu* src/*.o src/*.emo
