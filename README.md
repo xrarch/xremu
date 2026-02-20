@@ -10,6 +10,10 @@ Note, if you fear binary blobs, that the emulator ships with a pre-built [boot R
 
 <img src="https://raw.githubusercontent.com/xrarch/xremu/master/17032.png" width="256">
 
+## License
+
+XR/EMU is licensed under GPLv3. See LICENSE.
+
 ## Building
 
 Make sure you have SDL2 installed.
