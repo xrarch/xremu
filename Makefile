@@ -83,7 +83,7 @@ endif
 
 	$(CC) $(RISC_CFLAGS) -o $@ $^
 
-%.emo %.o: %.c
+%.emo %.o: %.c $(HEADERS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:

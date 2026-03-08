@@ -61,7 +61,7 @@ int PBoardWrite(uint32_t address, void *src, uint32_t length, void *proc) {
 
 			return EBUSSUCCESS;
 		}
-	} else if ((address >= 0x30000) && (address < 0x30100)) {
+	} else if ((address >= 0x30000) && (address < (0x30000 + (32 * XR_PROC_MAX)))) {
 		// LSIC registers
 
 		address -= 0x30000;
@@ -125,7 +125,7 @@ int PBoardRead(uint32_t address, void *dest, uint32_t length, void *proc) {
 
 			return EBUSSUCCESS;
 		}
-	} else if ((address >= 0x30000) && (address < 0x30100)) {
+	} else if ((address >= 0x30000) && (address < (0x30000 + (32 * XR_PROC_MAX)))) {
 		// LSIC registers
 
 		address -= 0x30000;

@@ -13,6 +13,6 @@
 #define XrLikely(x)       __builtin_expect(!!(x), 1)
 #define XrUnlikely(x)     __builtin_expect(!!(x), 0)
 
-#define XR_PROC_MAX 8
+#define XR_PROC_MAX 16
 
 #endif

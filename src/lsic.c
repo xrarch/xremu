@@ -90,6 +90,10 @@ int LsicWrite(int reg, uint32_t value) {
 	int id = reg >> 3;
 	reg &= 7;
 
+	if (id >= XR_PROC_MAX) {
+		return EBUSERROR;
+	}
+
 	Lsic *lsic = &LsicTable[id];
 
 	XrProcessor *proc = XrProcessorTable[id];
@@ -206,6 +210,10 @@ int LsicWrite(int reg, uint32_t value) {
 int LsicRead(int reg, uint32_t *value) {
 	int id = reg >> 3;
 	reg &= 7;
+
+	if (id >= XR_PROC_MAX) {
+		return EBUSERROR;
+	}
 
 	Lsic *lsic = &LsicTable[id];
 

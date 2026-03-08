@@ -471,7 +471,7 @@ void DbgCommandCpu() {
 
 	long cpunum = strtol(&tokenbuf[0], 0, 10);
 
-	if (cpunum >= XrProcessorCount) {
+	if (cpunum >= XR_PROC_MAX || !XrProcessorTable[cpunum]) {
 		DbgPutString("No such processor\n");
 		return;
 	}
