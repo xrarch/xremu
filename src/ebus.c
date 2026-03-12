@@ -38,7 +38,7 @@ void *EmptyMemTranslate(uint32_t address) {
 	return 0;
 }
 
-int EBusInit(uint32_t memsize) {
+int EBusInit() {
 	for (int i = 0; i < 24; i++) {
 		EBusBranches[i].Present = 0;
 		EBusBranches[i].Read = EmptyMemRead;
@@ -55,7 +55,7 @@ int EBusInit(uint32_t memsize) {
 		EBusBranches[i].Reset = 0;
 	}
 
-	if (RAMInit(memsize))
+	if (RAMInit())
 		return -1;
 
 	if (PBoardInit())

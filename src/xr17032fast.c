@@ -135,7 +135,7 @@
 #include "ebus.h"
 #include "rtc.h"
 
-int XrProcessorCount = 1;
+int XrProcessorCount = 0;
 
 long XrProcessorFrequency = 20000000;
 
@@ -3367,7 +3367,9 @@ void XrInitializeProcessors(void) {
 	}
 #endif
 
-	for (int id = 0; id < XrProcessorCount; id++) {
-		XrInitializeProcessor(id);
+	for (int nodeid = 0; nodeid < XR_NODE_MAX; nodeid++) {
+		for (int i = 0; i < XrNumaNodes[nodeid].ProcessorCount; i++) {
+			XrInitializeProcessor(nodeid * XR_PROC_PER_NODE_MAX + i);
+		}
 	}
 }

@@ -13,8 +13,6 @@
 uint8_t  *RAMSlots[RAMSLOTCOUNT];
 uint32_t RAMSlotSizes[RAMSLOTCOUNT];
 
-uint32_t RAMSize;
-
 char *RAMSlotNames[RAMSLOTCOUNT] = {
 	"bank0.bin",
 	"bank1.bin",
@@ -119,14 +117,7 @@ void *RAMTranslateExt(uint32_t address) {
 	return &RAMSlots[slot][offset];
 }
 
-int RAMInit(uint32_t memsize) {
-	if (memsize > RAMMAXIMUM) {
-		fprintf(stderr, "RAMInit: maximum is %d bytes (%d bytes given)\n", RAMMAXIMUM, memsize);
-		return -1;
-	}
-
-	RAMSize = memsize;
-
+int RAMInit() {
 	EBusBranches[0].Present = 1;
 	EBusBranches[0].Write = RAMWrite;
 	EBusBranches[0].Read = RAMRead;
@@ -139,24 +130,31 @@ int RAMInit(uint32_t memsize) {
 	EBusBranches[1].Translate = RAMTranslateExt;
 	EBusBranches[1].Reset = 0;
 
-	// try to stack the RAM into slots in units of 4MB.
-	// add the remainder to the first slot.
+	for (int nodeid = 0; nodeid < XR_NODE_MAX; nodeid++) {
+		uint32_t noderam = XrNumaNodes[nodeid].RamSize;
 
-	int i = 0;
+		if (noderam != 0) {
+			// For realism, try to stack the RAM into the slots evenly.
+			// try to stack the RAM into slots in units of 4MB.
+			// add the remainder to the first slot.
 
-	while (memsize >= 0x400000) {
-		if (i >= RAMSLOTCOUNT)
-			i = 0;
+			int i = 0;
 
-		RAMSlotSizes[i] += 0x400000;
+			while (noderam >= 0x400000) {
+				if (i >= SLOTS_PER_NODE)
+					i = 0;
 
-		i += 1;
-		memsize -= 0x400000;
+				RAMSlotSizes[nodeid * SLOTS_PER_NODE + i] += 0x400000;
+
+				i += 1;
+				noderam -= 0x400000;
+			}
+
+			RAMSlotSizes[nodeid * SLOTS_PER_NODE + 0] += noderam;
+		}
 	}
 
-	RAMSlotSizes[0] += memsize;
-
-	for (i = 0; i < RAMSLOTCOUNT; i++) {
+	for (int i = 0; i < RAMSLOTCOUNT; i++) {
 		if (RAMSlotSizes[i])
 			RAMSlots[i] = malloc(RAMSlotSizes[i]);
 	}

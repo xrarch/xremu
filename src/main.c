@@ -28,6 +28,8 @@
 #include "tty.h"
 #include "lsic.h"
 
+XrNumaNode XrNumaNodes[XR_NODE_MAX];
+
 bool RAMDumpOnExit = false;
 bool KinnowDumpOnExit = false;
 
@@ -108,8 +110,10 @@ int main(int argc, char *argv[]) {
 
 	SDL_EnableScreenSaver();
 
-	uint32_t memsize = 4 * 1024 * 1024;
 	int threads = 0;
+	int easyproccount = 1;
+	uint32_t easymemcount = 4 * 1024 * 1024;
+	bool explicitnodes = false;
 
 #ifndef EMSCRIPTEN
 	for (int i = 1; i < argc; i++) {
@@ -160,7 +164,7 @@ int main(int argc, char *argv[]) {
 
 		} else if (strcmp(argv[i], "-ramsize") == 0) {
 			if (i+1 < argc) {
-				memsize = atoi(argv[i+1]);
+				easymemcount = atoi(argv[i+1]);
 				i++;
 			} else {
 				fprintf(stderr, "no ram size specified\n");
@@ -209,7 +213,7 @@ int main(int argc, char *argv[]) {
 
 		} else if (strcmp(argv[i], "-cpus") == 0) {
 			if (i+1 < argc) {
-				XrProcessorCount = atoi(argv[i+1]);
+				easyproccount = atoi(argv[i+1]);
 				i++;
 			} else {
 				fprintf(stderr, "no processor count specified\n");
@@ -225,6 +229,36 @@ int main(int argc, char *argv[]) {
 				return 1;
 			}
 
+		} else if (strcmp(argv[i], "-node") == 0) {
+			if (i+3 < argc) {
+				int nodeid = atoi(argv[i+1]);
+				if (nodeid >= XR_NODE_MAX) {
+					fprintf(stderr, "node id must be at most %d\n", XR_NODE_MAX - 1);
+					return 1;
+				}
+
+				int nodeprocs = atoi(argv[i+2]);
+				if (nodeprocs > XR_PROC_PER_NODE_MAX) {
+					fprintf(stderr, "at most %d procs are allowed per node\n", XR_PROC_PER_NODE_MAX);
+					return 1;
+				}
+
+				int noderam = atoi(argv[i+3]);
+				if (noderam > RAM_PER_NODE) {
+					fprintf(stderr, "at most %d bytes allowed per node\n", RAM_PER_NODE);
+					return 1;
+				}
+
+				XrNumaNodes[nodeid].RamSize = noderam;
+				XrNumaNodes[nodeid].ProcessorCount = nodeprocs;
+				explicitnodes = true;
+
+				i += 3;
+			} else {
+				fprintf(stderr, "node id, cpu count, and memory count must be specified\n");
+				return 1;
+			}
+
 		} else {
 			fprintf(stderr, "don't recognize option %s\n", argv[i]);
 			return 1;
@@ -233,12 +267,77 @@ int main(int argc, char *argv[]) {
 #endif // !EMSCRIPTEN
 
 #ifdef EMSCRIPTEN
-	XrProcessorCount = 2;
+	easyproccount = 2;
 #endif
 
-	if (XrProcessorCount <= 0 || XrProcessorCount > XR_PROC_MAX) {
-		fprintf(stderr, "Bad processor count %d, should be between 1 and %d\n", XrProcessorCount, XR_PROC_MAX);
-		return 1;
+	if (!explicitnodes) {
+		// The NUMA nodes were not explicitly specified, so we should make some.
+		// We fill nodes up with processors starting from node 0.
+
+		if (easyproccount <= 0 || easyproccount > XR_PROC_MAX) {
+			fprintf(stderr, "Bad processor count %d, should be between 1 and %d\n", easyproccount, XR_PROC_MAX);
+			return 1;
+		}
+
+		if (easymemcount > RAMMAXIMUM) {
+			fprintf(stderr, "Too much RAM: maximum is %d bytes (%d bytes given)\n", RAMMAXIMUM, easymemcount);
+			return 1;
+		}
+
+		int nodecount = 0;
+
+		for (int i = 0; i < XR_NODE_MAX; i++) {
+			if (easyproccount < XR_PROC_PER_NODE_MAX) {
+				break;
+			}
+
+			XrNumaNodes[i].ProcessorCount = XR_PROC_PER_NODE_MAX;
+			easyproccount -= XR_PROC_PER_NODE_MAX;
+			nodecount++;
+		}
+
+		if (easyproccount) {
+			// Add the remaining partial count to the last node.
+			XrNumaNodes[nodecount].ProcessorCount = easyproccount;
+			nodecount++;
+		}
+
+		// Now divide the RAM among the nodes evenly.
+
+		int pernoderam = easymemcount / nodecount;
+
+		// Eliminate the remainder
+
+		easymemcount = nodecount * pernoderam;
+
+		if (pernoderam > RAM_PER_NODE) {
+			pernoderam = RAM_PER_NODE;
+		}
+
+		for (int i = 0; i < nodecount; i++) {
+			XrNumaNodes[i].RamSize = pernoderam;
+			easymemcount -= pernoderam;
+		}
+
+		if (easymemcount) {
+			// There was leftover RAM. Try to create memory-only nodes with it.
+
+			for (int i = nodecount; i < XR_NODE_MAX && easymemcount != 0; i++) {
+				pernoderam = easymemcount;
+
+				if (pernoderam > RAM_PER_NODE) {
+					pernoderam = RAM_PER_NODE;
+				}
+
+				XrNumaNodes[i].RamSize = pernoderam;
+
+				easymemcount -= pernoderam;
+			}
+		}
+	}
+
+	for (int i = 0; i < XR_NODE_MAX; i++) {
+		XrProcessorCount += XrNumaNodes[i].ProcessorCount;
 	}
 
 #ifndef SINGLE_THREAD_MP
@@ -267,7 +366,7 @@ int main(int argc, char *argv[]) {
 					MouseMoved);
 	}
 
-	if (EBusInit(memsize)) {
+	if (EBusInit()) {
 		fprintf(stderr, "failed to initialize ebus\n");
 		return 1;
 	}

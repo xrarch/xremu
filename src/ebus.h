@@ -6,7 +6,7 @@
 
 #include "xrdefs.h"
 
-int EBusInit(uint32_t memsize);
+int EBusInit();
 
 #define EBUSBRANCHSIZE (128 * 1024 * 1024)
 #define EBUSBRANCHES 32

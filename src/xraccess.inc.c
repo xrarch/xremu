@@ -370,10 +370,10 @@ static inline void XrDowngradeLine(XrProcessor *proc, uint32_t tag, uint32_t new
 static inline void XrDowngradeAll(XrProcessor *thisproc, uint32_t tag, uint32_t newstate) {
 	// Invalidate a Dcache line in all processors except the one provided.
 
-	for (int i = 0; i < XrProcessorCount; i++) {
+	for (int i = 0; i < XR_PROC_MAX; i++) {
 		XrProcessor *proc = XrProcessorTable[i];
 
-		if (proc == thisproc) {
+		if (!proc || proc == thisproc) {
 			continue;
 		}
 

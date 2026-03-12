@@ -33,7 +33,7 @@ Type `./graphical.sh` in the project directory to see the boot ROM prompt. Revie
 Striking the right ALT key will switch the display between the framebuffer and the serial TTYs.
 
     -ramsize [bytes]
-        Specify the size of RAM in bytes.
+        Specify the size of RAM in bytes. The RAM will be evenly divided among the NUMA nodes. Maximum is 256MB (256 * 1024 * 1024).
 
     -dks [diskimage]
         Attach a file as a disk image.
@@ -45,10 +45,13 @@ Striking the right ALT key will switch the display between the framebuffer and t
         Specify a file to use as the boot ROM.
 
     -cpus [count]
-        Specify how many XR/17032 processors to simulate. Default is 1.
+        Specify how many XR/17032 processors to simulate. Default is 1. Every 4 processors is a NUMA node, and there are up to 4 possible NUMA nodes, so 16 processors is the maximum.
 
     -threads [count]
         Specify how many host threads to spread simulated CPU load across. Default is half of CPU count.
+
+    -node [id] [cpu count] [memory bytes]
+        Explicitly define a NUMA node existing at the given ID [0-3] with the given number of CPUs [0-3] and the given amount of memory [0-64MB (64 * 1024 * 1024)]. Using this argument will make any -cpus or -ramsize arguments ineffectual. Note that under the a4x firmware, node 0 must exist with at least 1 CPU and 128KB of RAM.
 
     -asyncdisk
         Simulate disk seek times.
