@@ -369,6 +369,7 @@ int main(int argc, char *argv[]) {
 	DKSAttachImage("embin/mintia.img");
 	DKSAttachImage("embin/aisix.img");
 	DKSAttachImage("embin/mintia2.img");
+	NVRAMLoadFile("embin/nvram");
 #endif
 
 	DbgInit();
