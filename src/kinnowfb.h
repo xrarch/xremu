@@ -3,11 +3,9 @@
 
 #include "screen.h"
 
-#define KINNOW_FRAMEBUFFER_WIDTH  1024
-#define KINNOW_FRAMEBUFFER_HEIGHT 768
-
-int KinnowInit();
+int KinnowInit(void);
 void KinnowDraw(struct Screen *screen);
-void KinnowDump();
+void KinnowDump(void);
+void KinnowCreateScreen(void);
 
 #endif // XR_KINNOWFB_H

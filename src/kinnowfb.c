@@ -16,6 +16,11 @@
 #include "lsic.h"
 
 #include "screen.h"
+#include "keybd.h"
+#include "mouse.h"
+
+#define KINNOW_FRAMEBUFFER_WIDTH  1024
+#define KINNOW_FRAMEBUFFER_HEIGHT 768
 
 XrMutex KinnowMutex;
 
@@ -46,6 +51,18 @@ uint32_t DirtyRectY1 = -1;
 uint32_t DirtyRectY2 = 0;
 
 bool IsDirty = false;
+
+void KinnowCreateScreen(void) {
+	ScreenCreate(KINNOW_FRAMEBUFFER_WIDTH,
+				KINNOW_FRAMEBUFFER_HEIGHT,
+				"XR/station Framebuffer",
+				KinnowDraw,
+				KeyboardPressed,
+				KeyboardReleased,
+				MousePressed,
+				MouseReleased,
+				MouseMoved);
+}
 
 int KinnowWrite(uint32_t address, void *src, uint32_t length, void *proc) {
 	if ((address >= 0x3000) && (address < 0x3100)) {
@@ -231,7 +248,7 @@ void KinnowDump() {
 		uint32_t *tempbuffer = malloc(FBSize * 4);
 
 		for (int i = 0; i < FBSize; i++) {
-			tempbuffer[i] = KinnowPalette[KinnowFB[i]];
+			tempbuffer[i] = KinnowPalette[KinnowFB[i]] | 0xFF000000;
 		}
 
 		fwrite(tempbuffer, 1, FBSize * 4, dumpfile);

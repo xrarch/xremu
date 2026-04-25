@@ -17,11 +17,9 @@
 #include "ebus.h"
 #include "xr.h"
 #include "kinnowfb.h"
-#include "keybd.h"
 #include "dks.h"
 #include "rtc.h"
 #include "pboard.h"
-#include "mouse.h"
 #include "ram256.h"
 #include "serial.h"
 #include "screen.h"
@@ -355,15 +353,7 @@ int main(int argc, char *argv[]) {
 	XrInitializeScheduler(threads);
 
 	if (!Headless) {
-		ScreenCreate(KINNOW_FRAMEBUFFER_WIDTH,
-					KINNOW_FRAMEBUFFER_HEIGHT,
-					"XR/station Framebuffer",
-					KinnowDraw,
-					KeyboardPressed,
-					KeyboardReleased,
-					MousePressed,
-					MouseReleased,
-					MouseMoved);
+		KinnowCreateScreen();
 	}
 
 	if (EBusInit()) {
