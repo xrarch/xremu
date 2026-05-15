@@ -155,8 +155,12 @@ int RAMInit() {
 	}
 
 	for (int i = 0; i < RAMSLOTCOUNT; i++) {
-		if (RAMSlotSizes[i])
+		if (RAMSlotSizes[i]) {
 			RAMSlots[i] = malloc(RAMSlotSizes[i]);
+			if (!RAMSlots[i]) {
+				return -1;
+			}
+		}
 	}
 
 	return 0;
