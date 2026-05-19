@@ -12,16 +12,6 @@ struct EBusBranch EBusBranches[EBUSBRANCHES];
 
 extern bool Headless;
 
-int EmptyRead(uint32_t address, void *dest, uint32_t length, void *proc) {
-	memset(dest, 0, length);
-
-	return EBUSSUCCESS;
-}
-
-int EmptyWrite(uint32_t address, void *dest, uint32_t length, void *proc) {
-	return EBUSSUCCESS;
-}
-
 void *EmptyTranslate(uint32_t address) {
 	return 0;
 }
@@ -34,23 +24,11 @@ int EmptyMemWrite(uint32_t address, void *dest, uint32_t length, void *proc) {
 	return EBUSERROR;
 }
 
-void *EmptyMemTranslate(uint32_t address) {
-	return 0;
-}
-
 int EBusInit() {
-	for (int i = 0; i < 24; i++) {
+	for (int i = 0; i < EBUSBRANCHES; i++) {
 		EBusBranches[i].Present = 0;
 		EBusBranches[i].Read = EmptyMemRead;
 		EBusBranches[i].Write = EmptyMemWrite;
-		EBusBranches[i].Translate = EmptyMemTranslate;
-		EBusBranches[i].Reset = 0;
-	}
-
-	for (int i = 24; i < EBUSBRANCHES; i++) {
-		EBusBranches[i].Present = 0;
-		EBusBranches[i].Read = EmptyRead;
-		EBusBranches[i].Write = EmptyWrite;
 		EBusBranches[i].Translate = EmptyTranslate;
 		EBusBranches[i].Reset = 0;
 	}
