@@ -502,7 +502,7 @@ void TTYParseEscape(struct TTY *tty, char c) {
 
 				querystr[0] = 0x1B;
 
-				int num = sprintf(&querystr[1], "[%d;%dR", tty->CursorY+1, tty->CursorX+1);
+				int num = snprintf(&querystr[1], sizeof(querystr) - 1, "[%d;%dR", tty->CursorY+1, tty->CursorX+1);
 
 				for (int i = 0; i < num+1; i++) {
 					tty->Input(tty, querystr[i]);
@@ -613,7 +613,11 @@ struct TTY *TTYCreate(int width, int height, char *title, TTYInputF input) {
 
 	XrInitializeMutex(&tty->Mutex);
 
-	tty->TextBuffer = malloc(width*height*2);
+	if (width <= 0 || height <= 0 || (size_t)width > SIZE_MAX / 2 / (size_t)height) {
+		abort();
+	}
+	size_t cells = (size_t)width * (size_t)height;
+	tty->TextBuffer = malloc(cells << 1);
 
 	if (!tty->TextBuffer) {
 		abort();
