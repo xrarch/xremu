@@ -340,7 +340,7 @@ int main(int argc, char *argv[]) {
 
 #ifndef SINGLE_THREAD_MP
 	if (threads > XrProcessorCount || threads == 0) {
-		threads = (XrProcessorCount + 1) / 2;
+		threads = (XrProcessorCount + 3) / 4;
 	}
 #else
 	if (threads != 0) {
