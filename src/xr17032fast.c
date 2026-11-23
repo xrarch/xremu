@@ -3235,8 +3235,6 @@ void XrProcessorSchedule(XrSchedulable *schedulable) {
 
 	if (timeslice == 0) {
 		XrScheduleWorkForNextFrame(schedulable, 0);
-	} else if (proc->Halted) {
-		XrScheduleWorkForMe(schedulable, schedulable);
 	} else {
 		XrScheduleWorkForAny(schedulable);
 	}
