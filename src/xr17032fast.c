@@ -3183,23 +3183,6 @@ void XrProcessorSchedule(XrSchedulable *schedulable) {
 	XrLockMutex(&proc->RunLock);
 
 	while (timeslice > 0) {
-		if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
-			// Interval timer ran down, send self the interrupt.
-			// We do this from the context of each cpu thread so that we get
-			// accurate amounts of CPU time between each tick.
-
-			LsicInterruptTargeted(proc, 2);
-
-			proc->TimerInterruptCounter = 0;
-		}
-
-		if (proc->Id == 0) {
-			// The zeroth thread also does the RTC intervals, once per
-			// millisecond of CPU time. 
-
-			RTCUpdateRealTime();
-		}
-
 		int realcycles = XrExecuteFast(proc, cyclesperms, 1);
 
 		proc->CyclesThisRound += realcycles;
@@ -3212,6 +3195,29 @@ void XrProcessorSchedule(XrSchedulable *schedulable) {
 			proc->CyclesThisRound -= cyclesperms;
 			timeslice -= 1;
 			proc->TimerInterruptCounter += 1;
+
+			if (proc->Id == 0) {
+				// The zeroth thread also does the RTC intervals, once per
+				// millisecond of CPU time. 
+
+				RTCUpdateRealTime();
+			}
+
+			if (RTCIntervalMS && proc->TimerInterruptCounter >= RTCIntervalMS) {
+				// Interval timer ran down, send self the interrupt.
+				// We do this from the context of each cpu thread so that we get
+				// accurate amounts of CPU time between each tick.
+
+				LsicInterruptTargeted(proc, 2);
+
+				proc->TimerInterruptCounter = 0;
+			}
+
+			if (XrTickDeviceQueue(&proc->DeviceQueue, 1)) {
+				// There is some good device progress happening so give the cpu some more.
+
+				proc->Progress = XR_POLL_MAX;
+			}
 		}
 
 		if (proc->PauseCalls >= XR_PAUSE_MAX || proc->Halted || proc->Progress <= 0) {
@@ -3350,6 +3356,8 @@ void XrInitializeProcessor(int id) {
 		proc->L1ClaimTable[i].OtherEntry = 0;
 	}
 #endif
+
+	XrInitializeDeviceQueue(&proc->DeviceQueue);
 
 	XrScheduleWorkForNextFrame(&proc->Schedulable, 0);
 }

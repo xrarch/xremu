@@ -309,6 +309,8 @@ struct _XrProcessor {
 
 	XrSchedulable Schedulable;
 
+	XrDeviceQueue DeviceQueue;
+
 #if XR_SIMULATE_CACHES
 	uint32_t IcReplacementIndex;
 	uint32_t DcReplacementIndex;

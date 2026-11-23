@@ -24,14 +24,12 @@
 
 #define min(a,b) ((a < b) ? a : b)
 
-// assumes about 1ms per character transmission
+#define SERIAL_BAUD 9600
+#define SERIAL_BYTES_PER_SEC (SERIAL_BAUD / 10)
+#define SERIAL_US_PER_BYTE (1000000 / SERIAL_BYTES_PER_SEC)
 
 #define TRANSMIT_BUFFER_SIZE 16
 #define RECEIVE_BUFFER_SIZE 32
-
-// Accumulated characters before paying the time cost for all of them at once.
-
-#define ACCUMULATED_COST 50
 
 enum SerialCommands {
 	SERIALCMDDOINT = 3,
@@ -39,14 +37,15 @@ enum SerialCommands {
 };
 
 typedef struct _SerialPort {
-	XrSchedulable Schedulable;
 	struct TTY *Tty;
-	uint32_t DoInterrupts;
+	int DoInterrupts;
+
+	int64_t UsLeft;
+	int ScheduledMs;
 
 	unsigned char TransmitBuffer[TRANSMIT_BUFFER_SIZE];
 	int TransmitBufferIndex;
 	int SendIndex;
-	int Cost;
 	bool WriteBusy;
 
 	unsigned char ReceiveBuffer[RECEIVE_BUFFER_SIZE];
@@ -117,8 +116,6 @@ void SerialPutCharacter(SerialPort *port, char c) {
 #endif
 }
 
-#define SERIAL_QUANTUM_MS TRANSMIT_BUFFER_SIZE
-
 void SerialInterval(uint32_t dt) {
 	for (int port = 0; port < 2; port++) {
 		SerialPort *thisport = &SerialPorts[port];
@@ -142,74 +139,52 @@ void SerialInterval(uint32_t dt) {
 	}
 }
 
-#define CHARS_PER_SCHEDULE 4
+#define SERIAL_INTERVAL_US 10000
 
-void SerialSchedule(XrSchedulable *schedulable) {
-	SerialPort *port = schedulable->Context;
+void SerialTransmit(XrDeviceQueue *queue, void *context) {
+	// Called after some characters have been set to be transmitted.
 
-	int timeslice = schedulable->Timeslice;
+	SerialPort *port = context;
 
 	XrLockMutex(&port->Tty->Mutex);
 
-	if (port->Cost) {
-		if (port->Cost < timeslice) {
-			timeslice -= port->Cost;
-			port->Cost = 0;
-		} else {
-			port->Cost -= timeslice;
-			timeslice = 0;
-		}
+	port->UsLeft += port->ScheduledMs * 1000;
 
-		goto exit;
+	while (port->UsLeft > 0 && port->SendIndex != port->TransmitBufferIndex) {
+		SerialPutCharacter(port, port->TransmitBuffer[port->SendIndex++]);
+		port->UsLeft -= SERIAL_US_PER_BYTE;
 	}
 
-	int pending = port->TransmitBufferIndex - port->SendIndex;
-
-	if (pending > schedulable->Timeslice) {
-		pending = schedulable->Timeslice;
-	}
-
-	if (pending > CHARS_PER_SCHEDULE) {
-		pending = CHARS_PER_SCHEDULE;
-	}
-
-	timeslice -= pending;
-
-	for (int i = 0; i < pending; i++) {
-		if (port->SendIndex < port->TransmitBufferIndex) {
-			SerialPutCharacter(port, port->TransmitBuffer[port->SendIndex++]);
-		} else {
-			break;
-		}
-
-		if (port->SendIndex == port->TransmitBufferIndex) {
-			port->SendIndex = 0;
-			port->TransmitBufferIndex = 0;
-			port->WriteBusy = false;
-
-			if (port->DoInterrupts) {
-				LsicInterrupt(0x4 + port->Number);
-			}
-		}
-	}
-
-exit:
-
-	if (!timeslice && (port->Cost || (port->TransmitBufferIndex - port->SendIndex))) {
-		XrScheduleWorkForNextFrame(schedulable, 1);
-	} else if (timeslice && (port->Cost || (port->TransmitBufferIndex - port->SendIndex))) {
-		XrScheduleWorkForMe(schedulable, schedulable);
-	} else {
+	if (port->SendIndex == port->TransmitBufferIndex) {
+		port->SendIndex = 0;
+		port->TransmitBufferIndex = 0;
+		port->WriteBusy = false;
 		port->Enqueued = 0;
+
+		if (port->UsLeft > 0) {
+			port->UsLeft = 0;
+		}
+
+		if (port->DoInterrupts) {
+			LsicInterrupt(0x4 + port->Number);
+		}
+	} else {
+		int usinterval = (port->TransmitBufferIndex - port->SendIndex) * SERIAL_US_PER_BYTE;
+
+		if (usinterval > SERIAL_INTERVAL_US) {
+			usinterval = SERIAL_INTERVAL_US;
+		}
+
+		port->ScheduledMs = (usinterval + 999) / 1000;
+
+		if (port->ScheduledMs < 1) {
+			port->ScheduledMs = 1;
+		}
+
+		XrInsertDeviceQueue(queue, port, &SerialTransmit, port->ScheduledMs);
 	}
 
 	XrUnlockMutex(&port->Tty->Mutex);
-
-	schedulable->Timeslice = timeslice;
-}
-
-void SerialStartTimeslice(XrSchedulable *schedulable, int dt) {
-	schedulable->Timeslice = dt;
 }
 
 int SerialWriteCMD(uint32_t port, uint32_t type, uint32_t value, void *proc) {
@@ -279,9 +254,8 @@ int SerialWriteData(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 
 	XrLockMutex(&thisport->Tty->Mutex);
 
-	if ((!SerialAsynchronous || (thisport->Cost < ACCUMULATED_COST)) && !thisport->TransmitBufferIndex) {
+	if (!SerialAsynchronous) {
 		SerialPutCharacter(thisport, value&0xFF);
-		thisport->Cost++;
 		
 		status = EBUSSUCCESS;
 		goto exit;
@@ -300,7 +274,14 @@ int SerialWriteData(uint32_t port, uint32_t type, uint32_t value, void *proc) {
 
 	if (!thisport->Enqueued) {
 		thisport->Enqueued = 1;
-		XrScheduleWorkForMe(&((XrProcessor *)proc)->Schedulable, &thisport->Schedulable);
+
+		thisport->ScheduledMs = (SERIAL_US_PER_BYTE + 999) / 1000;
+
+		if (thisport->ScheduledMs < 1) {
+			thisport->ScheduledMs = 1;
+		}
+
+		XrInsertDeviceQueue(&((XrProcessor *)proc)->DeviceQueue, thisport, &SerialTransmit, thisport->ScheduledMs);
 	}
 
 exit:
@@ -390,6 +371,8 @@ int SerialInit(int num) {
 	port->ReceiveRemaining = RECEIVE_BUFFER_SIZE;
 	port->Number = num;
 	port->Enqueued = 0;
+	port->UsLeft = 0;
+	port->ScheduledMs = 0;
 
 #ifndef EMSCRIPTEN
 	if ((num == 1) && SerialTXFile) {
@@ -412,8 +395,6 @@ int SerialInit(int num) {
 	}
 
 	port->Tty->Context = port;
-
-	XrInitializeSchedulable(&port->Schedulable, &SerialSchedule, &SerialStartTimeslice, port);
 
 	return 0;
 }
